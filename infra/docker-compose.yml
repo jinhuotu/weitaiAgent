@@ -1,0 +1,62 @@
+# 本地依赖：MySQL + Redis + Qdrant。对话归档 Worker 用 poetry 起，不强制容器化。
+#
+# 宿主机端口刻意避开 zhongjiAgent 的 deploy 栈（3306 / 16379 / 6333 / 6334）。
+# 容器内部端口仍用官方默认值。
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: weitai-mysql
+    restart: unless-stopped
+    environment:
+      # MYSQL_USER 不能是 root（官方镜像会直接退出）。root 密码用 MYSQL_ROOT_PASSWORD。
+      MYSQL_ROOT_PASSWORD: admin
+      MYSQL_DATABASE: weitai_agent
+      MYSQL_USER: weitai
+      MYSQL_PASSWORD: weitai_dev
+    ports:
+      - "13306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-padmin"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: weitai-redis
+    restart: unless-stopped
+    # 宿主机 26379，避开 zhongji 的 16379 与本机默认 6379；容器内仍为 6379
+    ports:
+      - "26379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    container_name: weitai-qdrant
+    restart: unless-stopped
+    ports:
+      - "16333:6333"   # HTTP / Dashboard
+      - "16334:6334"   # gRPC
+    volumes:
+      - qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:
+  redis_data:
+  qdrant_data:

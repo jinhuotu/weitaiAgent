@@ -1,0 +1,107 @@
+"""环境变量配置（pydantic-settings）。
+
+读取优先级：进程环境变量 > 仓库根目录 .env > 本文件默认值。
+"""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """应用运行时配置。字段名对应环境变量（大写 + 下划线）。"""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    app_name: str = "weitai-agent"
+    app_env: str = "dev"
+    debug: bool = True
+    api_prefix: str = "/api/v1"
+    # "*" = 允许任意 Origin（开发默认）。生产请设前端域名白名单。
+    cors_origins: str = "*"
+
+    api_host: str = "0.0.0.0"
+    # 避开 zhongjiAgent 默认 :8000
+    api_port: int = 8100
+
+    database_url: str = (
+        "mysql+asyncmy://weitai:weitai_dev@127.0.0.1:13306/weitai_agent"
+    )
+    # Docker Compose 默认映射宿主机 26379 → 容器 6379（避开 zhongji 的 16379）
+    redis_url: str = "redis://127.0.0.1:26379/0"
+
+    # ---- 对话热记忆 / Stream 归档 ----
+    # Redis List TTL：活跃会话在 Redis，过期前由 Worker 补写 MySQL
+    chat_session_ttl_seconds: int = 7 * 24 * 3600
+    # 冷启动：Redis miss 时从 MySQL 回填最近 N 轮（user+assistant 算一轮）
+    chat_cold_start_turns: int = 15
+    chat_stream_key: str = "agent:chat:stream"
+    chat_stream_dlq_key: str = "agent:chat:stream:dql"
+    chat_stream_group: str = "chat-archiver"
+    chat_stream_consumer_prefix: str = "worker"
+    chat_stream_batch_size: int = 30
+    chat_stream_block_ms: int = 5000
+
+    # ---- 裁剪 / 限流 / 会话锁 ----
+    chat_trim_trigger_turns: int = 25
+    chat_trim_keep_turns: int = 10
+    chat_rate_limit_max: int = 30
+    chat_rate_limit_window_seconds: int = 60
+    # 多轮生成可能超过 2 分钟；配合锁续租避免提前过期
+    chat_session_lock_ttl_seconds: int = 300
+    chat_ttl_scan_threshold_seconds: int = 3600
+    chat_ttl_scan_cron: str = "0 3 * * *"  # 每天 03:00
+    # 操作日志 / 登录日志滚动保留天数
+    audit_log_retention_days: int = 7
+
+    jwt_secret_key: str = "change-me-in-production-use-long-random-string"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 30
+    jwt_refresh_token_expire_days: int = 7
+
+    storage_root: str = "./storage"
+
+    # MCP stdio 仓库根（可选）。不设则自动探测 scripts/mcp_utility_server.py。
+    # 部署非标准目录时可设：WEITAI_ROOT=/opt/weitaiAgent
+    weitai_root: str = ""
+
+    # Embedding 调用批大小 / 单条截断（知识库向量化）
+    embedding_batch_size: int = 8
+    embedding_max_chars: int = 6000
+    # 向量 Redis 缓存 TTL（embed:cache:{sha256}）
+    chat_embed_cache_ttl_seconds: int = 7 * 24 * 3600
+
+    qdrant_url: str = "http://127.0.0.1:16333"
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "weitai_knowledge"
+
+    kb_chunk_size: int = 800
+    kb_chunk_overlap: int = 120
+    kb_search_top_k: int = 5
+    kb_search_min_score: float = 0.0
+    # 向量召回候选倍数，再按关键词重排截断为 top_k
+    kb_search_candidate_multiplier: int = 4
+    # 混合分 = (1-w)*向量分 + w*关键词分
+    kb_search_keyword_weight: float = 0.4
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """解析 CORS allow_origins。
+
+        - 空 / ``*`` → 允许任意 Origin（credentials=True 时 Starlette 回显 Origin）
+        - 逗号分隔列表 → 白名单（生产建议显式配置）
+        """
+        raw = (self.cors_origins or "").strip()
+        if not raw or raw == "*":
+            return ["*"]
+        return [o.strip() for o in raw.split(",") if o.strip()] or ["*"]
+
+
+@lru_cache
+def get_settings() -> Settings:
+    """进程内单例。测试或热更新配置时需 ``get_settings.cache_clear()``。"""
+    return Settings()

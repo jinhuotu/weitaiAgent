@@ -1,0 +1,74 @@
+# weitaiAgent 工程配置（从 zhongjiAgent 精简迁移）
+# - 保留：FastAPI 主 API + 对话归档 Worker + MySQL/Redis/Qdrant
+# - 本轮：知识库 RAG、提示词、MCP、场景智能体
+# - 去掉：窑炉/铸造业务、侧车服务（ai/ingest/model_server）
+
+[tool.poetry]
+name = "weitai-agent"
+version = "0.1.0"
+description = "微泰智能体交互系统 - 后端服务（登录 / 会话 / 模型 / 工作流 / 知识库 / MCP / 智能体）"
+authors = ["weitai"]
+readme = "README.md"
+packages = [
+    { include = "common", from = "packages" },
+    { include = "db", from = "packages" },
+    { include = "api", from = "apps" },
+    { include = "workers" },
+]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = ">=0.115,<1.0"
+uvicorn = { version = ">=0.32,<0.40", extras = ["standard"] }
+pydantic = ">=2.9,<3.0"
+pydantic-settings = ">=2.5,<3.0"
+sqlalchemy = { version = "^2.0", extras = ["asyncio"] }
+asyncmy = "^0.2.9"
+alembic = ">=1.13,<2.0"
+redis = "^5.2"
+httpx = ">=0.27,<1.0"
+sse-starlette = ">=2.1,<3.0"
+python-jose = { version = "^3.3", extras = ["cryptography"] }
+bcrypt = ">=4.0.1"
+python-multipart = "^0.0.20"
+orjson = "^3.10"
+apscheduler = "^3.10"
+pymysql = "^1.1.1"
+qdrant-client = ">=1.12,<2.0"
+langchain-text-splitters = ">=0.3,<1.0"
+mcp = ">=1.8,<2"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.11"
+mypy = "^1.15"
+pytest = "^8.3"
+pytest-asyncio = "^0.25"
+
+[tool.poetry.scripts]
+weitai-api = "api.main:run"
+weitai-chat-worker = "workers.stream_consumer_main:main"
+weitai-dev = "workers.dev_all:main"
+
+[build-system]
+requires = ["poetry-core>=2.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["packages", "apps"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = false
+warn_return_any = true
+warn_unused_ignores = true
+mypy_path = "packages:apps"
+packages = ["common", "db", "api"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
