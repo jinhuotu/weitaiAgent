@@ -1,6 +1,7 @@
 """工作流 CRUD：定义、草稿图、发布、版本查询。
 
-图校验允许 start / llm / knowledge / agent / mcp / end，执行器均已实现。
+图校验允许 start / llm / knowledge / agent / mcp / condition / vision /
+image_out / layout_out / end。
 """
 
 from __future__ import annotations
@@ -22,7 +23,20 @@ from db.models.workflow import (
 )
 
 # 可保存到图里的类型，执行器见 nodes.py。
-_NODE_TYPES = frozenset({"start", "end", "llm", "knowledge", "agent", "mcp"})
+_NODE_TYPES = frozenset(
+    {
+        "start",
+        "end",
+        "llm",
+        "knowledge",
+        "agent",
+        "mcp",
+        "condition",
+        "vision",
+        "image_out",
+        "layout_out",
+    }
+)
 
 
 def short_id(n: int = 12) -> str:

@@ -20,6 +20,8 @@ ALL_MENUS: tuple[str, ...] = (
     "/",
     "/ai-chat",
     "/knowledge",
+    "/tenders",
+    "/tender-library",
     "/prompt-manage",
     "/mcp-manage",
     "/scene-agents",
@@ -32,7 +34,7 @@ ALL_MENUS: tuple[str, ...] = (
 
 # 非管理员角色白名单（取并集）；未列出的角色默认「全站减去 adminOnly」
 ROLE_MENU_ALLOW: dict[str, frozenset[str]] = {
-    "operator": frozenset({"/", "/ai-chat"}),
+    "operator": frozenset({"/", "/ai-chat", "/tenders", "/tender-library"}),
     "auditor": frozenset({"/", "/ai-chat", "/logs"}),
 }
 

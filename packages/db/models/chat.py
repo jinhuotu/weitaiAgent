@@ -96,6 +96,7 @@ class ChatMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False, comment="消息正文")
     mode: Mapped[str | None] = mapped_column(String(16), nullable=True, comment="生成模式")
     refs: Mapped[list | None] = mapped_column(JSON, nullable=True, comment="引用片段JSON")
+    images: Mapped[list | None] = mapped_column(JSON, nullable=True, comment="附图元数据JSON")
     # Redis Stream 消息 ID，归档幂等键（如 "1712345678901-0"）
     stream_msg_id: Mapped[str | None] = mapped_column(
         String(64), unique=True, nullable=True, comment="Redis Stream消息ID"

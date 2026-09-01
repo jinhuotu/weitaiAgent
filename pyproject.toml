@@ -37,6 +37,20 @@ pymysql = "^1.1.1"
 qdrant-client = ">=1.12,<2.0"
 langchain-text-splitters = ">=0.3,<1.0"
 mcp = ">=1.8,<2"
+pypdf = ">=5.0,<7.0"
+python-docx = ">=1.1,<2.0"
+openpyxl = ">=3.1,<4.0"
+xlrd = ">=1.2.0,<2.0"
+pyyaml = ">=6.0,<7.0"
+rapidocr = ">=3.0,<4.0"
+onnxruntime = ">=1.17,<2.0"
+python-pptx = ">=1.0,<2.0"
+pypdfium2 = ">=4.30,<5.0"
+pillow = ">=10.0,<12.0"
+ezdxf = ">=1.3,<2.0"
+alibabacloud-ocr-api20210707 = ">=3.0,<4.0"
+alibabacloud-tea-openapi = ">=0.3,<1.0"
+alibabacloud-tea-util = ">=0.3,<1.0"
 
 [tool.poetry.group.dev.dependencies]
 ruff = "^0.11"
@@ -72,3 +86,11 @@ packages = ["common", "db", "api"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+pythonpath = ["apps", "packages"]
+
+# Cursor / Pylance：与运行时 PYTHONPATH 对齐（顶层包是 api / common / db，不在仓库根目录）
+[tool.pyright]
+pythonVersion = "3.12"
+venvPath = "."
+venv = ".venv"
+extraPaths = ["apps", "packages"]

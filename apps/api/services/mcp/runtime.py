@@ -22,6 +22,14 @@ logger = get_logger(__name__)
 MAX_TOOL_ROUNDS = 5
 
 
+def _message_content(m: dict[str, Any]) -> Any:
+    """保留多模态 content 列表，避免 image_url 被 str() 丢掉。"""
+    content = m.get("content")
+    if isinstance(content, list):
+        return content
+    return str(content or "")
+
+
 def to_openai_tools(enabled: list[dict[str, Any]]) -> list[dict[str, Any]]:
     tools: list[dict[str, Any]] = []
     seen_names: set[str] = set()
@@ -94,6 +102,7 @@ async def run_chat_with_mcp(
     chunks: list[dict[str, Any]],  # noqa: ARG001 — 预留 refs 透传
     tools_enabled: bool = True,
     allowed_tool_ids: list[str] | None = None,
+    persist_hot: bool = True,
 ) -> AsyncIterator[dict[str, str]]:
     """带 MCP 工具循环的对话生成器，产出 SSE event dict。
 
@@ -120,7 +129,7 @@ async def run_chat_with_mcp(
         )
         accumulated = ""
         async for text in client.stream_chat(
-            [{"role": m["role"], "content": str(m.get("content") or "")} for m in working],
+            [{"role": m["role"], "content": _message_content(m)} for m in working],
             mode=mode,
         ):
             accumulated += text
@@ -154,6 +163,7 @@ async def run_chat_with_mcp(
             kb_ids=kb_ids,
             pool=pool,
             allowed_openai_names=allowed_openai_names,
+            persist_hot=persist_hot,
         ):
             yield ev
     finally:
@@ -172,6 +182,7 @@ async def _run_tool_loop(
     kb_ids: list[str],
     pool: McpSessionPool,
     allowed_openai_names: set[str] | None = None,
+    persist_hot: bool = True,
 ) -> AsyncIterator[dict[str, str]]:
     accumulated = ""
 
@@ -214,7 +225,7 @@ async def _run_tool_loop(
                     }
             else:
                 async for text in client.stream_chat(
-                    [{"role": m["role"], "content": str(m.get("content") or "")} for m in working],
+                    [{"role": m["role"], "content": _message_content(m)} for m in working],
                     mode=mode,
                 ):
                     accumulated += text
@@ -308,18 +319,19 @@ async def _run_tool_loop(
                 duration_ms,
             )
 
-            tool_hot = memory_svc.build_hot_message(
-                role="tool",
-                content=tool_content,
-                mode=mode,
-                knowledge_base_ids=kb_ids,
-                tool_name=display_name,
-                tool_input=arguments,
-                tool_output={"text": tool_content} if not tool_error else None,
-                tool_error=tool_error,
-                tool_duration_ms=duration_ms,
-            )
-            await memory_svc.append_hot_and_enqueue(session=session, message=tool_hot)
+            if persist_hot and session is not None:
+                tool_hot = memory_svc.build_hot_message(
+                    role="tool",
+                    content=tool_content,
+                    mode=mode,
+                    knowledge_base_ids=kb_ids,
+                    tool_name=display_name,
+                    tool_input=arguments,
+                    tool_output={"text": tool_content} if not tool_error else None,
+                    tool_error=tool_error,
+                    tool_duration_ms=duration_ms,
+                )
+                await memory_svc.append_hot_and_enqueue(session=session, message=tool_hot)
 
             yield {
                 "event": "tool",

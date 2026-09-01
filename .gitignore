@@ -45,6 +45,11 @@ storage/
 *.log
 logs/
 
+# OnlyOffice 从 Windows 拷入的中文字体（勿提交）
+infra/onlyoffice-fonts/*
+!infra/onlyoffice-fonts/.gitkeep
+
+
 # Alembic
 # keep versions; ignore local db dumps
 *.db

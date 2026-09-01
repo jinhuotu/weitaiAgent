@@ -38,24 +38,43 @@ class ChatStreamConsumer:
         self._stopping.set()
 
     async def ensure_group(self) -> None:
-        """创建消费组（已存在则忽略）。"""
-        try:
-            await self.redis.xgroup_create(
-                name=self.settings.chat_stream_key,
-                groupname=self.settings.chat_stream_group,
-                id="0",
-                mkstream=True,
-            )
-            logger.info(
-                "created stream group %s on %s",
-                self.settings.chat_stream_group,
-                self.settings.chat_stream_key,
-            )
-        except Exception as exc:  # noqa: BLE001
-            if "BUSYGROUP" in str(exc):
-                logger.info("stream group already exists: %s", self.settings.chat_stream_group)
-            else:
-                raise
+        """创建消费组（已存在则忽略）。宿主机 Docker 端口转发偶发未就绪时重试。"""
+        last_exc: Exception | None = None
+        for attempt in range(1, 11):
+            try:
+                self.redis = get_redis()
+                await self.redis.xgroup_create(
+                    name=self.settings.chat_stream_key,
+                    groupname=self.settings.chat_stream_group,
+                    id="0",
+                    mkstream=True,
+                )
+                logger.info(
+                    "created stream group %s on %s",
+                    self.settings.chat_stream_group,
+                    self.settings.chat_stream_key,
+                )
+                return
+            except Exception as exc:  # noqa: BLE001
+                if "BUSYGROUP" in str(exc):
+                    logger.info(
+                        "stream group already exists: %s",
+                        self.settings.chat_stream_group,
+                    )
+                    return
+                last_exc = exc
+                logger.warning(
+                    "redis not ready attempt=%s/10 url=%s err=%s",
+                    attempt,
+                    self.settings.redis_url,
+                    exc,
+                )
+                try:
+                    await close_redis()
+                except Exception:  # noqa: BLE001
+                    get_redis.cache_clear()
+                await asyncio.sleep(min(1.5 * attempt, 8))
+        raise last_exc or RuntimeError("redis unavailable")
 
     async def run_forever(self) -> None:
         await self.ensure_group()
@@ -160,6 +179,14 @@ class ChatStreamConsumer:
                 else datetime.now(timezone.utc)
             )
 
+            from api.services.ai.chat_images import merge_images_with_attachments
+
+            images_payload = merge_images_with_attachments(
+                message.get("images") if isinstance(message.get("images"), list) else None,
+                message.get("attachments")
+                if isinstance(message.get("attachments"), list)
+                else None,
+            )
             row = ChatMessage(
                 public_id=public_id or stream_msg_id.replace("-", "")[:32],
                 session_id=session.id,
@@ -167,6 +194,7 @@ class ChatStreamConsumer:
                 content=str(message.get("content") or ""),
                 mode=message.get("mode"),
                 refs=message.get("refs") if isinstance(message.get("refs"), list) else None,
+                images=images_payload or None,
                 stream_msg_id=stream_msg_id,
                 model_name=message.get("modelName"),
                 prompt_tokens=message.get("promptTokens"),

@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from common.errors import AppError, ErrorCode
@@ -23,12 +24,15 @@ async def get_current_user(
         HTTPAuthorizationCredentials | None,
         Depends(bearer_scheme),
     ] = None,
+    x_access_token: Annotated[str | None, Header(alias="X-Access-Token")] = None,
 ) -> User:
     """解析 Bearer access token，查库返回启用中的用户。"""
-    if credentials is None or not credentials.credentials:
+    raw = (credentials.credentials if credentials is not None else "") or ""
+    raw = raw.strip() or (x_access_token or "").strip()
+    if not raw:
         raise AppError(ErrorCode.UNAUTHORIZED, "missing access token", status_code=401)
     try:
-        payload = decode_token(credentials.credentials)
+        payload = decode_token(raw)
     except ValueError as exc:
         raise AppError(ErrorCode.UNAUTHORIZED, "invalid access token", status_code=401) from exc
     if payload.get("type") != "access":
@@ -36,7 +40,9 @@ async def get_current_user(
     username = payload.get("sub")
     if not username:
         raise AppError(ErrorCode.UNAUTHORIZED, "invalid token subject", status_code=401)
-    result = await db.execute(select(User).where(User.username == username))
+    result = await db.execute(
+        select(User).options(selectinload(User.roles)).where(User.username == username)
+    )
     user = result.scalar_one_or_none()
     if user is None or not user.is_active:
         raise AppError(ErrorCode.UNAUTHORIZED, "user not found or inactive", status_code=401)

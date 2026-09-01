@@ -20,10 +20,12 @@ from api.routers import (
     auth,
     health,
     knowledge,
+    layouts,
     mcp_servers,
     models,
     prompts,
     roles,
+    tenders,
     users,
     workflows,
 )
@@ -37,17 +39,35 @@ from common.response import fail
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """启动时滚动清理过期审计日志，避免库无限膨胀。"""
+    log = logging.getLogger("api.app")
+    try:
+        from db.session import wait_for_db
+
+        await wait_for_db()
+    except Exception:  # noqa: BLE001
+        log.exception("mysql unavailable at startup; skip maintenance jobs")
+        yield
+        return
     try:
         from api.services import audit as audit_svc
 
         deleted = await audit_svc.purge_expired_logs()
-        logging.getLogger("api.app").info(
+        log.info(
             "audit purge on startup operations=%s logins=%s",
             deleted.get("operations", 0),
             deleted.get("logins", 0),
         )
     except Exception:  # noqa: BLE001
-        logging.getLogger("api.app").exception("audit purge on startup failed")
+        log.exception("audit purge on startup failed")
+    try:
+        from api.services.knowledge.ingest import fail_stale_parsing_documents
+        from api.services.knowledge.queue import start_ingest_worker
+
+        n = await fail_stale_parsing_documents()
+        log.info("kb stale parsing marked failed count=%s", n)
+        start_ingest_worker()
+    except Exception:  # noqa: BLE001
+        log.exception("kb stale parsing reclaim failed")
     yield
 
 
@@ -97,6 +117,8 @@ def create_app() -> FastAPI:
     app.include_router(mcp_servers.router, prefix=settings.api_prefix)
     app.include_router(agents.router, prefix=settings.api_prefix)
     app.include_router(knowledge.router, prefix=settings.api_prefix)
+    app.include_router(layouts.router, prefix=settings.api_prefix)
+    app.include_router(tenders.router, prefix=settings.api_prefix)
     app.include_router(workflows.router, prefix=settings.api_prefix)
     app.include_router(ai.router, prefix=settings.api_prefix)
 

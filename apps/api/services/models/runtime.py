@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.ai.llm import LLMClient
@@ -9,28 +11,27 @@ from api.services.knowledge.embeddings import EmbeddingClient
 from api.services.models import configs as model_configs
 from common.errors import AppError, ErrorCode
 
+_IMAGE_GEN_MARKERS = (
+    "wan2.",
+    "wanx",
+    "image-pro",
+    "dall-e",
+    "dalle",
+    "flux",
+    "stable-diffusion",
+    "sdxl",
+    "imagen",
+    "kolors",
+    "ideogram",
+)
 
-async def build_llm_client(
-    db: AsyncSession,
-    mode: str = "fast",
-    *,
-    model_id: str | None = None,
-) -> LLMClient:
-    if model_id and str(model_id).strip():
-        return await build_llm_client_by_id(db, str(model_id).strip(), mode=mode)
 
-    cfg = await model_configs.resolve_active_llm(db, mode)
-    if cfg is None:
-        other = "fast" if mode == "deep" else "deep"
-        cfg = await model_configs.resolve_active_llm(db, other)
-    if cfg is None:
-        cfg = await model_configs.resolve_first_enabled_llm(db)
-    if cfg is None:
-        raise AppError(
-            ErrorCode.INTERNAL,
-            "LLM not configured: 请在「模型管理」中新增并启用对话模型",
-            status_code=503,
-        )
+def is_image_generation_model(model_name: str) -> bool:
+    key = (model_name or "").strip().lower()
+    return any(m in key for m in _IMAGE_GEN_MARKERS)
+
+
+def _client_from_cfg(cfg: Any, mode: str) -> LLMClient:
     return LLMClient(
         api_base=cfg.api_base,
         api_key=cfg.api_key,
@@ -39,6 +40,81 @@ async def build_llm_client(
         timeout_seconds=cfg.timeout_seconds,
         mode=mode,
     )
+
+
+async def resolve_chat_model_config(
+    db: AsyncSession,
+    mode: str = "fast",
+    *,
+    model_id: str | None = None,
+    require_vision: bool = False,
+    allow_image_gen: bool = False,
+):
+    """选对话模型：跳过文生图；需要看图时优先 multimodal_vision。"""
+    ordered: list = []
+    if model_id and str(model_id).strip():
+        try:
+            ordered.append(await model_configs.get_by_public_id(db, str(model_id).strip()))
+        except AppError:
+            pass
+    active = await model_configs.resolve_active_llm(db, mode)
+    if active is not None:
+        ordered.append(active)
+    if require_vision:
+        vis = await model_configs.resolve_first_enabled_llm(db, model_type="multimodal_vision")
+        if vis is not None:
+            ordered.append(vis)
+    first = await model_configs.resolve_first_enabled_llm(db)
+    if first is not None:
+        ordered.append(first)
+
+    def usable(cfg) -> bool:
+        if cfg is None or not cfg.enabled or cfg.kind != "llm":
+            return False
+        if not allow_image_gen and is_image_generation_model(cfg.model_name):
+            return False
+        if require_vision:
+            mt = model_configs.normalize_model_type(cfg.kind, getattr(cfg, "model_type", None))
+            if mt != "multimodal_vision":
+                return False
+        return True
+
+    for cfg in ordered:
+        if usable(cfg):
+            return cfg
+    if require_vision:
+        for cfg in ordered:
+            if (
+                cfg is not None
+                and cfg.enabled
+                and cfg.kind == "llm"
+                and not is_image_generation_model(cfg.model_name)
+            ):
+                return cfg
+    raise AppError(
+        ErrorCode.VALIDATION,
+        "没有可用的对话模型。文生图模型（如 wan2.7-image-pro）不能用于读图或生成布置 JSON，"
+        "请在「模型管理」启用 Qwen 等多模态视觉对话模型。",
+        status_code=422,
+    )
+
+
+async def build_llm_client(
+    db: AsyncSession,
+    mode: str = "fast",
+    *,
+    model_id: str | None = None,
+    require_vision: bool = False,
+    allow_image_gen: bool = False,
+) -> LLMClient:
+    cfg = await resolve_chat_model_config(
+        db,
+        mode,
+        model_id=model_id,
+        require_vision=require_vision,
+        allow_image_gen=allow_image_gen,
+    )
+    return _client_from_cfg(cfg, mode)
 
 
 async def build_llm_client_by_id(

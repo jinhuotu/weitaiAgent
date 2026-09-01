@@ -48,12 +48,99 @@ class QdrantKnowledgeStore:
                     ),
                     status_code=500,
                 )
+            self._ensure_payload_indexes()
             return
         self.client.create_collection(
             collection_name=self.collection,
             vectors_config=qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
+            quantization_config=self._quantization_config(),
         )
-        logger.info("created qdrant collection=%s dim=%s", self.collection, vector_size)
+        logger.info(
+            "created qdrant collection=%s dim=%s quant=%s",
+            self.collection,
+            vector_size,
+            (self.settings.qdrant_quantization or "none"),
+        )
+        self._ensure_payload_indexes()
+
+    def _quantization_config(self) -> qm.QuantizationConfig | None:
+        name = (self.settings.qdrant_quantization or "none").strip().lower()
+        if name in {"", "none", "off", "false"}:
+            return None
+        if name in {"int8", "scalar"}:
+            return qm.ScalarQuantization(
+                scalar=qm.ScalarQuantizationConfig(
+                    type=qm.ScalarType.INT8,
+                    quantile=0.99,
+                    always_ram=True,
+                )
+            )
+        if name in {"binary", "bin"}:
+            return qm.BinaryQuantization(
+                binary=qm.BinaryQuantizationConfig(always_ram=True)
+            )
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"不支持的 QDRANT_QUANTIZATION={name}（可用 none / int8 / binary）",
+            status_code=422,
+        )
+
+    def collection_info(self) -> dict[str, Any]:
+        existing = {c.name for c in self.client.get_collections().collections}
+        if self.collection not in existing:
+            return {
+                "name": self.collection,
+                "exists": False,
+                "points": 0,
+                "vectorSize": None,
+                "quantization": (self.settings.qdrant_quantization or "none"),
+                "envQuantization": (self.settings.qdrant_quantization or "none"),
+            }
+        info = self.client.get_collection(self.collection)
+        dim = None
+        try:
+            dim = info.config.params.vectors.size  # type: ignore[union-attr]
+        except Exception:  # noqa: BLE001
+            dim = None
+        quant = "none"
+        try:
+            qcfg = info.config.quantization_config
+            if qcfg is not None:
+                quant = type(qcfg).__name__.replace("Quantization", "").lower() or "on"
+        except Exception:  # noqa: BLE001
+            quant = "unknown"
+        return {
+            "name": self.collection,
+            "exists": True,
+            "points": int(getattr(info, "points_count", 0) or 0),
+            "vectorSize": dim,
+            "quantization": quant,
+            "envQuantization": (self.settings.qdrant_quantization or "none"),
+        }
+
+    def recreate_collection(self, vector_size: int) -> None:
+        existing = {c.name for c in self.client.get_collections().collections}
+        if self.collection in existing:
+            self.client.delete_collection(self.collection)
+        self.client.create_collection(
+            collection_name=self.collection,
+            vectors_config=qm.VectorParams(size=vector_size, distance=qm.Distance.COSINE),
+            quantization_config=self._quantization_config(),
+        )
+        self._ensure_payload_indexes()
+        logger.info("recreated qdrant collection=%s dim=%s", self.collection, vector_size)
+
+    def _ensure_payload_indexes(self) -> None:
+        for field in ("doc_id", "kb_id", "review"):
+            try:
+                self.client.create_payload_index(
+                    collection_name=self.collection,
+                    field_name=field,
+                    field_schema=qm.PayloadSchemaType.KEYWORD,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
     def upsert_chunks(
         self,
         *,
@@ -85,6 +172,7 @@ class QdrantKnowledgeStore:
                         "chunk_index": idx,
                         "content": content,
                         "tags": tags or [],
+                        "review": "approved",
                     },
                 )
             )
@@ -131,6 +219,165 @@ class QdrantKnowledgeStore:
                 break
         out.sort(key=lambda x: x["chunkIndex"])
         return out
+
+    def fetch_neighbor_chunks(
+        self,
+        seeds: list[dict[str, Any]],
+        *,
+        window: int = 1,
+    ) -> list[dict[str, Any]]:
+        """把命中块的前后页一并取出（small-to-big），补全条款上下文。"""
+        if window <= 0 or not seeds:
+            return []
+        wanted: dict[tuple[str, int], float] = {}
+        for h in seeds:
+            doc_id = str(h.get("doc_id") or "")
+            if not doc_id:
+                continue
+            try:
+                idx = int(h.get("chunk_index") or 0)
+            except (TypeError, ValueError):
+                continue
+            score = float(h.get("score") or 0.0)
+            for j in range(max(0, idx - window), idx + window + 1):
+                key = (doc_id, j)
+                wanted[key] = max(wanted.get(key, 0.0), score)
+
+        out: list[dict[str, Any]] = []
+        seen_seed = {
+            (str(h.get("doc_id") or ""), int(h.get("chunk_index") or 0)) for h in seeds
+        }
+        by_doc: dict[str, list[int]] = {}
+        for doc_id, idx in wanted:
+            by_doc.setdefault(doc_id, []).append(idx)
+
+        existing = {c.name for c in self.client.get_collections().collections}
+        if self.collection not in existing:
+            return []
+
+        for doc_id, indexes in by_doc.items():
+            points, _offset = self.client.scroll(
+                collection_name=self.collection,
+                scroll_filter=qm.Filter(
+                    must=[
+                        qm.FieldCondition(
+                            key="doc_id",
+                            match=qm.MatchValue(value=doc_id),
+                        ),
+                        qm.FieldCondition(
+                            key="chunk_index",
+                            match=qm.MatchAny(any=sorted(set(indexes))),
+                        ),
+                    ]
+                ),
+                limit=max(8, len(set(indexes))),
+                with_payload=True,
+                with_vectors=False,
+            )
+            for point in points:
+                payload = point.payload or {}
+                idx = int(payload.get("chunk_index") or 0)
+                key = (doc_id, idx)
+                if key in seen_seed:
+                    continue
+                parent = wanted.get(key, 0.0)
+                out.append(
+                    {
+                        "content": payload.get("content", ""),
+                        "score": round(parent * 0.92, 6),
+                        "vector_score": 0.0,
+                        "keyword_score": 0.0,
+                        "doc_id": payload.get("doc_id"),
+                        "kb_id": payload.get("kb_id"),
+                        "name": payload.get("name"),
+                        "chunk_index": idx,
+                        "tags": payload.get("tags") or [],
+                        "neighbor": True,
+                    }
+                )
+        return out
+
+    def search_text_contains(
+        self,
+        *,
+        needles: list[str],
+        kb_id: str | None = None,
+        kb_ids: list[str] | None = None,
+        limit: int = 24,
+        max_scan: int = 20_000,
+    ) -> list[dict[str, Any]]:
+        """按正文子串召回。时序表所有行向量几乎一样，精确时间点必须走字面匹配。"""
+        keys = [n.strip() for n in needles if n and n.strip()]
+        if not keys:
+            return []
+        existing = {c.name for c in self.client.get_collections().collections}
+        if self.collection not in existing:
+            return []
+        query_filter = None
+        ids = [x for x in (kb_ids or []) if x]
+        if not ids and kb_id:
+            ids = [kb_id]
+        if ids:
+            if len(ids) == 1:
+                match = qm.MatchValue(value=ids[0])
+            else:
+                match = qm.MatchAny(any=ids)
+            query_filter = qm.Filter(
+                must=[qm.FieldCondition(key="kb_id", match=match)]
+            )
+        out: list[dict[str, Any]] = []
+        seen: set[tuple[str, int]] = set()
+        offset = None
+        scanned = 0
+        batch = min(256, max(32, limit * 4))
+        while scanned < max_scan and len(out) < limit:
+            points, offset = self.client.scroll(
+                collection_name=self.collection,
+                scroll_filter=query_filter,
+                limit=min(batch, max_scan - scanned),
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+            if not points:
+                break
+            scanned += len(points)
+            for point in points:
+                payload = point.payload or {}
+                content = str(payload.get("content") or "")
+                if not any(key in content for key in keys):
+                    continue
+                doc_id = str(payload.get("doc_id") or "")
+                idx = int(payload.get("chunk_index") or 0)
+                mark = (doc_id, idx)
+                if mark in seen:
+                    continue
+                seen.add(mark)
+                out.append(
+                    {
+                        "content": content,
+                        "score": 1.0,
+                        "doc_id": payload.get("doc_id"),
+                        "kb_id": payload.get("kb_id"),
+                        "name": payload.get("name"),
+                        "chunk_index": idx,
+                        "tags": payload.get("tags") or [],
+                        "lexical": True,
+                    }
+                )
+                if len(out) >= limit:
+                    break
+            if offset is None:
+                break
+        if out:
+            logger.info(
+                "lexical kb search needles=%s hits=%s scanned=%s",
+                keys[:3],
+                len(out),
+                scanned,
+            )
+        return out
+
     def delete_by_doc_id(self, public_id: str) -> None:
         existing = {c.name for c in self.client.get_collections().collections}
         if self.collection not in existing:
@@ -147,6 +394,7 @@ class QdrantKnowledgeStore:
                     ]
                 )
             ),
+            wait=True,
         )
     def delete_by_kb_id(self, kb_id: str) -> None:
         existing = {c.name for c in self.client.get_collections().collections}
@@ -164,6 +412,7 @@ class QdrantKnowledgeStore:
                     ]
                 )
             ),
+            wait=True,
         )
     def search(
         self,

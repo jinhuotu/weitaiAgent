@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from api.services import audit as audit_svc
 from common.logging import get_logger
 
@@ -18,6 +20,9 @@ async def purge_expired_audit_logs() -> dict[str, int]:
             audit_svc.retention_days(),
         )
         return result
+    except asyncio.CancelledError:
+        logger.info("audit log purge cancelled (worker shutting down)")
+        raise
     except Exception:  # noqa: BLE001
         logger.exception("audit log purge failed")
         return {"operations": 0, "logins": 0}

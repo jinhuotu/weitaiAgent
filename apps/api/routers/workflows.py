@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from fastapi import APIRouter, Query
@@ -40,6 +41,8 @@ class PublishWorkflowRequest(BaseModel):
 class RunWorkflowRequest(BaseModel):
     input: Any = None
     useDraft: bool = False
+    sessionId: str | None = None
+    trigger: str | None = None
 
 
 @router.get("")
@@ -166,17 +169,27 @@ async def workflows_run(
     user: CurrentUser,
 ) -> EventSourceResponse:
     wf = await crud_svc.get_by_public_id(db, workflow_id)
-    await crud_svc.resolve_run_version(db, wf, use_draft=bool(body.useDraft))
+    use_draft = bool(body.useDraft) and not body.sessionId
+    await crud_svc.resolve_run_version(db, wf, use_draft=use_draft)
+    trigger = (body.trigger or "").strip() or ("chat" if body.sessionId else "trial")
 
     async def event_generator():  # noqa: ANN202
-        async for ev in runner_svc.run_workflow(
-            db,
-            workflow_public_id=workflow_id,
-            input_data=body.input,
-            use_draft=bool(body.useDraft),
-            created_by=user.id,
-            trigger="trial",
-        ):
-            yield ev
+        try:
+            async for ev in runner_svc.run_workflow(
+                db,
+                workflow_public_id=workflow_id,
+                input_data=body.input,
+                use_draft=use_draft,
+                created_by=user.id,
+                trigger=trigger,
+                session_id=body.sessionId,
+            ):
+                yield ev
+        except Exception as exc:  # noqa: BLE001
+            msg = str(getattr(exc, "msg", None) or exc)
+            yield {
+                "event": "error",
+                "data": json.dumps({"msg": msg}, ensure_ascii=False),
+            }
 
     return EventSourceResponse(event_generator())

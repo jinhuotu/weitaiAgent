@@ -8,6 +8,7 @@ from typing import Any, Literal
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.models.urls import normalize_api_base
 from common.errors import AppError, ErrorCode
 from db.models.model_config import ModelConfig
 
@@ -123,7 +124,8 @@ async def create_config(
 ) -> dict[str, Any]:
     if kind not in ("llm", "embedding"):
         raise AppError(ErrorCode.VALIDATION, "kind must be llm or embedding", status_code=422)
-    if not name.strip() or not api_base.strip() or not api_key.strip() or not model_name.strip():
+    cleaned_base = normalize_api_base(api_base)
+    if not name.strip() or not cleaned_base or not api_key.strip() or not model_name.strip():
         raise AppError(ErrorCode.VALIDATION, "name/apiBase/apiKey/modelName required", status_code=422)
     if kind == "embedding" and (scope_fast or scope_deep):
         raise AppError(ErrorCode.VALIDATION, "embedding cannot bind chat scopes", status_code=422)
@@ -142,7 +144,7 @@ async def create_config(
         name=name.strip()[:128],
         kind=kind,
         model_type=normalize_model_type(kind, model_type),
-        api_base=api_base.strip().rstrip("/"),
+        api_base=cleaned_base,
         api_key=api_key.strip(),
         model_name=model_name.strip()[:128],
         temperature=temperature,
@@ -189,7 +191,10 @@ async def update_config(
             raise AppError(ErrorCode.VALIDATION, "name required", status_code=422)
         cfg.name = name.strip()[:128]
     if api_base is not None:
-        cfg.api_base = api_base.strip().rstrip("/")
+        cleaned = normalize_api_base(api_base)
+        if not cleaned:
+            raise AppError(ErrorCode.VALIDATION, "apiBase required", status_code=422)
+        cfg.api_base = cleaned
     if api_key is not None and api_key.strip() and "*" not in api_key:
         cfg.api_key = api_key.strip()
     if model_name is not None:

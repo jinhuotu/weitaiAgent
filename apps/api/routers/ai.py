@@ -18,7 +18,14 @@ from sse_starlette.sse import EventSourceResponse
 from api.deps import CurrentUser, DbSession
 from api.services.ai import memory as memory_svc
 from api.services.ai import sessions as sessions_svc
+from api.services.ai.chat_images import (
+    DEFAULT_IMAGE_PROMPT,
+    decode_chat_images,
+    multimodal_user_content,
+    persist_chat_images,
+)
 from api.services.ai.prompts import build_system_prompt
+from api.services.knowledge import access as kb_access
 from api.services.knowledge.ingest import search_chunks
 from api.services.mcp.runtime import run_chat_with_mcp
 from api.services.models.runtime import build_llm_client
@@ -41,11 +48,17 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatImageIn(BaseModel):
+    mimeType: str = Field(default="image/jpeg", max_length=64)
+    data: str = Field(min_length=8)
+
+
 class ChatRequest(BaseModel):
     """优先 content + sessionId；messages 仅兼容旧客户端（取最后一条 user）。"""
 
     content: str | None = Field(default=None, max_length=20000)
     messages: list[ChatMessage] | None = None
+    images: list[ChatImageIn] = Field(default_factory=list, max_length=4)
     mode: Literal["fast", "deep"] = "fast"
     sessionId: str = Field(min_length=1, max_length=32)
     useKnowledge: bool = False
@@ -220,7 +233,7 @@ def _extract_user_content(body: ChatRequest) -> str:
         last_user = next((m for m in reversed(body.messages) if m.role == "user"), None)
         if last_user and last_user.content.strip():
             return last_user.content.strip()
-    raise AppError(ErrorCode.VALIDATION, "content（本轮用户消息）不能为空", status_code=422)
+    return ""
 
 
 @router.post("/chat")
@@ -237,6 +250,7 @@ async def ai_chat(
     chat_mode: Literal["fast", "deep"] = bindings["mode"]
     prompt_id: str | None = bindings["promptId"]
     kb_ids_bind: list[str] = list(bindings["knowledgeBaseIds"])
+    kb_ids_bind = await kb_access.require_usable_ids(db, user, kb_ids_bind)
     tools_enabled: bool = bool(bindings["toolsEnabled"])
     allowed_tool_ids: list[str] | None = bindings["allowedToolIds"]
     agent_id: str | None = bindings["agentId"]
@@ -245,6 +259,15 @@ async def ai_chat(
 
     await build_llm_client(db, chat_mode, model_id=model_id)
     user_text = _extract_user_content(body)
+    image_blobs = decode_chat_images([img.model_dump() for img in (body.images or [])])
+    logger.info(
+        "chat request session=%s images_in=%s text_len=%s",
+        body.sessionId,
+        len(image_blobs),
+        len(user_text),
+    )
+    if not user_text and not image_blobs:
+        raise AppError(ErrorCode.VALIDATION, "请输入问题或上传图片", status_code=422)
 
     session = await sessions_svc.get_session_for_user(
         db,
@@ -291,11 +314,24 @@ async def ai_chat(
                 try:
                     await memory_svc.ensure_hot_context(db, session=session)
 
+                    msg_id = memory_svc.short_msg_id()
+                    saved_images = (
+                        persist_chat_images(
+                            session_public_id=session.public_id,
+                            msg_id=msg_id,
+                            blobs=image_blobs,
+                        )
+                        if image_blobs
+                        else []
+                    )
+                    caption = user_text or (DEFAULT_IMAGE_PROMPT if saved_images else "")
                     user_hot = memory_svc.build_hot_message(
                         role="user",
-                        content=user_text,
+                        content=caption,
                         mode=chat_mode,
+                        images=saved_images,
                         knowledge_base_ids=list(kb_ids_bind),
+                        msg_id=msg_id,
                     )
                     await memory_svc.append_hot_and_enqueue(
                         session=session, message=user_hot
@@ -310,7 +346,9 @@ async def ai_chat(
                         knowledge_base_ids=kb_ids,
                     )
                     use_knowledge = len(kb_ids) > 0
-                    if use_knowledge:
+                    # 仅图片无提问时不检索，避免用默认提示词污染召回
+                    do_rag = use_knowledge and bool(user_text)
+                    if do_rag:
                         try:
                             chunks = await search_chunks(
                                 db,
@@ -326,8 +364,9 @@ async def ai_chat(
                     refs_payload: dict[str, Any] = {
                         "mode": chat_mode,
                         "chunks": chunks,
-                        "useKnowledge": use_knowledge,
+                        "useKnowledge": do_rag,
                         "knowledgeBaseIds": kb_ids,
+                        "hasImages": bool(saved_images),
                     }
                     if agent_id:
                         refs_payload["agentId"] = agent_id
@@ -349,7 +388,8 @@ async def ai_chat(
                         db,
                         chunks,
                         base_prompt=base_prompt,
-                        use_knowledge=use_knowledge,
+                        use_knowledge=do_rag,
+                        has_images=bool(saved_images),
                     )
                     llm_messages: list[dict[str, Any]] = []
                     if system_prompt:
@@ -357,6 +397,27 @@ async def ai_chat(
                             {"role": "system", "content": system_prompt}
                         )
                     llm_messages.extend(memory_svc.hot_messages_for_llm(hot_msgs))
+                    if image_blobs:
+                        vision_content = multimodal_user_content(caption, image_blobs)
+                        replaced = False
+                        for i in range(len(llm_messages) - 1, -1, -1):
+                            if llm_messages[i].get("role") == "user":
+                                llm_messages[i] = {
+                                    "role": "user",
+                                    "content": vision_content,
+                                }
+                                replaced = True
+                                break
+                        if not replaced:
+                            llm_messages.append(
+                                {"role": "user", "content": vision_content}
+                            )
+                        logger.info(
+                            "chat vision attached images=%s bytes=%s parts=%s",
+                            len(image_blobs),
+                            sum(len(b) for _, b in image_blobs),
+                            [p.get("type") for p in vision_content],
+                        )
 
                     accumulated = ""
                     try:
@@ -397,7 +458,11 @@ async def ai_chat(
                                 role="assistant",
                                 content=accumulated,
                                 mode=chat_mode,
-                                refs=chunks,
+                                refs=(
+                                    chunks
+                                    if chunks
+                                    else ([{"_miss": True, "kb_ids": kb_ids}] if do_rag else [])
+                                ),
                                 knowledge_base_ids=kb_ids,
                                 model_name=getattr(client, "fixed_model", None),
                             )

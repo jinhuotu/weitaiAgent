@@ -38,6 +38,11 @@ weitaiAgent/
 
 导入约定：顶层包名为 `api` / `common` / `db` / `workers`（Poetry `packages.from`）。
 
+IDE 里 `from api.xxx` / `from common.xxx` 报「未解析的引用」是源码根没配对，**不是代码写错**。运行时 `weitai-dev` 会把 `apps`、`packages` 加进 `PYTHONPATH`。
+
+- Cursor / VS Code：仓库已有 `pyrightconfig.json`（`extraPaths: apps, packages`），选解释器为 `.venv` 后重载窗口即可
+- PyCharm：`File → Settings → Project → Project Structure`，把 `apps`、`packages` 标成 **Sources**（本机 `.idea/weitaiAgent.iml` 已按此写好，重启 IDE 后红线应消失）
+
 ---
 
 ## 接口一览
@@ -82,6 +87,20 @@ weitaiAgent/
 
 ---
 
+## 知识库入库
+
+`POST /api/v1/knowledge/documents/upload` 使用 **multipart** 上传原文件，立即返回 `status=parsing`，后台解析完成后再切块写入 Qdrant。
+
+- 可复制 PDF / Word / Excel / PowerPoint / 文本：本地抽取
+- 扫描页、嵌入图、独立图片：阿里云 **文字识别** `RecognizeAllText`（`Type=Advanced`），不是文档智能 DocMind
+- Excel 公式格：优先用缓存计算值，没有则保留公式原文（不在服务端重算）
+- 同库相同文件内容会提示已存在，失败记录则自动重解析
+- `.env`：`OCR_PROVIDER=aliyun`，以及 `OCR_ACCESS_KEY_ID` / `OCR_ACCESS_KEY_SECRET`（RAM 权限 `AliyunOCRFullAccess`）。密钥勿提交仓库。
+- 解析正文另存 `storage/knowledge/{知识库id}/{文档id}.txt`，预览不依赖 Qdrant；重试会先删旧向量再写入，避免重复切块
+- 启动时把仍为 `parsing` 的文档标失败（后台任务不跨进程）；列表展示 `errorMsg`，可 `POST /documents/{id}/reparse` 重试
+
+---
+
 ## 本地启动
 
 需要 Python 3.12 + Poetry + Docker（MySQL / Redis / Qdrant）。
@@ -115,3 +134,5 @@ OpenAPI：http://127.0.0.1:8100/docs
 3. 确认 Qdrant 已启动（默认 `http://127.0.0.1:16333`）
 
 Windows 下 API **不会**开 uvicorn `--reload`（避免旧进程占 8100），改代码后请重启。
+
+  

@@ -64,6 +64,21 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 7
 
     storage_root: str = "./storage"
+    kb_upload_max_bytes: int = 200 * 1024 * 1024
+    kb_extract_max_chars: int = 2_000_000
+
+    # 知识库 OCR：测试阶段 aliyun 通用文字识别（不是 DocMind）
+    # none = 不调云，扫描页/图片会失败
+    ocr_provider: str = "none"
+    ocr_endpoint: str = "ocr-api.cn-hangzhou.aliyuncs.com"
+    ocr_access_key_id: str = ""
+    ocr_access_key_secret: str = ""
+    ocr_type: str = "Advanced"
+    ocr_timeout_seconds: int = 60
+    ocr_max_pages: int = 200
+    ocr_page_text_min_chars: int = 50
+    # 后台解析卡住超过该秒数，启动时标为 failed，可点重试
+    kb_parse_timeout_seconds: int = 3600
 
     # MCP stdio 仓库根（可选）。不设则自动探测 scripts/mcp_utility_server.py。
     # 部署非标准目录时可设：WEITAI_ROOT=/opt/weitaiAgent
@@ -78,15 +93,30 @@ class Settings(BaseSettings):
     qdrant_url: str = "http://127.0.0.1:16333"
     qdrant_api_key: str = ""
     qdrant_collection: str = "weitai_knowledge"
+    # none / int8 / binary — 仅新建集合时生效；已有集合用系统设置「应用」重建
+    qdrant_quantization: str = "none"
 
-    kb_chunk_size: int = 800
-    kb_chunk_overlap: int = 120
+    kb_chunk_size: int = 600
+    kb_chunk_overlap: int = 150
     kb_search_top_k: int = 5
     kb_search_min_score: float = 0.0
     # 向量召回候选倍数，再按关键词重排截断为 top_k
-    kb_search_candidate_multiplier: int = 4
+    kb_search_candidate_multiplier: int = 6
     # 混合分 = (1-w)*向量分 + w*关键词分
-    kb_search_keyword_weight: float = 0.4
+    kb_search_keyword_weight: float = 0.5
+    # 命中块前后各扩几块（补条款上下文）
+    kb_neighbor_window: int = 1
+    # 丢掉相对 top1 过弱的片段
+    kb_score_floor: float = 0.12
+    kb_keep_ratio: float = 0.38
+
+    # ---- OnlyOffice 在线 Word（投标文件编辑）----
+    # 浏览器加载 Document Server 的 api.js；容器内需能访问 onlyoffice_public_api_base
+    onlyoffice_document_server_url: str = "http://127.0.0.1:8082"
+    onlyoffice_jwt_secret: str = "onlyoffice-dev-secret-change-me"
+    # OnlyOffice 容器拉取 docx / 回调保存用的 API 根（Windows/Mac Docker 默认 host.docker.internal）
+    onlyoffice_public_api_base: str = "http://host.docker.internal:8100"
+    onlyoffice_download_token_ttl_seconds: int = 3600
 
     @property
     def cors_origin_list(self) -> list[str]:

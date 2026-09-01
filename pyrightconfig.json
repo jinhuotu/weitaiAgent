@@ -1,0 +1,8 @@
+{
+  "include": ["apps", "packages", "workers", "scripts", "tests"],
+  "extraPaths": ["apps", "packages"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}

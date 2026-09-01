@@ -1,4 +1,4 @@
-# 本地依赖：MySQL + Redis + Qdrant。对话归档 Worker 用 poetry 起，不强制容器化。
+# 本地依赖：MySQL + Redis + Qdrant + OnlyOffice。对话归档 Worker 用 poetry 起，不强制容器化。
 #
 # 宿主机端口刻意避开 zhongjiAgent 的 deploy 栈（3306 / 16379 / 6333 / 6334）。
 # 容器内部端口仍用官方默认值。
@@ -56,7 +56,26 @@ services:
       timeout: 5s
       retries: 10
 
+  # OnlyOffice Document Server：投标文件在线 Word 编辑（浏览器连 8082）
+  onlyoffice:
+    image: onlyoffice/documentserver:8.2.2
+    container_name: weitai-onlyoffice
+    restart: unless-stopped
+    ports:
+      - "8082:80"
+    environment:
+      JWT_ENABLED: "true"
+      JWT_SECRET: onlyoffice-dev-secret-change-me
+    volumes:
+      - onlyoffice_data:/var/www/onlyoffice/Data
+      - onlyoffice_logs:/var/log/onlyoffice
+      # 中文字体（宋体等）。缺字时预览会用西文替代，同一段在 Word 一页、预览却翻到下一页。
+      # Windows 可先运行 infra/sync-onlyoffice-fonts.ps1 拷入 onlyoffice-fonts。
+      - ./onlyoffice-fonts:/usr/share/fonts/truetype/custom:ro
+
 volumes:
   mysql_data:
   redis_data:
   qdrant_data:
+  onlyoffice_data:
+  onlyoffice_logs:

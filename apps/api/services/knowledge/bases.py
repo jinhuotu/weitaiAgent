@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from common.errors import AppError, ErrorCode
+from common.times import to_epoch_ms
 from db.models.knowledge import KnowledgeBase, KnowledgeDocument
 
 PURPOSE_RAG = "rag"
@@ -26,8 +27,8 @@ def to_base_item(base: KnowledgeBase, *, doc_count: int | None = None, chunk_cou
         doc_count = len(docs)
     if chunk_count is None:
         chunk_count = sum(int(d.chunk_count or 0) for d in docs)
-    created_ms = int(base.created_at.timestamp() * 1000) if base.created_at else 0
-    updated_ms = int(base.updated_at.timestamp() * 1000) if base.updated_at else created_ms
+    created_ms = to_epoch_ms(base.created_at)
+    updated_ms = to_epoch_ms(base.updated_at) or created_ms
     return {
         "id": base.public_id,
         "name": base.name,
@@ -38,6 +39,7 @@ def to_base_item(base: KnowledgeBase, *, doc_count: int | None = None, chunk_cou
         "chunkCount": chunk_count,
         "createdAt": created_ms,
         "updatedAt": updated_ms,
+        "createdAtUtc": True,
     }
 
 

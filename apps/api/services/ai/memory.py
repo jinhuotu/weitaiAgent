@@ -29,6 +29,13 @@ from common.logging import get_logger
 from common.redis_client import get_redis
 from db.models.chat import ChatMessage, ChatSession
 
+from api.services.ai.chat_images import (
+    extract_layout_attachments,
+    hydrate_images_for_api,
+    llm_image_parts,
+    merge_images_with_attachments,
+)
+
 logger = get_logger(__name__)
 
 
@@ -46,6 +53,7 @@ def build_hot_message(
     content: str,
     mode: str | None = None,
     refs: list[dict[str, Any]] | None = None,
+    images: list[dict[str, Any]] | None = None,
     knowledge_base_ids: list[str] | None = None,
     model_name: str | None = None,
     prompt_tokens: int | None = None,
@@ -58,15 +66,20 @@ def build_hot_message(
     tool_duration_ms: int | None = None,
     msg_id: str | None = None,
     created_at_ms: int | None = None,
+    attachments: list[dict[str, Any]] | None = None,
+    layout_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """构造写入 Redis List / Stream 的统一消息结构。"""
     kb_ids = [str(x) for x in (knowledge_base_ids or []) if x]
-    return {
+    atts = [a for a in (attachments or []) if isinstance(a, dict) and a.get("fileName")]
+    msg: dict[str, Any] = {
         "id": msg_id or short_msg_id(12),
         "role": role,
         "content": content,
         "mode": mode,
         "refs": refs or [],
+        "images": images or [],
+        "attachments": atts,
         "knowledgeBaseIds": kb_ids,
         "useKnowledge": len(kb_ids) > 0,
         "modelName": model_name,
@@ -80,6 +93,9 @@ def build_hot_message(
         "toolDurationMs": tool_duration_ms,
         "createdAt": created_at_ms or int(time.time() * 1000),
     }
+    if isinstance(layout_plan, dict) and layout_plan.get("kind") == "ev_charging_station_plan":
+        msg["layoutPlan"] = layout_plan
+    return msg
 
 
 def hot_message_to_api(msg: dict[str, Any]) -> dict[str, Any]:
@@ -87,14 +103,26 @@ def hot_message_to_api(msg: dict[str, Any]) -> dict[str, Any]:
     kb_ids = msg.get("knowledgeBaseIds") or []
     if not isinstance(kb_ids, list):
         kb_ids = []
+    display_refs, miss = _split_refs(msg.get("refs"))
+    kb_from_refs = _kb_ids_from_refs(msg.get("refs"))
+    merged_kb = [str(x) for x in kb_ids if x] or kb_from_refs
+    atts = [
+        a
+        for a in (msg.get("attachments") or [])
+        if isinstance(a, dict) and a.get("fileName")
+    ]
+    if not atts:
+        atts = extract_layout_attachments(msg.get("images"))
     return {
         "id": msg.get("id"),
         "role": msg.get("role"),
         "content": msg.get("content") or "",
         "mode": msg.get("mode"),
-        "refs": msg.get("refs") or [],
-        "knowledgeBaseIds": [str(x) for x in kb_ids if x],
-        "useKnowledge": bool(msg.get("useKnowledge")) or len(kb_ids) > 0,
+        "refs": display_refs,
+        "images": hydrate_images_for_api(msg.get("images")),
+        "attachments": atts,
+        "knowledgeBaseIds": merged_kb,
+        "useKnowledge": bool(msg.get("useKnowledge")) or len(merged_kb) > 0 or miss,
         "createdAt": int(msg.get("createdAt") or 0),
         "toolName": msg.get("toolName"),
         "toolInput": msg.get("toolInput"),
@@ -193,6 +221,8 @@ async def cold_start_from_mysql(
             content=m.content,
             mode=m.mode,
             refs=m.refs if isinstance(m.refs, list) else [],
+            images=m.images if isinstance(m.images, list) else [],
+            attachments=extract_layout_attachments(m.images),
             model_name=m.model_name,
             prompt_tokens=m.prompt_tokens,
             completion_tokens=m.completion_tokens,
@@ -238,17 +268,33 @@ async def ensure_hot_context(
     return await cold_start_from_mysql(db, session=session)
 
 
-def hot_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, str]]:
-    """转为 OpenAI chat messages。"""
-    out: list[dict[str, str]] = []
+def hot_messages_for_llm(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """转为 OpenAI chat messages（文本或图文多模态）。"""
+    out: list[dict[str, Any]] = []
     for m in messages:
         role = str(m.get("role") or "")
-        content = str(m.get("content") or "")
+        text = str(m.get("content") or "")
         if role in ("user", "assistant", "system"):
-            out.append({"role": role, "content": content})
+            img_parts = llm_image_parts(m.get("images")) if role == "user" else []
+            if role == "user" and m.get("images") and not img_parts:
+                logger.warning(
+                    "hot message images present but hydrate failed id=%s n=%s",
+                    m.get("id"),
+                    len(m.get("images") or []),
+                )
+            if img_parts:
+                caption = text.strip() or "请根据图片内容作答。"
+                out.append(
+                    {
+                        "role": role,
+                        "content": [{"type": "text", "text": caption}, *img_parts],
+                    }
+                )
+            else:
+                out.append({"role": role, "content": text})
         elif role == "tool":
             name = m.get("toolName") or "tool"
-            out.append({"role": "system", "content": f"[tool:{name}] {content}"})
+            out.append({"role": "system", "content": f"[tool:{name}] {text}"})
     return out
 
 
@@ -260,11 +306,34 @@ def _kb_ids_from_refs(refs: Any) -> list[str]:
     for r in refs:
         if not isinstance(r, dict):
             continue
+        extra = r.get("kb_ids")
+        if isinstance(extra, list):
+            for kid in extra:
+                s = str(kid).strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    out.append(s)
         kid = r.get("kb_id") or r.get("kbId")
         if kid and str(kid) not in seen:
             seen.add(str(kid))
             out.append(str(kid))
     return out
+
+
+def _split_refs(refs: Any) -> tuple[list[dict[str, Any]], bool]:
+    """去掉未命中占位，返回 (展示用片段, 是否未命中)。"""
+    if not isinstance(refs, list):
+        return [], False
+    out: list[dict[str, Any]] = []
+    miss = False
+    for r in refs:
+        if not isinstance(r, dict):
+            continue
+        if r.get("_miss"):
+            miss = True
+            continue
+        out.append(r)
+    return out, miss
 
 
 async def merge_messages_for_api(
@@ -280,20 +349,29 @@ async def merge_messages_for_api(
     )
     mysql_msgs = result.scalars().all()
     seen = {m.public_id for m in mysql_msgs}
-    api_msgs = [
-        {
-            "id": m.public_id,
-            "role": m.role,
-            "content": m.content,
-            "mode": m.mode,
-            "refs": m.refs or [],
-            "knowledgeBaseIds": _kb_ids_from_refs(m.refs),
-            "useKnowledge": bool(m.refs),
-            "createdAt": int(m.created_at.timestamp() * 1000) if m.created_at else 0,
-            "toolName": m.tool_name,
-        }
-        for m in mysql_msgs
-    ]
+    api_msgs = []
+    for m in mysql_msgs:
+        display_refs, miss = _split_refs(m.refs)
+        kb_ids = _kb_ids_from_refs(m.refs)
+        api_msgs.append(
+            {
+                "id": m.public_id,
+                "role": m.role,
+                "content": m.content,
+                "mode": m.mode,
+                "refs": display_refs,
+                "images": hydrate_images_for_api(m.images),
+                "attachments": extract_layout_attachments(m.images),
+                "knowledgeBaseIds": kb_ids,
+                "useKnowledge": bool(display_refs) or miss or bool(kb_ids),
+                "createdAt": int(m.created_at.timestamp() * 1000) if m.created_at else 0,
+                "toolName": m.tool_name,
+                "toolInput": m.tool_input,
+                "toolOutput": m.tool_output,
+                "toolError": m.tool_error,
+                "toolDurationMs": m.tool_duration_ms,
+            }
+        )
 
     if await redis_session_exists(session.public_id):
         for hm in await load_hot_messages(session.public_id):
@@ -489,6 +567,10 @@ async def flush_expiring_session_to_mysql(
             if created_ms > 0
             else datetime.now(timezone.utc)
         )
+        images_payload = merge_images_with_attachments(
+            msg.get("images") if isinstance(msg.get("images"), list) else None,
+            msg.get("attachments") if isinstance(msg.get("attachments"), list) else None,
+        )
         db.add(
             ChatMessage(
                 public_id=mid[:32],
@@ -497,6 +579,7 @@ async def flush_expiring_session_to_mysql(
                 content=str(msg.get("content") or ""),
                 mode=msg.get("mode"),
                 refs=msg.get("refs") if isinstance(msg.get("refs"), list) else None,
+                images=images_payload or None,
                 stream_msg_id=stream_id,
                 model_name=msg.get("modelName"),
                 prompt_tokens=msg.get("promptTokens"),

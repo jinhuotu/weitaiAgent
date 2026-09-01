@@ -9,6 +9,7 @@ import re
 import httpx
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.models.urls import normalize_api_base
 from common.config import get_settings
 from common.errors import AppError, ErrorCode
 from common.logging import get_logger
@@ -72,7 +73,7 @@ class EmbeddingClient:
         settings = get_settings()
         self.dim = int(dim or 1536)
         self._api_key = api_key
-        self._api_base = api_base.rstrip("/")
+        self._api_base = normalize_api_base(api_base)
         self._model = model
         self._batch_size = max(1, int(batch_size or settings.embedding_batch_size or 8))
         self._max_chars = max(256, int(max_chars or settings.embedding_max_chars or 6000))
