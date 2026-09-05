@@ -75,10 +75,10 @@ class Settings(BaseSettings):
     ocr_access_key_secret: str = ""
     ocr_type: str = "Advanced"
     ocr_timeout_seconds: int = 60
-    ocr_max_pages: int = 200
+    ocr_max_pages: int = 800
     ocr_page_text_min_chars: int = 50
     # 后台解析卡住超过该秒数，启动时标为 failed，可点重试
-    kb_parse_timeout_seconds: int = 3600
+    kb_parse_timeout_seconds: int = 7200
 
     # MCP stdio 仓库根（可选）。不设则自动探测 scripts/mcp_utility_server.py。
     # 部署非标准目录时可设：WEITAI_ROOT=/opt/weitaiAgent

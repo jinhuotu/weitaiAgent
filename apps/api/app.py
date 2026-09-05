@@ -8,6 +8,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -31,7 +32,7 @@ from api.routers import (
 )
 from common import __version__
 from common.config import get_settings
-from common.errors import AppError
+from common.errors import AppError, ErrorCode
 from common.logging import setup_logging
 from common.response import fail
 
@@ -104,6 +105,27 @@ def create_app() -> FastAPI:
         return JSONResponse(
             status_code=exc.status_code,
             content=fail(exc.code, exc.msg),
+        )
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
+        parts: list[str] = []
+        for err in exc.errors():
+            loc = ".".join(str(x) for x in err.get("loc", ()) if x != "body")
+            msg = str(err.get("msg") or "").strip()
+            if loc and msg:
+                parts.append(f"{loc}: {msg}")
+            elif msg:
+                parts.append(msg)
+        text = "；".join(parts) or "请求参数无效"
+        lowered = text.lower()
+        if "apikey" in lowered.replace("_", "") and (
+            "at least" in lowered or "min_length" in lowered or "required" in lowered
+        ):
+            text = "当前 API 仍要求填写 API Key。局域网模型可填 sk-local；改完代码后请重启后端再留空。"
+        return JSONResponse(
+            status_code=422,
+            content=fail(ErrorCode.VALIDATION, text),
         )
 
     app.include_router(health.router)

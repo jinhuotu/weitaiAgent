@@ -83,6 +83,7 @@ def build_editor_config(
     user_id: str,
     user_name: str,
     editor_height_px: int | None = None,
+    mode: str = "edit",
     settings: Settings | None = None,
 ) -> dict:
     settings = settings or get_settings()
@@ -101,33 +102,35 @@ def build_editor_config(
 
     # editor_height_px 仍由接口传入，高度改由前端容器 100% 撑满，便于全屏拉伸。
     _ = editor_height_px
+    view_mode = (mode or "edit").strip().lower() == "view"
 
     config = {
         "documentType": "word",
         "document": {
             "fileType": "docx",
-            "key": document_key(path),
+            "key": document_key(path) + ("-v" if view_mode else ""),
             "title": download_name or file_name,
             "url": doc_url,
             "permissions": {
-                "edit": True,
+                "edit": not view_mode,
                 "download": True,
                 "print": True,
                 "review": False,
+                "comment": False,
             },
         },
         "editorConfig": {
             "callbackUrl": callback_url,
             "lang": "zh-CN",
             "region": "zh-CN",
-            "mode": "edit",
+            "mode": "view" if view_mode else "edit",
             "user": {
                 "id": user_id or "user",
                 "name": user_name or "用户",
             },
             "customization": {
-                "forcesave": True,
-                "autosave": True,
+                "forcesave": not view_mode,
+                "autosave": not view_mode,
                 "chat": False,
                 "comments": False,
                 "help": False,
@@ -144,6 +147,7 @@ def build_editor_config(
         },
         "height": "100%",
         "width": "100%",
+        "type": "desktop",
     }
     return _sign_config(config, settings=settings)
 

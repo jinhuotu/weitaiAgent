@@ -10,6 +10,31 @@ from common.config import Settings, get_settings
 from common.errors import AppError, ErrorCode
 from common.logging import get_logger
 logger = get_logger(__name__)
+
+
+def _wrap_qdrant_exc(exc: Exception) -> AppError:
+    if isinstance(exc, AppError):
+        return exc
+    text = str(exc) or type(exc).__name__
+    lowered = text.lower()
+    if "401" in text or "unauthorized" in lowered or "403" in text or "forbidden" in lowered:
+        return AppError(
+            ErrorCode.INTERNAL,
+            "向量库鉴权失败，请检查 QDRANT_API_KEY 是否与当前 Qdrant 服务匹配",
+            status_code=502,
+        )
+    return AppError(
+        ErrorCode.INTERNAL,
+        (
+            "cannot connect to Qdrant at "
+            f"{get_settings().qdrant_url}; start Docker service "
+            "`docker compose -f infra/docker-compose.yml up -d qdrant` "
+            f"({text})"
+        ),
+        status_code=503,
+    )
+
+
 class QdrantKnowledgeStore:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
@@ -21,16 +46,7 @@ class QdrantKnowledgeStore:
         try:
             self.client.get_collections()
         except Exception as exc:  # noqa: BLE001
-            raise AppError(
-                ErrorCode.INTERNAL,
-                (
-                    "cannot connect to Qdrant at "
-                    f"{self.settings.qdrant_url}; start Docker service "
-                    "`docker compose -f infra/docker-compose.yml up -d qdrant` "
-                    f"({exc})"
-                ),
-                status_code=503,
-            ) from exc
+            raise _wrap_qdrant_exc(exc) from exc
     def ensure_collection(self, vector_size: int) -> None:
         existing = {c.name for c in self.client.get_collections().collections}
         if self.collection in existing:
@@ -423,10 +439,6 @@ class QdrantKnowledgeStore:
         kb_id: str | None = None,
         kb_ids: list[str] | None = None,
     ) -> list[dict[str, Any]]:
-        existing = {c.name for c in self.client.get_collections().collections}
-        if self.collection not in existing:
-            return []
-        self.ensure_collection(len(vector))
         query_filter = None
         ids = [x for x in (kb_ids or []) if x]
         if not ids and kb_id:
@@ -444,14 +456,23 @@ class QdrantKnowledgeStore:
                     )
                 ]
             )
-        response = self.client.query_points(
-            collection_name=self.collection,
-            query=vector,
-            query_filter=query_filter,
-            limit=top_k,
-            with_payload=True,
-            score_threshold=min_score if min_score > 0 else None,
-        )
+        try:
+            existing = {c.name for c in self.client.get_collections().collections}
+            if self.collection not in existing:
+                return []
+            self.ensure_collection(len(vector))
+            response = self.client.query_points(
+                collection_name=self.collection,
+                query=vector,
+                query_filter=query_filter,
+                limit=top_k,
+                with_payload=True,
+                score_threshold=min_score if min_score > 0 else None,
+            )
+        except AppError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise _wrap_qdrant_exc(exc) from exc
         out: list[dict[str, Any]] = []
         for hit in response.points:
             payload = hit.payload or {}

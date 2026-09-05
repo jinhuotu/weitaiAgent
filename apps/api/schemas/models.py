@@ -16,7 +16,7 @@ class CreateModelConfigRequest(BaseModel):
         validation_alias=AliasChoices("modelType", "model_type"),
     )
     apiBase: str = Field(min_length=1, max_length=512)
-    apiKey: str = Field(min_length=1, max_length=512)
+    apiKey: str = Field(default="", max_length=512)
     modelName: str = Field(min_length=1, max_length=128)
     temperature: float | None = Field(default=None, ge=0, le=2)
     timeoutSeconds: float = Field(default=120, gt=1, le=600)

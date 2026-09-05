@@ -2,8 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import Depends, Header
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, Header, Request
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,31 +12,28 @@ from common.security import decode_token
 from db.models.user import User
 from db.session import get_db
 
-bearer_scheme = HTTPBearer(auto_error=False)
-
 DbSession = Annotated[AsyncSession, Depends(get_db)]
 
 
 async def get_current_user(
+    request: Request,
     db: DbSession,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None,
-        Depends(bearer_scheme),
-    ] = None,
-    x_access_token: Annotated[str | None, Header(alias="X-Access-Token")] = None,
 ) -> User:
-    """解析 Bearer access token，查库返回启用中的用户。"""
-    raw = (credentials.credentials if credentials is not None else "") or ""
-    raw = raw.strip() or (x_access_token or "").strip()
-    if not raw:
-        raise AppError(ErrorCode.UNAUTHORIZED, "missing access token", status_code=401)
-    try:
-        payload = decode_token(raw)
-    except ValueError as exc:
-        raise AppError(ErrorCode.UNAUTHORIZED, "invalid access token", status_code=401) from exc
-    if payload.get("type") != "access":
-        raise AppError(ErrorCode.UNAUTHORIZED, "token type must be access", status_code=401)
-    username = payload.get("sub")
+    """解析 access token。不走 HTTPBearer/Header 依赖，避免 File/Form 上传被判成 Unauthorized。"""
+    from api.middleware.auth import access_token_from_request
+
+    username = str(getattr(request.state, "jwt_sub", "") or "").strip()
+    if not username:
+        raw = access_token_from_request(request)
+        if not raw:
+            raise AppError(ErrorCode.UNAUTHORIZED, "missing access token", status_code=401)
+        try:
+            payload = decode_token(raw)
+        except ValueError as exc:
+            raise AppError(ErrorCode.UNAUTHORIZED, "invalid access token", status_code=401) from exc
+        if payload.get("type") != "access":
+            raise AppError(ErrorCode.UNAUTHORIZED, "token type must be access", status_code=401)
+        username = str(payload.get("sub") or "").strip()
     if not username:
         raise AppError(ErrorCode.UNAUTHORIZED, "invalid token subject", status_code=401)
     result = await db.execute(

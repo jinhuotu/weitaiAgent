@@ -14,6 +14,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.knowledge.bases import get_base_by_public_id
 from api.services.knowledge.chunking import is_layout_case_card, split_text
+from api.services.knowledge.classify import (
+    TAG_BID_FOREIGN,
+    apply_skip_rag_tag,
+    classify_kb_document,
+    has_skip_rag_tag,
+    should_skip_kb_retrieval,
+)
 from api.services.knowledge.drawings import is_drawing_ext, preview_jpeg_from_file
 from api.services.knowledge.embeddings import get_embedding_client
 from api.services.knowledge.parsers import (
@@ -207,13 +214,68 @@ def to_kb_item(doc: KnowledgeDocument) -> dict[str, Any]:
         "ocrPages": int(getattr(doc, "ocr_pages", 0) or 0),
         "ocrCapped": bool(getattr(doc, "ocr_capped", False)),
         "formulaFallback": bool(getattr(doc, "formula_fallback", False)),
-        "reviewStatus": getattr(doc, "review_status", None) or "pending",
+        "reviewStatus": getattr(doc, "review_status", None) or "approved",
         "reviewComment": getattr(doc, "review_comment", None),
         "taskId": getattr(doc, "_task_id", None),
         "duplicate": bool(getattr(doc, "_duplicate", False)),
         "createdAt": created_ms,
         "createdAtUtc": True,
     }
+
+
+async def _enqueue_unindexed_ready(
+    db: AsyncSession,
+    base: Any,
+    docs: list[KnowledgeDocument],
+) -> None:
+    """已解析但未切块的资料（含历史待审核）补进向量，上传即用。"""
+    pending = [
+        d
+        for d in docs
+        if (d.status or "") == "ready"
+        and (d.kind or "") != "drawing"
+        and (d.review_status or "") != "rejected"
+        and int(d.chunk_count or 0) == 0
+    ]
+    stamped = False
+    still: list[KnowledgeDocument] = []
+    for doc in pending:
+        base_pid = str(getattr(base, "public_id", "") or "")
+        sidecar = read_extracted_text(base_pid, doc.public_id) if base_pid else ""
+        sidecar = sidecar or ""
+        body = sidecar if sidecar and not sidecar.startswith("PERFJSON:") else ""
+        verdict = classify_kb_document(name=doc.name or "", text=body)
+        if verdict.skip_vectorize:
+            if not has_skip_rag_tag(doc.tags):
+                doc.tags = apply_skip_rag_tag(doc.tags)
+                stamped = True
+            continue
+        if has_skip_rag_tag(doc.tags):
+            doc.tags = [str(t) for t in (doc.tags or []) if str(t).strip() != TAG_BID_FOREIGN]
+            stamped = True
+        still.append(doc)
+    if stamped:
+        await db.commit()
+    pending = still
+    if not pending:
+        return
+    from api.services.knowledge.queue import enqueue_ingest_task
+    from db.models.knowledge import KnowledgeIngestTask
+
+    busy_result = await db.execute(
+        select(KnowledgeIngestTask.document_id).where(
+            KnowledgeIngestTask.document_id.in_([d.id for d in pending]),
+            KnowledgeIngestTask.status.in_(("queued", "running")),
+        )
+    )
+    busy = {int(x) for x in busy_result.scalars().all() if x is not None}
+    for doc in pending:
+        if doc.id in busy:
+            continue
+        doc.review_status = "approved"
+        doc.status = "parsing"
+        doc.summary = doc.summary or "正在写入检索…"
+        await enqueue_ingest_task(db, base=base, doc=doc, force_reextract=False)
 
 
 async def list_documents(
@@ -229,6 +291,7 @@ async def list_documents(
         stmt = stmt.where(KnowledgeDocument.review_status == rs)
     result = await db.execute(stmt.order_by(KnowledgeDocument.created_at.desc()))
     docs = result.scalars().all()
+    await _enqueue_unindexed_ready(db, base, list(docs))
     names = {d.public_id: d.name for d in docs}
     items: list[dict[str, Any]] = []
     for d in docs:
@@ -361,7 +424,8 @@ async def require_embedding_ready(db: AsyncSession) -> None:
 
 
 def _initial_review_status(*, drawing: bool) -> str:
-    return "approved" if drawing else "pending"
+    del drawing
+    return "approved"
 
 
 async def ingest_upload(
@@ -480,7 +544,7 @@ async def _get_doc_in_base(
 
 
 async def process_uploaded_document(public_id: str, *, force_reextract: bool = False) -> None:
-    """后台：解析（含 OCR）。通过审核后才向量化。"""
+    """后台：解析（含 OCR）后立刻向量化，上传完成即可检索。"""
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(KnowledgeDocument).where(KnowledgeDocument.public_id == public_id)
@@ -515,10 +579,8 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
             doc.chunk_count = 0
             doc.status = "ready"
             doc.error_msg = None
-            if (doc.review_status or "") == "approved":
-                await _vectorize_document(db, doc, text)
-            else:
-                doc.review_status = "pending"
+            doc.review_status = "approved"
+            await _vectorize_document(db, doc, text)
             await db.commit()
             logger.info(
                 "ingest background ready id=%s review=%s ocr_pages=%s",
@@ -602,7 +664,7 @@ async def reparse_document(
     if force_reextract:
         unlink_stored_file(_extracted_text_key(base.public_id, doc.public_id))
     doc.status = "parsing"
-    doc.review_status = "pending"
+    doc.review_status = "approved"
     doc.error_msg = None
     doc.summary = "正在重新解析…"
     doc.chunk_count = 0
@@ -701,6 +763,9 @@ async def ingest_text(
     if len(text) < 4:
         raise AppError(ErrorCode.VALIDATION, "content too short", status_code=422)
 
+    if kind != "drawing":
+        await require_embedding_ready(db)
+
     base = await get_base_by_public_id(db, base_public_id)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     existing = await _find_by_content_hash(db, base_id=base.id, digest=digest)
@@ -755,8 +820,9 @@ async def ingest_text(
             doc.char_count = len(text)
             doc.chunk_count = 0
             doc.status = "ready"
-            doc.review_status = "pending"
+            doc.review_status = "approved"
             doc.error_msg = None
+            await _vectorize_document(db, doc, text)
     except Exception as exc:  # noqa: BLE001
         doc.status = "failed"
         doc.error_msg = _error_msg(exc)
@@ -772,12 +838,34 @@ async def ingest_text(
     return to_kb_item(doc)
 
 
+def _apply_skip_rag(doc: KnowledgeDocument, reason: str) -> None:
+    doc.tags = apply_skip_rag_tag(doc.tags)
+    doc.chunk_count = 0
+    doc.status = "ready"
+    doc.error_msg = None
+    summary = doc.summary or ""
+    if not summary.startswith("PERFJSON:"):
+        doc.summary = (reason or "未向量化，检索将跳过")[:200]
+
+
 async def _vectorize_document(db: AsyncSession, doc: KnowledgeDocument, text: str) -> None:
     from db.models.knowledge import KnowledgeBase
 
     cleaned = text.strip()
     if len(cleaned) < 4:
         raise AppError(ErrorCode.VALIDATION, "content too short", status_code=422)
+
+    verdict = classify_kb_document(name=doc.name or "", text=cleaned, tags=doc.tags)
+    if verdict.skip_vectorize:
+        try:
+            get_qdrant_store().delete_by_doc_id(doc.public_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("skip-rag delete vectors failed id=%s: %s", doc.public_id, exc)
+        _apply_skip_rag(doc, verdict.reason)
+        return
+
+    if has_skip_rag_tag(doc.tags):
+        doc.tags = [str(t) for t in (doc.tags or []) if str(t).strip() != TAG_BID_FOREIGN]
 
     result = await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == doc.base_id))
     base = result.scalar_one_or_none()
@@ -1006,14 +1094,23 @@ async def _filter_approved_hits(
     if not ids:
         return hits
     result = await db.execute(
-        select(KnowledgeDocument.public_id).where(
+        select(KnowledgeDocument.public_id, KnowledgeDocument.tags).where(
             KnowledgeDocument.public_id.in_(ids),
             KnowledgeDocument.status == "ready",
             KnowledgeDocument.review_status == "approved",
         )
     )
-    allowed = {str(pid) for pid in result.scalars().all()}
-    return [h for h in hits if str(h.get("doc_id") or "").strip() in allowed]
+    allowed = {
+        str(pid)
+        for pid, tags in result.all()
+        if not has_skip_rag_tag(tags)
+    }
+    return [
+        h
+        for h in hits
+        if str(h.get("doc_id") or "").strip() in allowed
+        and not has_skip_rag_tag(h.get("tags"))
+    ]
 
 
 async def search_knowledge_docs(
@@ -1078,6 +1175,8 @@ async def _collapse_hits_to_docs(
         doc = rows.get(pid)
         if doc is not None and (doc.kind or "") == "drawing":
             continue
+        if doc is not None and has_skip_rag_tag(doc.tags):
+            continue
         kb_id = kb_of.get(pid) or ""
         sidecar = read_extracted_text(kb_id, pid) if kb_id else None
         if sidecar and (is_layout_case_card(sidecar) or len(sidecar) <= 4000):
@@ -1087,6 +1186,13 @@ async def _collapse_hits_to_docs(
         else:
             content = "\n\n".join(pieces.get(pid) or [])
         if not content.strip():
+            continue
+        title = (doc.name if doc is not None else None) or name_of.get(pid) or "未命名资料"
+        if should_skip_kb_retrieval(
+            name=title,
+            content=content,
+            tags=doc.tags if doc is not None else None,
+        ):
             continue
         out.append(
             {

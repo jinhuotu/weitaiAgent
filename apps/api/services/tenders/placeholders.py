@@ -22,6 +22,16 @@ _SONG = "宋体"
 _CN_ORD = "一二三四五六七八九十"
 _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
+# 生成速度：默认不把任何扫描件渲进 Word（虚线框+说明），装订时另附原件。
+# 证件类若需嵌入可再打开；当前优先保证「生成并预览」秒级返回。
+_EMBED_SCAN_KEYS = frozenset()
+_SLOT_PDF_MAX_PAGES = 1
+_SLOT_MAX_FILES = 1
+_PLACEHOLDER_MAX_IMAGES = 4
+_RENDER_SCALE = 0.5
+_JPEG_QUALITY = 45
+_IMAGE_MAX_PX = 800
+
 DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     PlaceholderItem(
         key="id_legal",
@@ -36,7 +46,7 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     PlaceholderItem(
         key="perf",
         title="类似项目合同及发票（单份金额≥20万元）",
-        hint="签约主体必须是河南伟泰光电科技有限公司。",
+        hint="签约主体必须是河南伟泰光电科技有限公司。上传后自动识别项目/合同、规格型号、买方、联系人、合同额、概况与是否在建；招标优先采用已竣工充电桩项目。",
     ),
     PlaceholderItem(
         key="finance",
@@ -65,15 +75,81 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     ),
 )
 
+TECH_DRAWING_KEY = "tech_drawings"
+TECH_DRAWING_SLOT = PlaceholderItem(
+    key=TECH_DRAWING_KEY,
+    title="实施方案图纸",
+    hint="本项目平面图、系统图或施工图。换标请覆盖上传，禁止使用其他项目图纸。",
+)
+
 _PERF_NOTE = (
     "【待补】请粘贴河南伟泰光电科技有限公司作为签约主体、金额≥20万元的合同及发票。"
-    "禁止使用其他公司业绩。"
+    "招标优先认可已竣工完成的充电桩项目。禁止使用其他公司业绩。"
 )
 
 
-def collect_slots(extra: list[PlaceholderItem] | None = None) -> list[PlaceholderItem]:
-    """默认方框 + 邀请书多出来的资料项（按 key 去重，后者可改说明）。"""
-    by_key: dict[str, PlaceholderItem] = {item.key: item.model_copy() for item in DEFAULT_SLOTS if item.key}
+def normalize_slot_keys(keys: list[str] | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for raw in keys or []:
+        key = str(raw or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def this_bid_keys(
+    *,
+    extra: list[PlaceholderItem] | None = None,
+    catalog: list[PlaceholderItem] | None = None,
+    required_keys: list[str] | None = None,
+    include_keys: list[str] | None = None,
+    has_agent: bool = False,
+) -> tuple[list[str], list[str]]:
+    """本标必填 key、写入 Word 的 key。不把整份资料库都塞进文件。"""
+    extras = extra or []
+    known = {item.key for item in (catalog if catalog is not None else DEFAULT_SLOTS) if item.key}
+    known.update(item.key for item in extras if item.key)
+
+    required = normalize_slot_keys(required_keys)
+    if not required:
+        required = normalize_slot_keys([item.key for item in extras])
+    if "id_legal" in known and "id_legal" not in required:
+        required = ["id_legal", *required]
+    if has_agent:
+        if "id_agent" in known and "id_agent" not in required:
+            required.append("id_agent")
+    else:
+        required = [key for key in required if key != "id_agent"]
+    required = [key for key in required if key in known]
+
+    include = normalize_slot_keys(include_keys)
+    if not include:
+        include = list(required)
+    else:
+        for key in required:
+            if key not in include:
+                include.append(key)
+    include = [key for key in include if key in known]
+    return required, include
+
+
+def collect_slots(
+    extra: list[PlaceholderItem] | None = None,
+    *,
+    catalog: list[PlaceholderItem] | None = None,
+    include_keys: list[str] | None = None,
+) -> list[PlaceholderItem]:
+    """资料库清单 + 邀请书多出来的资料项（按 key 去重，后者可改说明）。
+
+    include_keys 为 None 时返回合并后的全部项（资料库列表）；传入列表则只保留本标要写入 Word 的项。
+    """
+    base_items = catalog if catalog is not None else list(DEFAULT_SLOTS)
+    by_key: dict[str, PlaceholderItem] = {
+        item.key: item.model_copy() for item in base_items if item.key
+    }
     for item in extra or []:
         title = (item.title or "").strip()
         if not title:
@@ -89,37 +165,103 @@ def collect_slots(extra: list[PlaceholderItem] | None = None) -> list[Placeholde
             )
         else:
             by_key[key] = PlaceholderItem(key=key, title=title, hint=hint or "请按招标文件要求补附")
-    return list(by_key.values())
+    if include_keys is None:
+        return list(by_key.values())
+    ordered: list[PlaceholderItem] = []
+    seen: set[str] = set()
+    for key in normalize_slot_keys(include_keys):
+        item = by_key.get(key)
+        if item is None or key in seen:
+            continue
+        seen.add(key)
+        ordered.append(item)
+    return ordered
 
 
 def append_placeholder_section(
     doc: Document,
     slots: list[PlaceholderItem],
     attachments: dict[str, list[Path]] | None = None,
-) -> tuple[int, int]:
-    """每个附件项：小标题 +（已上传扫描件 | 虚线粘贴框）。返回 (已插入项数, 仍待补方框数)。"""
+) -> tuple[int, int, list[str]]:
+    """每个附件项：小标题 +（轻量扫描件 | 虚线框说明）。
+    财税/信用/合同等大文件默认不渲进 Word，避免生成卡住。
+    返回 (已插入项数, 仍待补方框数, 限流提示)。
+    """
     if not slots:
-        return 0, 0
+        return 0, 0, []
+    slots = [item for item in slots if (item.key or "").strip() != TECH_DRAWING_KEY]
+    if not slots:
+        return 0, 0, []
     files_by_key = attachments or {}
     doc.add_page_break()
     filled = 0
     boxes = 0
+    notes: list[str] = []
+    skipped_heavy = 0
+    budget = {"left": _PLACEHOLDER_MAX_IMAGES}
     for i, slot in enumerate(slots):
         if i:
             doc.add_paragraph()
         _write_subheading(doc, i, slot.title)
-        media = files_by_key.get((slot.key or "").strip()) or []
-        if media:
-            n = _insert_slot_media(doc, media)
-            if n > 0:
-                filled += 1
-            else:
-                _draw_box(doc, slot)
-                boxes += 1
+        key = (slot.key or "").strip()
+        media = files_by_key.get(key) or []
+        if not media:
+            _draw_box(doc, slot)
+            boxes += 1
+            continue
+
+        # 大附件：只写提示 + 虚线框，不逐页渲染
+        if key not in _EMBED_SCAN_KEYS:
+            _write_library_skip_note(doc, slot, media)
+            _draw_box(doc, slot)
+            filled += 1
+            skipped_heavy += 1
+            continue
+
+        if budget["left"] <= 0:
+            _write_library_skip_note(doc, slot, media)
+            _draw_box(doc, slot)
+            filled += 1
+            skipped_heavy += 1
+            continue
+
+        n = _insert_slot_media(doc, media, budget=budget)
+        if n > 0:
+            filled += 1
         else:
             _draw_box(doc, slot)
             boxes += 1
-    return filled, boxes
+
+    if skipped_heavy:
+        notes.append(
+            f"已有 {skipped_heavy} 类附件未嵌入 Word（仅占位提示），生成已加速；"
+            "装订时请从资料库打印原件附上。"
+        )
+    return filled, boxes, notes
+
+
+def _write_library_skip_note(doc: Document, slot: PlaceholderItem, media: list[Path]) -> None:
+    para = doc.add_paragraph()
+    para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    names = "、".join(p.name for p in media[:3])
+    more = f" 等 {len(media)} 个" if len(media) > 3 else f"（{len(media)} 个）"
+    run = para.add_run(
+        f"【资料库已有{more}：{names}】为加快生成未写入扫描页，装订时请附原件。"
+    )
+    _font(run, 10.5, bold=False)
+    run.font.color.rgb = RGBColor(0x66, 0x66, 0x66)
+
+
+def draw_placeholder_box(doc: Document, slot: PlaceholderItem | None = None, *, after=None) -> None:
+    """在文档中画虚线粘贴框；after 为段落时插到该段之后（用于技术标图纸）。"""
+    _draw_box(doc, slot or PlaceholderItem(key="pending", title="待补资料"))
+    if after is None:
+        return
+    body = doc.element.body
+    tables = body.findall(qn("w:tbl"))
+    if not tables:
+        return
+    after._element.addnext(tables[-1])
 
 
 def fill_perf_placeholders(table: Table) -> None:
@@ -168,19 +310,54 @@ def _draw_box(doc: Document, slot: PlaceholderItem) -> None:
     _ = slot
 
 
-def _insert_slot_media(doc: Document, files: list[Path], *, max_pages: int = 20) -> int:
+def _insert_slot_media(
+    doc: Document,
+    files: list[Path],
+    *,
+    budget: dict[str, int] | None = None,
+    max_pages: int = _SLOT_PDF_MAX_PAGES,
+) -> int:
     inserted = 0
-    for path in files:
+    for path in files[:_SLOT_MAX_FILES]:
+        if budget is not None and budget.get("left", 0) <= 0:
+            break
         suf = path.suffix.lower()
         try:
             if suf == ".pdf":
-                inserted += _insert_pdf_pages(doc, path, max_pages=max_pages)
+                n = _insert_pdf_pages(doc, path, max_pages=max_pages, budget=budget)
+                inserted += n
             elif suf in _IMAGE_EXT:
+                if budget is not None and budget.get("left", 0) <= 0:
+                    break
                 if _insert_image(doc, path):
                     inserted += 1
+                    if budget is not None:
+                        budget["left"] = max(0, int(budget["left"]) - 1)
         except Exception:
             logger.exception("insert slot media failed: %s", path)
     return inserted
+
+
+def _render_pdf_page_jpeg(page, *, scale: float = _RENDER_SCALE, quality: int = _JPEG_QUALITY) -> io.BytesIO:
+    bitmap = page.render(scale=scale)
+    image = bitmap.to_pil().convert("RGB")
+    image = _shrink_pil(image)
+    buf = io.BytesIO()
+    image.save(buf, format="JPEG", quality=quality, optimize=False)
+    buf.seek(0)
+    return buf
+
+
+def _shrink_pil(image):
+    try:
+        w, h = image.size
+        longest = max(w, h)
+        if longest <= _IMAGE_MAX_PX:
+            return image
+        ratio = _IMAGE_MAX_PX / float(longest)
+        return image.resize((max(1, int(w * ratio)), max(1, int(h * ratio))))
+    except Exception:
+        return image
 
 
 def _insert_image(doc: Document, path: Path, *, width_cm: float = 15.5) -> bool:
@@ -190,11 +367,27 @@ def _insert_image(doc: Document, path: Path, *, width_cm: float = 15.5) -> bool:
     pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
     pic.paragraph_format.space_before = Pt(4)
     pic.paragraph_format.space_after = Pt(4)
-    pic.add_run().add_picture(str(path), width=Cm(width_cm))
+    try:
+        from PIL import Image
+
+        with Image.open(path) as raw:
+            image = _shrink_pil(raw.convert("RGB"))
+            buf = io.BytesIO()
+            image.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=False)
+            buf.seek(0)
+            pic.add_run().add_picture(buf, width=Cm(width_cm))
+    except Exception:
+        pic.add_run().add_picture(str(path), width=Cm(width_cm))
     return True
 
 
-def _insert_pdf_pages(doc: Document, pdf_path: Path, *, max_pages: int = 20) -> int:
+def _insert_pdf_pages(
+    doc: Document,
+    pdf_path: Path,
+    *,
+    max_pages: int = _SLOT_PDF_MAX_PAGES,
+    budget: dict[str, int] | None = None,
+) -> int:
     try:
         import pypdfium2 as pdfium
     except ImportError:
@@ -209,19 +402,19 @@ def _insert_pdf_pages(doc: Document, pdf_path: Path, *, max_pages: int = 20) -> 
     count = min(len(pdf), max_pages)
     inserted = 0
     for i in range(count):
+        if budget is not None and budget.get("left", 0) <= 0:
+            break
         try:
             page = pdf[i]
-            bitmap = page.render(scale=1.2)
-            image = bitmap.to_pil().convert("RGB")
-            buf = io.BytesIO()
-            image.save(buf, format="JPEG", quality=72, optimize=True)
-            buf.seek(0)
+            buf = _render_pdf_page_jpeg(page)
             pic = doc.add_paragraph()
             pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
             pic.paragraph_format.space_before = Pt(4)
             pic.paragraph_format.space_after = Pt(4)
             pic.add_run().add_picture(buf, width=Cm(15.5))
             inserted += 1
+            if budget is not None:
+                budget["left"] = max(0, int(budget["left"]) - 1)
         except Exception:
             logger.exception("render slot pdf page %s of %s failed", i + 1, pdf_path.name)
     return inserted

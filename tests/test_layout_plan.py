@@ -729,10 +729,29 @@ def test_qwen_generation_options_disable_thinking() -> None:
     )
     out = client._apply_generation_options({"model": "qwen3.7-plus"})
     assert out["enable_thinking"] is False
+    assert out["thinking"] == {"type": "disabled"}
     assert out["max_tokens"] == 8192
     timeout = client._http_timeout()
     assert timeout.read == 360.0
     assert timeout.connect == 20.0
+
+
+def test_deepseek_r1_generation_options_disable_thinking() -> None:
+    from api.services.ai.llm import LLMClient
+
+    client = LLMClient(
+        api_base="https://example.com/v1",
+        api_key="test",
+        model="DeepSeek-R1",
+        timeout_seconds=120,
+    )
+    out = client._apply_generation_options({"model": "DeepSeek-R1"})
+    assert out["enable_thinking"] is False
+    assert out["thinking"] == {"type": "disabled"}
+    assert out["max_tokens"] == 16384
+    dropped = client._drop_thinking_options(dict(out))
+    assert "enable_thinking" not in dropped
+    assert "thinking" not in dropped
 
 
 def test_parse_layout_brief_and_override_copied_case() -> None:

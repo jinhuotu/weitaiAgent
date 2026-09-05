@@ -125,8 +125,8 @@ async def create_config(
     if kind not in ("llm", "embedding"):
         raise AppError(ErrorCode.VALIDATION, "kind must be llm or embedding", status_code=422)
     cleaned_base = normalize_api_base(api_base)
-    if not name.strip() or not cleaned_base or not api_key.strip() or not model_name.strip():
-        raise AppError(ErrorCode.VALIDATION, "name/apiBase/apiKey/modelName required", status_code=422)
+    if not name.strip() or not cleaned_base or not model_name.strip():
+        raise AppError(ErrorCode.VALIDATION, "name/apiBase/modelName required", status_code=422)
     if kind == "embedding" and (scope_fast or scope_deep):
         raise AppError(ErrorCode.VALIDATION, "embedding cannot bind chat scopes", status_code=422)
     if kind == "llm" and scope_embedding:
@@ -145,7 +145,7 @@ async def create_config(
         kind=kind,
         model_type=normalize_model_type(kind, model_type),
         api_base=cleaned_base,
-        api_key=api_key.strip(),
+        api_key=(api_key or "").strip(),
         model_name=model_name.strip()[:128],
         temperature=temperature,
         timeout_seconds=float(timeout_seconds or 120),
@@ -195,7 +195,7 @@ async def update_config(
         if not cleaned:
             raise AppError(ErrorCode.VALIDATION, "apiBase required", status_code=422)
         cfg.api_base = cleaned
-    if api_key is not None and api_key.strip() and "*" not in api_key:
+    if api_key is not None and "*" not in api_key:
         cfg.api_key = api_key.strip()
     if model_name is not None:
         cfg.model_name = model_name.strip()[:128]

@@ -48,6 +48,20 @@ def _is_whitelisted(path: str) -> bool:
     return any(path.startswith(p) for p in _PREFIX_WHITELIST)
 
 
+def _query_token_allowed(path: str) -> bool:
+    """缩略图用 <img src> 无法带头，仅资料库扫描件允许 query token。"""
+    return "/tenders/library/files/" in (path or "")
+
+
+def access_token_from_request(request: Request) -> str:
+    token = access_token_from_headers(request.headers)
+    if token:
+        return token
+    if not _query_token_allowed(request.url.path):
+        return ""
+    return (request.query_params.get("access_token") or "").strip()
+
+
 def access_token_from_headers(headers) -> str:
     """读 Bearer，或代理可能丢掉 Authorization 时的 X-Access-Token。"""
     auth = ""
@@ -86,7 +100,7 @@ class JwtAuthMiddleware:
             return
 
         auth = request.headers.get("Authorization") or ""
-        token = access_token_from_headers(request.headers)
+        token = access_token_from_request(request)
         if not token:
             logger.warning(
                 "jwt missing token path=%s method=%s has_authorization=%s",

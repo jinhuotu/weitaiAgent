@@ -72,14 +72,14 @@ class EmbeddingClient:
     ) -> None:
         settings = get_settings()
         self.dim = int(dim or 1536)
-        self._api_key = api_key
+        self._api_key = (api_key or "").strip()
         self._api_base = normalize_api_base(api_base)
         self._model = model
         self._batch_size = max(1, int(batch_size or settings.embedding_batch_size or 8))
         self._max_chars = max(256, int(max_chars or settings.embedding_max_chars or 6000))
         # 部分网关不接受 dimensions；首次 400 后对该 client 永久跳过
         self._send_dimensions = self.dim > 0
-        if not self._api_key or not self._api_base:
+        if not self._api_base:
             raise AppError(
                 ErrorCode.INTERNAL,
                 "Embedding not configured: 请在「模型管理」中配置并启用 Embedding 模型",
@@ -172,10 +172,9 @@ class EmbeddingClient:
 
     async def _post_embeddings(self, texts: list[str]) -> list[list[float]]:
         url = f"{self._api_base}/embeddings"
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
         payload: dict = {
             "model": self._model,
             "input": texts,
@@ -184,7 +183,7 @@ class EmbeddingClient:
             payload["dimensions"] = self.dim
 
         try:
-            async with httpx.AsyncClient(timeout=90.0) as client:
+            async with httpx.AsyncClient(timeout=90.0, trust_env=False) as client:
                 resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code >= 400 and "dimensions" in payload:
                     # 网关不支持 dimensions：去掉后重试，并记住不再发送
@@ -192,6 +191,12 @@ class EmbeddingClient:
                     self._send_dimensions = False
                     logger.info("embedding retry without dimensions")
                     resp = await client.post(url, headers=headers, json=payload)
+                if resp.status_code in {401, 403}:
+                    raise AppError(
+                        ErrorCode.INTERNAL,
+                        "Embedding 鉴权失败，请在「模型管理」检查用于知识库的 API Key",
+                        status_code=502,
+                    )
                 if resp.status_code >= 400:
                     raise AppError(
                         ErrorCode.INTERNAL,

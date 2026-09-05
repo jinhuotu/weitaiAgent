@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import Any
 from uuid import uuid4
 
 from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.knowledge.classify import should_skip_kb_retrieval
 from api.services.knowledge.ingest import search_knowledge_docs
 from api.services.knowledge.parsers import assert_supported, extract_text_from_file, sniff_extension
 from api.services.layouts.parse import extract_json_object
@@ -19,10 +21,24 @@ from api.services.tenders.quote import (
     attach_sheet,
     parse_quote_from_text,
     parse_quote_path,
-    quote_payload_from_patch,
 )
-from api.services.tenders.placeholders import collect_slots
-from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
+from api.services.tenders.history import (
+    BIDDER_LOCK,
+    contains_foreign_bidder,
+    latest_company_profile,
+    load_history_playbooks,
+    playbook_note,
+    playbooks_prompt_block,
+)
+from api.services.tenders.placeholders import collect_slots, this_bid_keys
+from api.services.tenders.schema import (
+    COMPANY_FIELD_KEYS,
+    BidBrief,
+    DeviationLine,
+    PerformanceLine,
+    PlaceholderItem,
+    default_brief,
+)
 from common.config import get_settings
 from common.errors import AppError, ErrorCode
 
@@ -30,8 +46,7 @@ logger = logging.getLogger("api.tenders.extract")
 
 _INVITE_MAX_CHARS = 18000
 _KB_MAX_CHARS = 6000
-_FORBIDDEN_KB = ("郑州容新", "容新新能源")
-_BIDDER_LOCK = "河南伟泰光电科技有限公司"
+_BIDDER_LOCK = BIDDER_LOCK
 
 # 允许用邀请书覆盖的字段。投标人/法人/代理人一律不改。
 _PATCHABLE = frozenset(
@@ -49,6 +64,12 @@ _PATCHABLE = frozenset(
         "settlementPct",
         "warrantyPct",
         "extraNote",
+        "constructionPlan",
+        "layoutPlan",
+        "powerPlan",
+        "omPlan",
+        "schedulePlan",
+        "techPlanNote",
     }
 )
 _INT_FIELDS = frozenset(
@@ -64,28 +85,48 @@ _INT_FIELDS = frozenset(
 )
 
 _SYSTEM = """你是投标文件助理。用户会上传甲方的投标邀请书或招标文件正文。
+投标文件分商务标与技术标。商务标看有没有资格干（公司、资质、人员、业绩、报价、函件），缺资质或盖章错误会废标。
+技术标看充电站打算怎么建好。实施方案由经办人上传本项目图纸并写文字说明，模型不要编造图纸和台数。
 你的任务：抽出填「投标书表单」所需的项目侧字段，用 JSON 返回。
 硬性规则：
 1. 投标人永远是河南伟泰光电科技有限公司。不要把招标人、代理机构或其他公司写进投标人。
-2. 找不到的字段填 null，不要编造报价、身份证、合同业绩。
-3. 不要输出 Word/Markdown，只输出一个 JSON 对象。
-4. 知识库摘录若出现其他公司的投标文件或合同，一律忽略，不得当作伟泰资料。
-5. 工程量清单必须来自文件中的表格。没有表格则 quoteLines 为空数组，禁止用其它项目的台数（例如 133/56）顶替。
+2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体桩数。
+3. 不要输出思考过程、Word 或 Markdown，只输出一个完整 JSON 对象。
+4. 知识库摘录仅对照资格条款种类。出现其他公司投标文件、投标函或合同，一律忽略，不得当作伟泰资料。
+5. 工程量清单必须来自本邀请书或用户上传的表格。没有表格则 quoteLines 必须为 []，禁止用其它项目的台数（例如 133/56）或历史投标书顶替。
+6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、台数、合同业绩写入 JSON。
 JSON 字段：
 projectName, tenderer, bidContent, quality,
 deliveryDays, warrantyYears, bidValidityDays, bidPriceYuan,
 prepaidPct, arrivalPct, settlementPct, warrantyPct, extraNote,
 quoteTitle, quoteTaxRate,
-quoteLines（对象数组，每项 seq/name/spec/unit/qty/unitPrice/amount；无清单则 []）,
-notes（字符串数组，给经办人看的提醒）,
-missingMaterials（对象数组，每项 key/title/reason，邀请书额外要求而默认清单没有的资料）。
+quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
+notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
+requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或台数当作本标附件）,
+missingMaterials（对象数组，每项 title/reason，资料库里还没有、邀请书额外要求的资料。不要填其他项目的文件名；程序会建空项等用户上传）,
+deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术要求，禁止写死 7kW/30kW 充电桩套话。无条款则 []）,
+performanceLines（对象数组，每项 projectName/spec/client/contact/amountYuan/summary/note/ongoing/chargerRelated；只填能确认的伟泰合同，禁止编造，没有则 []。招标优先已竣工充电桩。）,
+constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填；实施方案改为图纸+文字，由经办人上传）,
+techPlanNote（中文字符串：仅当邀请书提出施工、布置、配电、运维或工期要求时，用两三句话概括伟泰拟响应的要点；没有则空字符串，禁止编造图纸、桩位和台数）,
+factoryRole（字符串：如 充电设备生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
 数字字段用数字或 null；百分比用 0-100 的整数。quoteTaxRate 用 0.13 这种小数。"""
+
+
+_TENDER_JSON_KEYS = (
+    "projectName",
+    "tenderer",
+    "requiredMaterials",
+    "bidContent",
+    "quoteLines",
+    "missingMaterials",
+    "techPlanNote",
+)
 
 
 def parse_extract_payload(raw: str) -> dict[str, Any]:
     """从模型输出抽出 JSON。供测试与生成共用。"""
     try:
-        return extract_json_object(raw)
+        return extract_json_object(raw, prefer_keys=_TENDER_JSON_KEYS)
     except AppError as exc:
         raise AppError(
             ErrorCode.VALIDATION,
@@ -136,28 +177,159 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
     data["bidderName"] = _BIDDER_LOCK if not (data.get("bidderName") or "").strip() else data["bidderName"]
     if _BIDDER_LOCK not in str(data.get("bidderName") or ""):
         data["bidderName"] = _BIDDER_LOCK
+    deviations = deviation_lines_from_payload(patch)
+    if deviations:
+        data["deviationLines"] = [item.model_dump() for item in deviations]
+        applied.append("deviationLines")
+    perfs = performance_lines_from_payload(patch)
+    if perfs:
+        data["performanceLines"] = [item.model_dump() for item in perfs]
+        applied.append("performanceLines")
+    role = str(patch.get("factoryRole") or "").strip()
+    if role and not _looks_like_other_bidder(role, "factoryRole"):
+        data["factoryRole"] = role[:80]
+        applied.append("factoryRole")
+    if not str(data.get("techPlanNote") or "").strip():
+        from api.services.tenders.categories import LEGACY_TECH_FIELDS
+
+        joined = "\n\n".join(
+            str(data.get(field) or "").strip() for field in LEGACY_TECH_FIELDS if str(data.get(field) or "").strip()
+        )
+        if joined:
+            data["techPlanNote"] = joined
+            applied.append("techPlanNote")
     return BidBrief.model_validate(data), applied
 
 
-def slots_from_payload(patch: dict[str, Any]) -> list[PlaceholderItem]:
-    extra: list[PlaceholderItem] = []
-    raw = patch.get("missingMaterials")
+def fill_empty_company_fields(
+    brief: BidBrief,
+    *profiles: BidBrief | dict | None,
+) -> tuple[BidBrief, list[str]]:
+    """邀请书不含投标人资料。空的公司/法人字段用本公司默认值或上次投标回填。"""
+    data = brief.model_dump()
+    applied: list[str] = []
+    sources: list[dict[str, Any]] = []
+    for profile in profiles:
+        if profile is None:
+            continue
+        if isinstance(profile, BidBrief):
+            sources.append(profile.model_dump())
+        elif isinstance(profile, dict):
+            sources.append(profile)
+    sources.append(default_brief().model_dump())
+    for key in COMPANY_FIELD_KEYS:
+        if str(data.get(key) or "").strip():
+            continue
+        for src in sources:
+            value = src.get(key)
+            if value is None:
+                continue
+            text = str(value).strip()
+            if not text or _looks_like_other_bidder(text, key):
+                continue
+            data[key] = text
+            applied.append(key)
+            break
+    data["bidderName"] = _BIDDER_LOCK
+    if "bidderName" not in applied and not (brief.bidderName or "").strip():
+        applied.append("bidderName")
+    return BidBrief.model_validate(data), applied
+
+
+def deviation_lines_from_payload(patch: dict[str, Any]) -> list[DeviationLine]:
+    raw = patch.get("deviationLines")
     if not isinstance(raw, list):
-        return extra
+        return []
+    out: list[DeviationLine] = []
+    for i, item in enumerate(raw, start=1):
+        if not isinstance(item, dict):
+            continue
+        requirement = str(item.get("requirement") or item.get("req") or "").strip()
+        if not requirement:
+            continue
+        response = str(item.get("response") or item.get("reply") or "").strip() or requirement
+        deviation = str(item.get("deviation") or "无偏差").strip() or "无偏差"
+        seq = str(item.get("seq") or i).strip() or str(i)
+        out.append(
+            DeviationLine(seq=seq, requirement=requirement, response=response, deviation=deviation)
+        )
+    return out[:20]
+
+
+def performance_lines_from_payload(patch: dict[str, Any]) -> list[PerformanceLine]:
+    from api.services.tenders.performance import performance_from_dict, rank_performance_lines
+
+    raw = patch.get("performanceLines")
+    if not isinstance(raw, list):
+        return []
+    out: list[PerformanceLine] = []
     for item in raw:
         if not isinstance(item, dict):
             continue
-        title = str(item.get("title") or "").strip()
-        if not title:
+        line = performance_from_dict(item, allow_client_title=False)
+        if line is None:
             continue
-        extra.append(
-            PlaceholderItem(
-                key=str(item.get("key") or "").strip(),
-                title=title,
-                hint=str(item.get("reason") or item.get("hint") or "").strip(),
+        out.append(line)
+    return rank_performance_lines(out)[:8]
+
+
+def merge_performance_lines(
+    primary: list[PerformanceLine],
+    extra: list[PerformanceLine],
+) -> list[PerformanceLine]:
+    from api.services.tenders.performance import is_weak_title, rank_performance_lines
+
+    out: list[PerformanceLine] = []
+    seen: set[str] = set()
+    for item in list(primary or []) + list(extra or []):
+        name = (item.projectName or "").strip()
+        if not name or is_weak_title(name):
+            continue
+        key = re.sub(r"\s+", "", name).lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return rank_performance_lines(out)[:8]
+
+
+def _line_field(line: object, key: str) -> str:
+    if isinstance(line, dict):
+        return str(line.get(key) or "").strip()
+    return str(getattr(line, key, None) or "").strip()
+
+
+def deviation_lines_from_quote(lines: list) -> list[DeviationLine]:
+    out: list[DeviationLine] = []
+    for i, line in enumerate(lines or [], start=1):
+        name = _line_field(line, "name")
+        spec = _line_field(line, "spec")
+        if not name and not spec:
+            continue
+        if name and spec:
+            requirement = f"{name}\n{spec}"
+            response = (
+                f"我司所投{name}：\n{spec}\n"
+                "含供货、安装、调试，安装费已含在综合单价内。"
             )
+        else:
+            requirement = name or spec
+            response = f"我司所投{name or '产品'}：{spec or name}，含供货、安装、调试，安装费已含在综合单价内。"
+        out.append(
+            DeviationLine(seq=str(i), requirement=requirement, response=response, deviation="无偏差")
         )
-    return extra
+    return out
+
+
+def slots_from_payload(
+    patch: dict[str, Any],
+    *,
+    catalog: list[PlaceholderItem] | None = None,
+) -> list[PlaceholderItem]:
+    from api.services.tenders.match import slots_from_materials, split_invitation_materials
+
+    mapped, missing = split_invitation_materials(patch, catalog)
+    return slots_from_materials(mapped, missing)
 
 
 def notes_from_payload(patch: dict[str, Any]) -> list[str]:
@@ -179,6 +351,7 @@ async def parse_invitation(
     kb_ids: list[str] | None = None,
     current: BidBrief | None = None,
     quote_upload: UploadFile | None = None,
+    created_by: int | None = None,
 ) -> dict[str, Any]:
     path = await _save_upload(upload)
     quote_path = None
@@ -186,25 +359,106 @@ async def parse_invitation(
         quote_path = await _save_upload(quote_upload)
     extracted = await extract_text_from_file(path, ext=path.suffix.lower().lstrip("."))
     invitation = (extracted.text or "").strip()
+    settings = get_settings()
+    max_ocr = max(0, int(settings.ocr_max_pages))
     if len(invitation) < 20:
-        raise AppError(ErrorCode.VALIDATION, "邀请书解析正文过短，请换可检索的 PDF/Word", status_code=422)
+        hint = "邀请书解析正文过短，请换可检索的 PDF/Word"
+        if extracted.ocr_capped:
+            hint += f"（已达 OCR 上限 {max_ocr} 页，可提高 OCR_MAX_PAGES 后重试）"
+        elif path.suffix.lower().lstrip(".") in {
+            "pdf",
+            "png",
+            "jpg",
+            "jpeg",
+            "webp",
+            "bmp",
+            "tif",
+            "tiff",
+        } and not extracted.ocr_pages:
+            hint += "。若为扫描件，请确认已配置 OCR"
+        raise AppError(ErrorCode.VALIDATION, hint, status_code=422)
 
     kb_hits, kb_notes = await _recall_knowledge(db, invitation, kb_ids or [])
-    if any(mark in invitation for mark in _FORBIDDEN_KB):
+    if contains_foreign_bidder(invitation):
         kb_notes = [
             "正文出现其他公司名称，请确认上传的是甲方邀请书/招标文件，而不是他人已填的投标书",
             *kb_notes,
         ]
+    playbooks = await load_history_playbooks(db)
+    from api.services.tenders.library_kb import (
+        catalog_placeholders,
+        list_library_items,
+        performance_from_library,
+        persist_parsed_materials,
+    )
+
+    catalog = await catalog_placeholders(db)
+    catalog_rows = await list_library_items(db)
     client = await build_llm_client(db, "fast")
     messages = [
         {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": _user_prompt(invitation, kb_hits)},
+        {"role": "user", "content": _user_prompt(invitation, kb_hits, catalog_rows, playbooks)},
     ]
     raw = await client.complete(messages, mode="fast")
-    patch = parse_extract_payload(raw)
+    try:
+        patch = parse_extract_payload(raw)
+    except AppError as first:
+        if first.status_code != 422:
+            raise
+        logger.warning(
+            "tender extract json retry chars=%s err=%s head=%s",
+            len(raw or ""),
+            first.msg,
+            (raw or "")[:240],
+        )
+        raw = await client.complete(
+            [
+                *messages,
+                {"role": "assistant", "content": (raw or "")[:6000]},
+                {
+                    "role": "user",
+                    "content": (
+                        "上一轮无法解析为 JSON。请只输出一个完整 JSON 对象，"
+                        "不要思考过程、不要 markdown、不要解释。"
+                    ),
+                },
+            ],
+            mode="fast",
+        )
+        try:
+            patch = parse_extract_payload(raw)
+        except AppError as second:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                (
+                    f"{second.msg}。"
+                    "DeepSeek-R1 等推理模型常把思考写进正文或截断 JSON，"
+                    "请改用 DeepSeek-V3 / Qwen 等非思考对话模型再识别。"
+                ),
+                status_code=422,
+            ) from second
     brief, filled = apply_extract_patch(current or default_brief(), patch)
-    extras = slots_from_payload(patch)
+    company_profile = await latest_company_profile(db)
+    brief, company_filled = fill_empty_company_fields(brief, current, company_profile)
+    for key in company_filled:
+        if key not in filled:
+            filled.append(key)
+    extras = slots_from_payload(patch, catalog=catalog)
+    before_keys = {item.key for item in catalog if item.key}
+    extras = await persist_parsed_materials(db, extras, created_by=created_by)
+    created_keys = [item.key for item in extras if item.key and item.key not in before_keys]
+    catalog = await catalog_placeholders(db)
+    has_agent = bool((brief.agentName or "").strip() or (brief.agentIdNo or "").strip())
+    required_keys, include_keys = this_bid_keys(
+        extra=extras,
+        catalog=catalog,
+        required_keys=[item.key for item in extras],
+        include_keys=None,
+        has_agent=has_agent,
+    )
     brief.extraPlaceholders = extras
+    brief.requiredSlotKeys = required_keys
+    brief.includeSlotKeys = include_keys
     brief.includePlaceholders = True
 
     quote_note, brief, quote_filled = _merge_quote(brief, patch, invitation, path, quote_path)
@@ -212,18 +466,52 @@ async def parse_invitation(
         filled = [*filled, "quoteLines"]
         if "bidPriceYuan" not in filled and brief.bidPriceYuan > 0:
             filled.append("bidPriceYuan")
+    if not brief.deviationLines:
+        from_quote = deviation_lines_from_quote(brief.quoteLines)
+        if from_quote:
+            brief.deviationLines = from_quote
+            filled = [*filled, "deviationLines"]
+    lib_perf = await performance_from_library(db, extract_missing=False)
+    if lib_perf or brief.performanceLines:
+        brief.performanceLines = merge_performance_lines(brief.performanceLines, lib_perf)
+        if brief.performanceLines and "performanceLines" not in filled:
+            filled = [*filled, "performanceLines"]
 
-    slots = collect_slots(extras)
+    slots = collect_slots(extras, catalog=catalog, include_keys=include_keys)
+    catalog_rows = await list_library_items(db)
+    from api.services.tenders.match import attachment_match_notes, build_attachment_match
+
+    attachment_match = build_attachment_match(
+        catalog_rows,
+        required_keys=required_keys,
+        include_keys=include_keys,
+        created_keys=created_keys,
+    )
     notes = [
         *kb_notes,
         *notes_from_payload(patch),
         *quote_note,
     ]
+    if lib_perf:
+        notes.append("类似业绩已从资料库合同/发票识别；招标优先采用已竣工充电桩项目。")
+    hist_note = playbook_note(playbooks)
+    if hist_note:
+        notes.append(hist_note)
+    if extracted.ocr_capped:
+        notes.insert(
+            0,
+            f"邀请书共 {extracted.page_count or '?'} 页，OCR 已达上限 {max_ocr} 页"
+            f"（实际识别 {extracted.ocr_pages} 页）。未识别页未进入抽取，可提高 OCR_MAX_PAGES 后重试。",
+        )
+    elif extracted.ocr_pages:
+        notes.insert(0, f"邀请书已 OCR {extracted.ocr_pages} 页（共 {extracted.page_count or extracted.ocr_pages} 页）")
     if not filled:
         notes.append("模型未抽出可写入表单的字段，请核对邀请书是否为可选中的文字稿，并手工填写")
     else:
         notes.insert(0, "已根据邀请书回填：" + "、".join(_label(k) for k in filled))
-    notes.append("投标人已锁定为河南伟泰光电科技有限公司，生成 Word 时会为缺失扫描件画方框")
+    notes.extend(attachment_match_notes(attachment_match))
+    notes.append("投标人公司信息不从邀请书抽取，空项已用本公司默认值或上次投标回填，请核对法人与电话")
+    notes.append("未上传的扫描件会在 Word 里用虚线框占位，不阻止生成")
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
     return {
@@ -231,9 +519,16 @@ async def parse_invitation(
         "filledKeys": filled,
         "notes": notes,
         "placeholders": [item.model_dump() for item in slots],
+        "requiredSlotKeys": required_keys,
+        "includeSlotKeys": include_keys,
+        "attachmentMatch": attachment_match,
         "fileName": upload.filename or path.name,
         "quoteFileName": (quote_upload.filename if quote_upload is not None else None),
         "charCount": len(invitation),
+        "pageCount": int(extracted.page_count or 0),
+        "ocrPages": int(extracted.ocr_pages or 0),
+        "ocrCapped": bool(extracted.ocr_capped),
+        "ocrMaxPages": max_ocr,
         "preview": preview,
         "knowledgeHits": kb_hits,
     }
@@ -255,16 +550,39 @@ def _label(key: str) -> str:
         "warrantyPct": "质保金",
         "extraNote": "需要说明的问题",
         "quoteLines": "分项工程量",
+        "deviationLines": "技术偏差",
+        "performanceLines": "类似业绩",
+        "factoryRole": "原厂角色",
+        "constructionPlan": "施工方案",
+        "layoutPlan": "平面布置",
+        "powerPlan": "配电方案",
+        "omPlan": "运维方案",
+        "schedulePlan": "工期安排",
+        "techPlanNote": "实施方案说明",
+        "bidderName": "投标人全称",
+        "bidderAddress": "地址",
+        "bidderPhone": "电话",
+        "bidderEmail": "邮箱",
+        "foundedDate": "成立日期",
+        "legalPersonName": "法人姓名",
+        "legalPersonAge": "年龄",
+        "legalPersonIdNo": "法人身份证号",
+        "legalPersonTitle": "职务",
     }.get(key, key)
 
 
 def _looks_like_other_bidder(text: str, key: str) -> bool:
-    if key != "tenderer" and any(mark in text for mark in _FORBIDDEN_KB):
+    if key != "tenderer" and contains_foreign_bidder(text):
         return True
     return False
 
 
-def _user_prompt(invitation: str, kb_hits: list[dict[str, Any]]) -> str:
+def _user_prompt(
+    invitation: str,
+    kb_hits: list[dict[str, Any]],
+    catalog_rows: list[dict[str, Any]] | None = None,
+    playbooks: list | None = None,
+) -> str:
     body = invitation[:_INVITE_MAX_CHARS]
     parts = [
         f"投标人（不得修改）：{_BIDDER_LOCK}",
@@ -273,10 +591,29 @@ def _user_prompt(invitation: str, kb_hits: list[dict[str, Any]]) -> str:
         "【邀请书正文】",
         body,
     ]
-    if kb_hits:
+    if catalog_rows:
+        from api.services.tenders.library_kb import catalog_prompt_lines
+
         parts.append("")
-        parts.append("【知识库摘录·仅对照资格条款，忽略其中其他公司的投标/合同】")
-        for hit in kb_hits:
+        parts.append("【投标资料库清单·requiredMaterials 的 key 必须从此清单选取】")
+        parts.append(catalog_prompt_lines(catalog_rows))
+    history_block = playbooks_prompt_block(playbooks)
+    if history_block:
+        parts.append("")
+        parts.append(history_block)
+    safe_hits = [
+        hit
+        for hit in (kb_hits or [])
+        if not should_skip_kb_retrieval(
+            name=str(hit.get("name") or ""),
+            content=str(hit.get("content") or ""),
+            tags=hit.get("tags") if isinstance(hit.get("tags"), list) else None,
+        )
+    ]
+    if safe_hits:
+        parts.append("")
+        parts.append("【知识库摘录·仅对照资格条款，禁止套用历史投标书或他司合同】")
+        for hit in safe_hits:
             name = str(hit.get("name") or "资料")
             content = str(hit.get("content") or "").strip()[:1800]
             if content:
@@ -297,11 +634,15 @@ async def _recall_knowledge(
     try:
         docs = await search_knowledge_docs(db, query=query, top_k=3, kb_ids=ids, max_drawings=0)
     except AppError as exc:
-        notes.append(f"知识库未检索：{exc.msg}")
+        notes.append(f"知识库未检索：{exc.msg}。已仅根据邀请书抽取")
         return [], notes
     except Exception as exc:  # noqa: BLE001
         logger.warning("tender kb search failed: %s", exc)
-        notes.append("知识库检索失败，已仅根据邀请书抽取")
+        detail = str(exc)
+        if "unauthorized" in detail.lower() or "401" in detail:
+            notes.append("知识库检索鉴权失败（Embedding 或向量库密钥）。已仅根据邀请书抽取")
+        else:
+            notes.append("知识库检索失败，已仅根据邀请书抽取")
         return [], notes
 
     kept: list[dict[str, Any]] = []
@@ -309,7 +650,11 @@ async def _recall_knowledge(
     used = 0
     for doc in docs:
         content = str(doc.get("content") or "")
-        if any(mark in content or mark in str(doc.get("name") or "") for mark in _FORBIDDEN_KB):
+        if should_skip_kb_retrieval(
+            name=str(doc.get("name") or ""),
+            content=content,
+            tags=doc.get("tags") if isinstance(doc.get("tags"), list) else None,
+        ):
             skipped += 1
             continue
         clip = content[:2000]
@@ -318,7 +663,7 @@ async def _recall_knowledge(
             break
         kept.append({"name": doc.get("name"), "docId": doc.get("doc_id"), "content": clip})
     if skipped:
-        notes.append(f"已忽略 {skipped} 篇疑似其他公司投标/合同的知识库文档")
+        notes.append(f"已忽略 {skipped} 篇疑似投标书或其他公司材料的知识库文档")
     if kept:
         notes.append("已结合知识库 " + "、".join(str(x.get("name") or "资料") for x in kept))
     elif ids:
@@ -333,6 +678,7 @@ def _merge_quote(
     invite_path,
     quote_path,
 ) -> tuple[list[str], BidBrief, bool]:
+    del patch
     notes: list[str] = []
     sheet = parse_quote_path(quote_path) if quote_path is not None else None
     source = "file" if sheet is not None else ""
@@ -347,13 +693,17 @@ def _merge_quote(
         if sheet is not None:
             source = "text"
     if sheet is None:
-        sheet = quote_payload_from_patch(patch)
-        if sheet is not None:
-            source = "llm"
-    if sheet is None:
         notes.append(
-            "未解析到工程量清单。生成时仍用内置高途模板，请另传 Excel/Word 清单或在页面手工改分项"
+            "未解析到工程量清单。请另传 Excel/Word 清单后重新识别再生成。"
+            "未采用模型或历史投标书中的台数。"
         )
+        if brief.quoteLines:
+            data = brief.model_dump()
+            data["quoteLines"] = []
+            data["quoteSource"] = ""
+            data["quoteSourceIncTax"] = 0
+            brief = BidBrief.model_validate(data)
+            notes.append("已清空上次表单里的分项，避免沿用其他项目工程量")
         return notes, brief, False
     before = float(brief.bidPriceYuan or 0)
     brief = attach_sheet(brief, sheet, source=source)

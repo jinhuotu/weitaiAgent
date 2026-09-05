@@ -15,19 +15,16 @@ from api.services.knowledge.review import review_document
 from common.errors import AppError
 
 
-def test_initial_review_pending_except_drawings() -> None:
-    assert _initial_review_status(drawing=False) == "pending"
+def test_initial_review_always_approved() -> None:
+    assert _initial_review_status(drawing=False) == "approved"
     assert _initial_review_status(drawing=True) == "approved"
 
 
 @pytest.mark.asyncio
 async def test_filter_approved_hits_drops_pending() -> None:
     class Result:
-        def scalars(self) -> Result:
-            return self
-
-        def all(self) -> list[str]:
-            return ["ok-doc"]
+        def all(self) -> list[tuple[str, list[str]]]:
+            return [("ok-doc", ["手册"])]
 
     class Db:
         async def execute(self, _stmt: Any) -> Result:
@@ -40,6 +37,71 @@ async def test_filter_approved_hits_drops_pending() -> None:
     ]
     out = await _filter_approved_hits(Db(), hits)  # type: ignore[arg-type]
     assert [h["doc_id"] for h in out] == ["ok-doc"]
+
+
+@pytest.mark.asyncio
+async def test_filter_approved_hits_drops_bid_foreign() -> None:
+    class Result:
+        def all(self) -> list[tuple[str, list[str]]]:
+            return [
+                ("ok-doc", ["手册"]),
+                ("bid-doc", ["手动上传", "bid_foreign"]),
+            ]
+
+    class Db:
+        async def execute(self, _stmt: Any) -> Result:
+            return Result()
+
+    hits = [
+        {"doc_id": "ok-doc", "content": "ISO 认证要求"},
+        {"doc_id": "bid-doc", "content": "投标函", "tags": ["bid_foreign"]},
+    ]
+    out = await _filter_approved_hits(Db(), hits)  # type: ignore[arg-type]
+    assert [h["doc_id"] for h in out] == ["ok-doc"]
+
+
+def test_classify_kb_skips_bid_package_and_foreign_body() -> None:
+    from api.services.knowledge.classify import classify_kb_document, should_skip_kb_retrieval
+
+    skipped = classify_kb_document(name="商务标投标文件.docx", text="资格审查见前附表")
+    assert skipped.skip_vectorize
+    skipped_fn = classify_kb_document(name="授权委托投标函.pdf", text="")
+    assert skipped_fn.skip_vectorize
+    skipped_body = classify_kb_document(
+        name="手册.txt",
+        text="投标人：郑州容新新能源有限公司\n投标函",
+    )
+    assert skipped_body.skip_vectorize
+    skipped_other = classify_kb_document(
+        name="某公司材料.txt",
+        text="投标人：郑州有爱文化科技有限公司\n盖章页",
+    )
+    assert skipped_other.skip_vectorize
+
+    allowed = classify_kb_document(
+        name="充电桩产品检测报告.pdf",
+        text="河南伟泰光电科技有限公司交流充电桩型式试验",
+    )
+    assert not allowed.skip_vectorize
+    invite = classify_kb_document(
+        name="充电桩采购项目招标文件.pdf",
+        text="投标人须知前附表：须提供营业执照",
+    )
+    assert not invite.skip_vectorize
+    weitai = classify_kb_document(
+        name="公司简介.txt",
+        text="投标人：河南伟泰光电科技有限公司",
+    )
+    assert not weitai.skip_vectorize
+    requirement = classify_kb_document(
+        name="资格审查办法.pdf",
+        text="投标人：必须是在中华人民共和国境内注册的、具有独立法人资格的企业（有限公司或股份有限公司）。",
+    )
+    assert not requirement.skip_vectorize
+    guide = classify_kb_document(name="投标文件编制说明.pdf", text="如何装订")
+    assert not guide.skip_vectorize
+    assert should_skip_kb_retrieval(name="历史投标文件.docx", content="本司报价")
+    assert not should_skip_kb_retrieval(name="ISO体系证书说明.pdf", content="质量管理体系")
 
 
 def _doc(**kw: Any) -> SimpleNamespace:
@@ -219,7 +281,53 @@ async def test_cancel_running_conflict(monkeypatch: pytest.MonkeyPatch) -> None:
     assert ei.value.status_code == 409
 
 
-def test_quantization_config_from_env() -> None:
+@pytest.mark.asyncio
+async def test_enqueue_unindexed_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    from api.services.knowledge.ingest import _enqueue_unindexed_ready
+
+    ready = _doc(id=1, review_status="pending", chunk_count=0, status="ready")
+    busy = _doc(id=2, review_status="pending", chunk_count=0, status="ready")
+    rejected = _doc(id=3, review_status="rejected", chunk_count=0, status="ready")
+    drawing = _doc(id=4, kind="drawing", chunk_count=0, status="ready")
+    indexed = _doc(id=5, review_status="approved", chunk_count=8, status="ready")
+    enqueued: list[int] = []
+
+    async def fake_enqueue(_db: Any, *, base: Any, doc: Any, force_reextract: bool = False) -> Any:
+        del _db, base, force_reextract
+        enqueued.append(int(doc.id))
+        return SimpleNamespace(public_id="t1")
+
+    monkeypatch.setattr("api.services.knowledge.queue.enqueue_ingest_task", fake_enqueue)
+
+    class Result:
+        def scalars(self) -> Result:
+            return self
+
+        def all(self) -> list[int]:
+            return [2]
+
+    class Db:
+        async def execute(self, _stmt: Any) -> Result:
+            return Result()
+
+    await _enqueue_unindexed_ready(
+        Db(),  # type: ignore[arg-type]
+        SimpleNamespace(id=9),
+        [ready, busy, rejected, drawing, indexed],
+    )
+    assert enqueued == [1]
+    assert ready.review_status == "approved"
+    assert ready.status == "parsing"
+
+
+def test_qdrant_wrap_unauthorized() -> None:
+    from api.services.knowledge.qdrant_store import _wrap_qdrant_exc
+    from common.errors import AppError
+
+    err = _wrap_qdrant_exc(RuntimeError("Unexpected Response: 401 (Unauthorized)"))
+    assert isinstance(err, AppError)
+    assert err.status_code == 502
+    assert "向量库鉴权" in err.msg
     store = object.__new__(QdrantKnowledgeStore)
     store.settings = SimpleNamespace(qdrant_quantization="none")
     assert store._quantization_config() is None

@@ -5,7 +5,6 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from api.services.tenders.records import _record_to_dict
-from common.errors import AppError
 from db.models.tender import TenderRecord
 
 
@@ -45,7 +44,7 @@ def test_record_to_dict_marks_missing_docx(tmp_path, monkeypatch):
     assert data2["brief"]["projectName"] == "测试项目"
 
 
-def test_get_record_raises_when_file_missing(tmp_path, monkeypatch):
+def test_get_record_returns_when_file_missing(tmp_path, monkeypatch):
     import asyncio
 
     from api.services.tenders import records as records_mod
@@ -67,6 +66,7 @@ def test_get_record_raises_when_file_missing(tmp_path, monkeypatch):
                 docx_file="missing000001.docx",
                 download_name="x.docx",
                 warnings=[],
+                brief_json={"projectName": "丢失", "factoryRole": "投标产品生产厂商"},
             )
 
     class FakeDb:
@@ -74,10 +74,9 @@ def test_get_record_raises_when_file_missing(tmp_path, monkeypatch):
             return FakeResult()
 
     async def run():
-        try:
-            await records_mod.get_record(FakeDb(), "deadbeefcafebabe")  # type: ignore[arg-type]
-            raise AssertionError("expected AppError")
-        except AppError as exc:
-            assert exc.status_code == 404
+        data = await records_mod.get_record(FakeDb(), "deadbeefcafebabe")  # type: ignore[arg-type]
+        assert data["docxAvailable"] is False
+        assert data["brief"]["projectName"] == "丢失"
+        assert data["brief"]["factoryRole"] == "投标产品生产厂商"
 
     asyncio.run(run())

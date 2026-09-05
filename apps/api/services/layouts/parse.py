@@ -134,7 +134,21 @@ def _prefer_layout_object(objs: list[dict[str, Any]]) -> dict[str, Any]:
     return max(objs, key=score)
 
 
-def extract_json_object(text: str) -> dict[str, Any]:
+def _prefer_keyed_object(
+    objs: list[dict[str, Any]], keys: tuple[str, ...]
+) -> dict[str, Any]:
+    def score(item: dict[str, Any]) -> tuple[int, int]:
+        hits = sum(1 for k in keys if k in item)
+        return (hits, len(item))
+
+    return max(objs, key=score)
+
+
+def extract_json_object(
+    text: str,
+    *,
+    prefer_keys: tuple[str, ...] = (),
+) -> dict[str, Any]:
     raw = _strip_model_wrappers(text)
     if not raw:
         raise AppError(ErrorCode.VALIDATION, "布置 JSON 为空", status_code=422)
@@ -152,6 +166,8 @@ def extract_json_object(text: str) -> dict[str, Any]:
         else:
             last_err = "JSON 无法解析"
     if found:
+        if prefer_keys:
+            return _prefer_keyed_object(found, prefer_keys)
         return _prefer_layout_object(found)
     raise AppError(ErrorCode.VALIDATION, last_err, status_code=422)
 

@@ -1,4 +1,4 @@
-"""招标报价清单：优先用邀请书/工程量文件，否则回落内置模板。工程量固定，单价可随投标总价折算。"""
+"""招标报价清单：只用本次邀请书/工程量文件或页面分项。工程量固定，单价可随投标总价折算。"""
 
 from __future__ import annotations
 
@@ -64,25 +64,6 @@ class QuoteSheet:
     source_inc_tax: Decimal
 
 
-def _fallback_sheet() -> QuoteSheet:
-    lines = (
-        QuoteLine("1", "7KW\n交流汽车充电桩", "", "台", Decimal("133"), Decimal("787.61"), Decimal("104752.13")),
-        QuoteLine("2", "30KW\n直流汽车充电桩", "", "台", Decimal("56"), Decimal("5823.01"), Decimal("326088.56")),
-        QuoteLine("3", "慢充立柱", "慢充标准配套立柱（包含供货安装调试，安装费包含在综合单价内）", "个", Decimal("133"), Decimal("97.35"), Decimal("12947.55")),
-        QuoteLine("4", "快充立柱", "快充标准配套立柱（包含供货安装调试，安装费包含在综合单价内）", "个", Decimal("56"), Decimal("194.69"), Decimal("10902.64")),
-        QuoteLine("5", "计费系统", "", "套", Decimal("1"), Decimal("4424.78"), Decimal("4424.78")),
-    )
-    return QuoteSheet(
-        title="高途智成港（一期）汽车充电桩采购安装报价清单",
-        lines=lines,
-        tax_rate=Decimal("0.13"),
-        total_ex_tax=Decimal("459115.66"),
-        total_inc_tax=SHEET_INC_TAX,
-        note="",
-        source_inc_tax=SHEET_INC_TAX,
-    )
-
-
 def _qty(value: object) -> Decimal:
     if value is None or value == "":
         return Decimal("0")
@@ -110,7 +91,23 @@ def _col_kind(cell: object) -> str | None:
         return None
     if n in {"序号", "编号", "no", "num"} or n.startswith("序号"):
         return "seq"
-    if any(k in n for k in ("技术参数", "规格型号", "规格", "参数", "特征描述", "工作内容")):
+    # 技术参数/明细列优先于「单价」等，避免表头含「参数」时误判
+    if any(
+        k in n
+        for k in (
+            "技术参数",
+            "技术要求",
+            "参数要求",
+            "规格型号",
+            "规格参数",
+            "特征描述",
+            "工作内容",
+            "设备参数",
+            "配置要求",
+        )
+    ):
+        return "spec"
+    if n in {"规格", "参数", "明细"} or n.endswith("明细"):
         return "spec"
     if n in {"单位", "计量单位"} or n.endswith("单位"):
         return "unit"
@@ -124,7 +121,32 @@ def _col_kind(cell: object) -> str | None:
         return "name"
     if n in {"设备", "名称", "项目", "货物", "物料"}:
         return "name"
+    # 宽松兜底：「规格」单独出现已在上；含「参数」但不像单价列
+    if "参数" in n and "单价" not in n and "合价" not in n:
+        return "spec"
     return None
+
+
+def _cell_text(value: object) -> str:
+    """把单元格转成可读文本，保留技术参数多行换行。"""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "是" if value else "否"
+    if isinstance(value, (int, float, Decimal)):
+        return str(value)
+    # openpyxl CellRichText / TextBlock 序列
+    try:
+        from openpyxl.cell.rich_text import CellRichText
+
+        if isinstance(value, CellRichText):
+            return str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    except Exception:
+        pass
+    text = str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+    if text.endswith(".0") and text[:-2].isdigit():
+        return text[:-2]
+    return text
 
 
 def _header_map(cells: list[object]) -> dict[str, int] | None:
@@ -152,19 +174,26 @@ def _tax_rate(value: object) -> Decimal:
     return raw
 
 
+def _normalize_cell(value: object) -> object:
+    if value is None or isinstance(value, (int, float, Decimal, bool)):
+        return value
+    return _cell_text(value)
+
+
 def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteSheet | None:
     """从二维表抽出报价行。表头需能识别名称+数量/单价。"""
     header_i = -1
     mapping: dict[str, int] = {}
     title = (title_hint or "").strip()
-    for i, row in enumerate(rows[:20]):
+    normalized_rows: list[list[object]] = [[_normalize_cell(c) for c in row] for row in rows]
+    for i, row in enumerate(normalized_rows[:20]):
         found = _header_map(row)
         if found:
             header_i = i
             mapping = found
             if not title:
-                for prev in reversed(rows[:i]):
-                    head = str(prev[0] if prev else "").strip()
+                for prev in reversed(normalized_rows[:i]):
+                    head = _cell_text(prev[0] if prev else "")
                     if head and not _header_map(prev):
                         title = head
                         break
@@ -177,13 +206,13 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
     total_ex = Decimal("0")
     total_inc = Decimal("0")
     note = ""
-    for row in rows[header_i + 1 :]:
+    for row in normalized_rows[header_i + 1 :]:
         cells = list(row) + [None] * 8
-        name = str(cells[mapping["name"]] or "").strip() if "name" in mapping else ""
+        name = _cell_text(cells[mapping["name"]]) if "name" in mapping else ""
         seq_raw = cells[mapping["seq"]] if "seq" in mapping else None
-        label = name or str(seq_raw or "").strip()
+        label = name or _cell_text(seq_raw)
         if str(seq_raw or "").startswith("备注") or (label.startswith("备注") and not name):
-            note = str(seq_raw or name)
+            note = _cell_text(seq_raw or name)
             continue
         if _skip_name(name) or _skip_name(label):
             amount_cell = cells[mapping["amount"]] if "amount" in mapping else None
@@ -207,10 +236,10 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
             amount = (price * qty).quantize(_TWO, rounding=ROUND_HALF_UP)
         if qty <= 0 and amount <= 0 and price <= 0:
             continue
-        spec = str(cells[mapping["spec"]] or "").strip() if "spec" in mapping else ""
-        unit = str(cells[mapping["unit"]] or "").strip() if "unit" in mapping else ""
-        seq = str(seq_raw).strip() if seq_raw not in (None, "") else str(len(lines) + 1)
-        if seq.endswith(".0"):
+        spec = _cell_text(cells[mapping["spec"]]) if "spec" in mapping else ""
+        unit = _cell_text(cells[mapping["unit"]]) if "unit" in mapping else ""
+        seq = _cell_text(seq_raw) if seq_raw not in (None, "") else str(len(lines) + 1)
+        if seq.endswith(".0") and seq[:-2].isdigit():
             seq = seq[:-2]
         lines.append(
             QuoteLine(
@@ -285,7 +314,7 @@ def load_quote_sheet(path: Path | None) -> QuoteSheet:
     parsed = parse_quote_path(path)
     if parsed is not None:
         return parsed
-    return _fallback_sheet()
+    raise ValueError("未能解析工程量清单")
 
 
 def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
@@ -336,14 +365,12 @@ def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
     )
 
 
-def resolve_quote_sheet(brief: BidBrief, template_path: Path | None = None) -> tuple[QuoteSheet, str]:
+def resolve_quote_sheet(brief: BidBrief, template_path: Path | None = None) -> tuple[QuoteSheet | None, str]:
+    del template_path
     custom = sheet_from_brief(brief)
     if custom is not None:
         return custom, (brief.quoteSource or "form")
-    from api.services.tenders.assets import find_quote_xlsx
-
-    path = template_path if template_path is not None else find_quote_xlsx()
-    return load_quote_sheet(path), "template"
+    return None, "none"
 
 
 def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief:
@@ -370,6 +397,7 @@ def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief
 
 
 def quote_payload_from_patch(patch: dict[str, Any]) -> QuoteSheet | None:
+    """把模型 JSON 清单转成表。识别邀请书不再调用，避免用其它项目台数顶替。"""
     raw = patch.get("quoteLines")
     if not isinstance(raw, list) or not raw:
         return None
@@ -448,17 +476,53 @@ def qty_text(value: Decimal) -> str:
     return f"{value.normalize()}"
 
 
+def _worksheet_matrix(ws, *, max_col: int = 16, max_row: int = 300) -> list[list[object]]:
+    """读取工作表为二维表；合并单元格取左上角值，避免技术参数列落空。"""
+    merge_values: dict[tuple[int, int], object] = {}
+    for rng in getattr(ws, "merged_cells", None).ranges if getattr(ws, "merged_cells", None) else []:
+        top = ws.cell(rng.min_row, rng.min_col).value
+        for r in range(rng.min_row, rng.max_row + 1):
+            for c in range(rng.min_col, rng.max_col + 1):
+                merge_values[(r, c)] = top
+
+    last_row = min(max_row, int(ws.max_row or 0) or max_row)
+    last_col = min(max_col, int(ws.max_column or 0) or max_col)
+    rows: list[list[object]] = []
+    for r in range(1, last_row + 1):
+        row: list[object] = []
+        for c in range(1, last_col + 1):
+            val = ws.cell(r, c).value
+            if val is None and (r, c) in merge_values:
+                val = merge_values[(r, c)]
+            row.append(val)
+        rows.append(row)
+    return rows
+
+
 def _parse_xlsx(path: Path) -> QuoteSheet | None:
     from openpyxl import load_workbook
 
-    wb = load_workbook(path, data_only=False)
+    try:
+        wb = load_workbook(path, data_only=False, rich_text=True)
+    except TypeError:
+        wb = load_workbook(path, data_only=False)
     try:
         best: QuoteSheet | None = None
         for ws in wb.worksheets:
-            rows = [list(row) for row in ws.iter_rows(max_col=12, max_row=200, values_only=True)]
-            title_hint = str(ws.cell(1, 1).value or "").strip()
+            rows = _worksheet_matrix(ws)
+            title_hint = _cell_text(ws.cell(1, 1).value)
             sheet = sheet_from_rows(rows, title_hint=title_hint)
-            if sheet is not None and (best is None or len(sheet.lines) > len(best.lines)):
+            # 优先保留带技术参数明细的表；行数相同则取有 spec 更多的
+            if sheet is None:
+                continue
+            if best is None:
+                best = sheet
+                continue
+            best_specs = sum(1 for ln in best.lines if (ln.spec or "").strip())
+            cur_specs = sum(1 for ln in sheet.lines if (ln.spec or "").strip())
+            if len(sheet.lines) > len(best.lines) or (
+                len(sheet.lines) == len(best.lines) and cur_specs > best_specs
+            ):
                 best = sheet
         return best
     finally:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from pathlib import Path
 from uuid import uuid4
 
 from api.services.tenders.assets import find_qualification_pdf, tenders_output_dir
@@ -29,13 +30,24 @@ def qualification_status() -> dict[str, object]:
     }
 
 
-def generate_bid(brief: BidBrief) -> dict[str, object]:
+def generate_bid(
+    brief: BidBrief,
+    *,
+    catalog_slots: list[PlaceholderItem] | None = None,
+    catalog_media: dict[str, list[Path]] | None = None,
+) -> dict[str, object]:
     stem = uuid4().hex[:12]
     out_dir = tenders_output_dir()
     docx_name = f"{stem}.docx"
     dest = out_dir / docx_name
     pdf_src = find_qualification_pdf() if brief.attachQualifications else None
-    _, warnings = build_bid_docx(brief, dest, qualification_pdf=pdf_src)
+    _, warnings = build_bid_docx(
+        brief,
+        dest,
+        qualification_pdf=pdf_src,
+        catalog_slots=catalog_slots,
+        catalog_media=catalog_media,
+    )
 
     pdf_name = ""
     if pdf_src is not None:
@@ -72,4 +84,19 @@ def defaults_payload(extra: list[PlaceholderItem] | None = None) -> dict[str, ob
     data = brief.model_dump()
     data["qualification"] = qualification_status()
     data["slots"] = list_slots_status(extra)
+    return data
+
+
+async def defaults_payload_kb(
+    db,
+    extra: list[PlaceholderItem] | None = None,
+    *,
+    created_by: int | None = None,
+) -> dict[str, object]:
+    from api.services.tenders.library_kb import library_payload_kb, list_slots_status_kb
+
+    data = defaults_payload(extra)
+    data["slots"] = await list_slots_status_kb(db, extra)
+    lib = await library_payload_kb(db, created_by=created_by)
+    data["libraryBaseId"] = lib.get("baseId")
     return data

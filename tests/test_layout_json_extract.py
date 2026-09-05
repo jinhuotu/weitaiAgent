@@ -68,6 +68,30 @@ def test_choice_piece_reads_reasoning_content() -> None:
     assert '{"kind":"x"}' in reason
 
 
+def test_prefer_json_text_uses_reasoning_when_content_has_no_object() -> None:
+    from api.services.ai.llm import _prefer_json_text
+
+    assert _prefer_json_text("好的，我来分析邀请书。", '{"projectName":"广场充电桩"}') == (
+        '{"projectName":"广场充电桩"}'
+    )
+    merged = _prefer_json_text('{"a":1}', "thinking without braces")
+    assert merged == '{"a":1}'
+
+
+def test_extract_json_prefers_tender_keys() -> None:
+    blob = (
+        '思考片段 { "cars": 8 }\n'
+        '{"projectName":"南京广场光伏充电桩项目","tenderer":"南京某建设有限公司",'
+        '"requiredMaterials":[]}'
+    )
+    obj = extract_json_object(
+        blob,
+        prefer_keys=("projectName", "tenderer", "requiredMaterials"),
+    )
+    assert obj["projectName"] == "南京广场光伏充电桩项目"
+    assert obj["tenderer"] == "南京某建设有限公司"
+
+
 def test_constraints_from_chinese_site_and_car_piles() -> None:
     from api.services.layouts.v2.constraints import constraints_from_user_text
 

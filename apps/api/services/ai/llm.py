@@ -19,13 +19,45 @@ from api.services.ai.tool_call_text import (
     parse_tool_calls_from_content,
     strip_tool_call_markup,
 )
-from api.services.models.urls import normalize_api_base
+from api.services.models.urls import is_loopback_api_base, normalize_api_base
 from common.errors import AppError, ErrorCode
 from common.logging import get_logger
 
 logger = get_logger(__name__)
 
 _DEFAULT_MAX_TOKENS = 8192
+_REASONING_MAX_TOKENS = 16384
+
+
+def _is_reasoning_model(name: str) -> bool:
+    n = (name or "").lower()
+    if "reasoner" in n:
+        return True
+    if "deepseek" in n and "r1" in n:
+        return True
+    return False
+
+
+def _looks_like_jsonish(text: str) -> bool:
+    s = text or ""
+    return "{" in s and "}" in s
+
+
+def _prefer_json_text(content: str, reason: str) -> str:
+    """R1 常把 JSON 放在 reasoning_content，content 只是「好的」或截断思考。"""
+    content = (content or "").strip()
+    reason = (reason or "").strip()
+    if not reason:
+        return content
+    if not content:
+        return reason
+    content_json = _looks_like_jsonish(content)
+    reason_json = _looks_like_jsonish(reason)
+    if reason_json and not content_json:
+        return reason
+    if content_json and not reason_json:
+        return content
+    return f"{content}\n{reason}"
 
 
 def _choice_piece_text(choice: dict[str, Any]) -> tuple[str, str]:
@@ -47,7 +79,13 @@ def _choice_piece_text(choice: dict[str, Any]) -> tuple[str, str]:
     return content, reason
 
 
-def _http_error_message(exc: BaseException) -> str:
+def _http_client(**kwargs: Any) -> httpx.AsyncClient:
+    """不走系统代理。Windows 上 Clash 等会把局域网 IP 拐走，报 All connection attempts failed。"""
+    kwargs.setdefault("trust_env", False)
+    return httpx.AsyncClient(**kwargs)
+
+
+def _http_error_message(exc: BaseException, *, api_base: str = "") -> str:
     detail = (str(exc) or "").strip() or type(exc).__name__
     lowered = detail.lower()
     if "getaddrinfo" in lowered or "name or service not known" in lowered:
@@ -58,12 +96,33 @@ def _http_error_message(exc: BaseException) -> str:
         )
     if "nodename nor servname" in lowered or "failed to resolve" in lowered:
         return "无法解析 API 地址，请检查 API Base 是否填写正确"
+    if (
+        "all connection attempts failed" in lowered
+        or "connection refused" in lowered
+        or "connecterror" in lowered
+        or "errno 111" in lowered
+        or "errno 10061" in lowered
+    ):
+        if is_loopback_api_base(api_base):
+            return (
+                "无法连接到模型服务。当前 API Base 使用 127.0.0.1/localhost，"
+                "只指向运行本系统 API 的这台电脑。"
+                "若算力在局域网另一台机器，请改成 http://<那台机器的IP>:<端口>/v1，"
+                "并确认推理服务监听 0.0.0.0。"
+            )
+        return (
+            "无法连接到模型服务（连接被拒绝或不可达）。"
+            "请检查「模型管理」中的 API Base：IP/端口是否正确、推理进程是否已启动、"
+            "是否监听 0.0.0.0，以及防火墙是否放行该端口。"
+        )
     return f"模型请求失败：{detail}"
 
 
 def _status_error_message(status_code: int, body: str) -> str:
     text = (body or "")[:400]
     lowered = text.lower()
+    if status_code in {401, 403} or "unauthorized" in lowered:
+        return "模型接口鉴权失败，请检查「模型管理」中的 API Key"
     if "either 'text' or 'image'" in lowered or "not both" in lowered:
         return (
             "当前接口把请求当成文生图：不能同时传文字和图片。"
@@ -84,12 +143,12 @@ class LLMClient:
         mode: str = "fast",
     ) -> None:
         self.api_base = normalize_api_base(api_base)
-        self.api_key = api_key or ""
+        self.api_key = (api_key or "").strip()
         self.fixed_model = model
         self.fixed_temperature = temperature
         self.timeout_seconds = float(timeout_seconds or 120.0)
         self.default_mode = mode
-        if not self.api_base or not self.api_key or not self.fixed_model:
+        if not self.api_base or not self.fixed_model:
             raise AppError(
                 ErrorCode.INTERNAL,
                 "LLM not configured: 请在「模型管理」中配置并启用对话模型",
@@ -97,10 +156,10 @@ class LLMClient:
             )
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
 
     def _model(self, mode: str) -> str:
         _ = mode
@@ -118,18 +177,32 @@ class LLMClient:
         return httpx.Timeout(connect=20.0, write=60.0, read=read, pool=20.0)
 
     def _apply_generation_options(self, payload: dict[str, Any]) -> dict[str, Any]:
-        payload.setdefault("max_tokens", _DEFAULT_MAX_TOKENS)
         name = (self.fixed_model or "").lower()
-        if "qwen" in name:
-            # qwen3.x 默认开思考，非流式会先想数分钟才吐 JSON，触发 360s 超时。
+        payload.setdefault(
+            "max_tokens",
+            _REASONING_MAX_TOKENS if _is_reasoning_model(name) else _DEFAULT_MAX_TOKENS,
+        )
+        if "qwen" in name or _is_reasoning_model(name):
+            # qwen3 / DeepSeek-R1 默认开思考：token 被思考吃光后 JSON 残缺，识别报「JSON 无法解析」。
             payload["enable_thinking"] = False
-            payload["chat_template_kwargs"] = {"enable_thinking": False}
+            payload["chat_template_kwargs"] = {
+                "enable_thinking": False,
+                "thinking": False,
+            }
+            payload["thinking"] = {"type": "disabled"}
         return payload
+
+    @staticmethod
+    def _has_thinking_options(payload: dict[str, Any]) -> bool:
+        return any(
+            key in payload for key in ("enable_thinking", "chat_template_kwargs", "thinking")
+        )
 
     @staticmethod
     def _drop_thinking_options(payload: dict[str, Any]) -> dict[str, Any]:
         payload.pop("enable_thinking", None)
         payload.pop("chat_template_kwargs", None)
+        payload.pop("thinking", None)
         return payload
 
     async def stream_chat(
@@ -171,7 +244,7 @@ class LLMClient:
                 buf = ""
                 reason_buf: list[str] = []
                 had_content = False
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with _http_client(timeout=timeout) as client:
                     async with client.stream(
                         "POST", url, headers=self._headers(), json=payload
                     ) as resp:
@@ -180,7 +253,7 @@ class LLMClient:
                             if (
                                 attempt == 0
                                 and resp.status_code == 400
-                                and "enable_thinking" in payload
+                                and self._has_thinking_options(payload)
                             ):
                                 logger.warning(
                                     "llm rejected thinking flags, retrying without them: %s",
@@ -228,13 +301,15 @@ class LLMClient:
                             cleaned = strip_tool_call_markup(buf)
                             if cleaned:
                                 yield cleaned
-                        elif not had_content and reason_buf:
+                        joined_reason = "".join(reason_buf).strip()
+                        if joined_reason:
                             logger.info(
-                                "llm stream used reasoning_content chars=%s model=%s",
-                                sum(len(x) for x in reason_buf),
+                                "llm stream appended reasoning_content chars=%s had_content=%s model=%s",
+                                len(joined_reason),
+                                had_content,
                                 model,
                             )
-                            yield "".join(reason_buf)
+                            yield joined_reason
                         return
         except AppError:
             raise
@@ -248,7 +323,7 @@ class LLMClient:
             logger.exception("llm stream http failed")
             raise AppError(
                 ErrorCode.INTERNAL,
-                _http_error_message(exc),
+                _http_error_message(exc, api_base=self.api_base),
                 status_code=502,
             ) from exc
 
@@ -291,7 +366,7 @@ class LLMClient:
         timeout = httpx.Timeout(self.timeout_seconds)
         logger.info("llm image gen model=%s size=%s", self.fixed_model, size)
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with _http_client(timeout=timeout) as client:
                 resp = await client.post(url, headers=self._headers(), json=payload)
                 if resp.status_code >= 400:
                     raise AppError(
@@ -354,7 +429,7 @@ class LLMClient:
             return mime, raw
         if img_url.startswith("http://") or img_url.startswith("https://"):
             try:
-                async with httpx.AsyncClient(timeout=timeout) as client:
+                async with _http_client(timeout=timeout) as client:
                     fetched = await client.get(img_url)
                     fetched.raise_for_status()
             except httpx.HTTPError as exc:
@@ -404,14 +479,14 @@ class LLMClient:
         timeout = self._http_timeout()
         try:
             data: dict[str, Any] | None = None
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with _http_client(timeout=timeout) as client:
                 for attempt in range(2):
                     resp = await client.post(url, headers=self._headers(), json=payload)
                     if resp.status_code >= 400:
                         if (
                             attempt == 0
                             and resp.status_code == 400
-                            and "enable_thinking" in payload
+                            and self._has_thinking_options(payload)
                         ):
                             logger.warning(
                                 "llm rejected thinking flags, retrying without them: %s",
@@ -453,13 +528,12 @@ class LLMClient:
             logger.exception("llm complete http failed")
             raise AppError(
                 ErrorCode.INTERNAL,
-                _http_error_message(exc),
+                _http_error_message(exc, api_base=self.api_base),
                 status_code=502,
             ) from exc
         message = (data.get("choices") or [{}])[0].get("message") or {}
         content, reason = _choice_piece_text({"message": message})
-        if not content and reason:
-            content = reason
+        content = _prefer_json_text(content, reason)
         tool_calls_raw = message.get("tool_calls") or []
         tool_calls: list[dict[str, Any]] = []
         for tc in tool_calls_raw:
@@ -490,5 +564,6 @@ class LLMClient:
 
         return {
             "content": content,
+            "reasoning": reason,
             "tool_calls": tool_calls,
         }

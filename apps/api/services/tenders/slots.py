@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 
 from api.services.tenders.assets import tender_assets_dir
-from api.services.tenders.placeholders import DEFAULT_SLOTS, collect_slots
+from api.services.tenders.placeholders import DEFAULT_SLOTS, TECH_DRAWING_SLOT, collect_slots
 from api.services.tenders.schema import PlaceholderItem
 from common.errors import AppError, ErrorCode
 
@@ -153,6 +153,23 @@ def attachments_for_slots(slots: list[PlaceholderItem]) -> dict[str, list[Path]]
         if files:
             out[key] = files
     return out
+
+
+def drawing_slot_status() -> dict[str, object]:
+    return slot_status(TECH_DRAWING_SLOT)
+
+
+def save_drawing_file(*, filename: str, data: bytes, replace: bool = False) -> dict[str, object]:
+    saved = save_slot_file(TECH_DRAWING_SLOT.key, filename=filename, data=data, replace=replace)
+    payload = drawing_slot_status()
+    payload["fileName"] = saved.get("fileName") or ""
+    payload["sizeBytes"] = saved.get("sizeBytes") or 0
+    return payload
+
+
+def clear_drawing_files() -> dict[str, object]:
+    clear_slot(TECH_DRAWING_SLOT.key)
+    return drawing_slot_status()
 
 
 def default_slots_payload() -> list[dict[str, object]]:

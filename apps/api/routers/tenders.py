@@ -6,12 +6,29 @@ import json
 import re
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from api.deps import CurrentUser, DbSession
 from api.services.tenders.extract import parse_invitation, parse_kb_ids
-from api.services.tenders.generate import defaults_payload, resolve_output_file
-from api.services.tenders.records import create_record_from_generate, get_record, list_records
+from api.services.tenders.generate import defaults_payload_kb, resolve_output_file
+from api.services.tenders.library_kb import (
+    clear_library_files,
+    create_library_item,
+    delete_library_file,
+    delete_library_item,
+    library_payload_kb,
+    list_slots_status_kb,
+    open_library_file,
+    save_library_file,
+    update_library_item,
+)
+from api.services.tenders.records import (
+    create_record_from_generate,
+    delete_record,
+    get_record,
+    list_records,
+    regenerate_from_record,
+)
 from api.services.tenders.onlyoffice import (
     build_editor_config,
     handle_callback,
@@ -20,13 +37,9 @@ from api.services.tenders.onlyoffice import (
 )
 from api.services.tenders.schema import BidBrief, PlaceholderItem
 from common.config import get_settings
-from api.services.tenders.slots import (
-    clear_slot,
-    library_payload,
-    list_slots_status,
-    save_slot_file,
-    sanitize_slot_key,
-)
+from api.services.tenders.placeholders import TECH_DRAWING_KEY
+from api.services.tenders.slots import sanitize_slot_key, save_drawing_file, clear_drawing_files
+from pydantic import BaseModel, Field
 from common.errors import AppError, ErrorCode
 from common.response import ok
 
@@ -38,17 +51,82 @@ _MIME = {
 }
 
 
+class LibraryItemIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=255)
+    hint: str = ""
+    key: str | None = None
+
+
+class LibraryItemPatch(BaseModel):
+    title: str | None = Field(default=None, max_length=255)
+    hint: str | None = None
+
+
 @router.get("/defaults")
 async def tenders_defaults(db: DbSession, user: CurrentUser):
-    del db, user
-    return ok(defaults_payload())
+    return ok(await defaults_payload_kb(db, created_by=int(user.id)))
 
 
 @router.get("/library")
 async def tenders_library(db: DbSession, user: CurrentUser):
-    """投标资料库：公司常备 8 大类扫描件状态。"""
-    del db, user
-    return ok(library_payload())
+    """投标资料库：知识库中的可维护扫描件清单。"""
+    return ok(await library_payload_kb(db, created_by=int(user.id)))
+
+
+@router.get("/library/files/{doc_id}")
+async def tenders_library_file(
+    doc_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    thumb: bool = Query(False, description="true=缩略图 JPEG"),
+):
+    del user
+    data, filename, media_type = await open_library_file(db, doc_id, thumb=thumb)
+    ascii_name = re.sub(r"[^\w.\-]+", "_", filename) or "preview.jpg"
+    return Response(
+        content=data,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "private, max-age=300",
+            "Content-Disposition": f"inline; filename*=UTF-8''{ascii_name}",
+        },
+    )
+
+
+@router.delete("/library/files/{doc_id}")
+async def tenders_delete_library_file(doc_id: str, db: DbSession, user: CurrentUser):
+    del user
+    return ok(await delete_library_file(db, doc_id))
+
+
+@router.post("/library/items")
+async def tenders_create_library_item(body: LibraryItemIn, db: DbSession, user: CurrentUser):
+    return ok(
+        await create_library_item(
+            db,
+            title=body.title,
+            hint=body.hint or "",
+            key=body.key,
+            created_by=int(user.id),
+        )
+    )
+
+
+@router.patch("/library/items/{key}")
+async def tenders_update_library_item(
+    key: str,
+    body: LibraryItemPatch,
+    db: DbSession,
+    user: CurrentUser,
+):
+    del user
+    return ok(await update_library_item(db, key, title=body.title, hint=body.hint))
+
+
+@router.delete("/library/items/{key}")
+async def tenders_delete_library_item(key: str, db: DbSession, user: CurrentUser):
+    del user
+    return ok(await delete_library_item(db, key))
 
 
 @router.get("/slots")
@@ -58,8 +136,8 @@ async def tenders_list_slots(
     extras: str | None = None,
 ):
     """待补附件槽位状态。extras 为可选 JSON 数组（邀请书多出来的项）。"""
-    del db, user
-    return ok({"slots": list_slots_status(_parse_extras(extras))})
+    del user
+    return ok({"slots": await list_slots_status_kb(db, _parse_extras(extras))})
 
 
 @router.post("/slots/{key}")
@@ -70,12 +148,21 @@ async def tenders_upload_slot(
     file: UploadFile = File(..., description="扫描件：pdf / png / jpg / webp / gif / bmp"),
     replace: str | None = Form("true", description="true=替换该项全部文件；false=追加"),
 ):
-    del db, user
-    sanitize_slot_key(key)
+    del user
+    safe = sanitize_slot_key(key)
     raw = await file.read()
     do_replace = str(replace or "true").strip().lower() not in {"0", "false", "no"}
-    payload = save_slot_file(
-        key,
+    if safe == TECH_DRAWING_KEY:
+        return ok(
+            save_drawing_file(
+                filename=file.filename or "upload.bin",
+                data=raw,
+                replace=do_replace,
+            )
+        )
+    payload = await save_library_file(
+        db,
+        safe,
         filename=file.filename or "upload.bin",
         data=raw,
         replace=do_replace,
@@ -85,22 +172,11 @@ async def tenders_upload_slot(
 
 @router.delete("/slots/{key}")
 async def tenders_clear_slot(key: str, db: DbSession, user: CurrentUser):
-    del db, user
-    sanitize_slot_key(key)
-    removed = clear_slot(key)
-    from api.services.tenders.placeholders import DEFAULT_SLOTS
-
-    meta = next((item for item in DEFAULT_SLOTS if item.key == key), None)
-    return ok(
-        {
-            "key": key,
-            "removed": removed,
-            "fileCount": 0,
-            "files": [],
-            "title": meta.title if meta else "",
-            "hint": (meta.hint if meta else "") or "",
-        }
-    )
+    del user
+    safe = sanitize_slot_key(key)
+    if safe == TECH_DRAWING_KEY:
+        return ok(clear_drawing_files())
+    return ok(await clear_library_files(db, safe))
 
 
 @router.post("/parse-invitation")
@@ -112,7 +188,6 @@ async def tenders_parse_invitation(
     kbIds: str | None = Form(None, description="知识库 ID：JSON 数组或逗号分隔"),
     current: str | None = Form(None, description="当前表单 JSON，抽取结果合并到其上"),
 ):
-    del user
     brief = _parse_current_brief(current)
     payload = await parse_invitation(
         db,
@@ -120,8 +195,21 @@ async def tenders_parse_invitation(
         kb_ids=parse_kb_ids(kbIds),
         current=brief,
         quote_upload=quoteFile,
+        created_by=int(user.id),
     )
-    payload["slots"] = list_slots_status(_coerce_placeholders(payload.get("placeholders")))
+    brief_data = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
+    extras = _coerce_placeholders(brief_data.get("extraPlaceholders"))
+    include_keys = [
+        str(k).strip()
+        for k in (brief_data.get("includeSlotKeys") or payload.get("includeSlotKeys") or [])
+        if str(k).strip()
+    ]
+    payload["slots"] = await list_slots_status_kb(
+        db,
+        extras,
+        include_keys=include_keys,
+    )
+    payload["catalogSlots"] = await list_slots_status_kb(db)
     return ok(payload)
 
 
@@ -154,6 +242,24 @@ async def tenders_get_record(record_id: str, db: DbSession, user: CurrentUser):
     return ok(await get_record(db, record_id))
 
 
+@router.delete("/records/{record_id}")
+async def tenders_delete_record(record_id: str, db: DbSession, user: CurrentUser):
+    del user
+    return ok(await delete_record(db, record_id))
+
+
+@router.post("/records/{record_id}/regenerate")
+async def tenders_regenerate_record(record_id: str, db: DbSession, user: CurrentUser):
+    """用该记录保存的表单和当前资料库附件再生成一份。"""
+    payload = await regenerate_from_record(
+        db,
+        record_id,
+        user_id=int(user.id),
+        username=user.username or "",
+    )
+    return ok(payload)
+
+
 @router.get("/files/{file_name}")
 async def tenders_download(
     file_name: str,
@@ -179,6 +285,7 @@ async def tenders_editor_config(
     user: CurrentUser,
     download_name: str | None = None,
     height: int | None = Query(None, ge=400, le=3000, description="编辑器高度（px，随视口传入）"),
+    mode: str = Query("edit", description="edit=可编辑；view=只读预览（更快）"),
 ):
     """OnlyOffice 在线 Word 编辑器配置（需登录）。"""
     del db
@@ -198,6 +305,7 @@ async def tenders_editor_config(
         user_id=str(user.id),
         user_name=user.username or user.display_name or "用户",
         editor_height_px=height,
+        mode=mode,
     )
     return ok(
         {
