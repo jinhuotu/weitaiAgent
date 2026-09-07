@@ -30,7 +30,6 @@ _CLAUSES: tuple[str, ...] = (
 def append_commitment_letter(doc: Document, brief: BidBrief) -> None:
     """在文末追加一页投标承诺书。"""
     doc.add_page_break()
-    _write_top_banner(doc, (brief.tenderer or "").strip() or "招标人")
     _write_annex_label(doc)
     _write_title(doc)
     _write_to_line(doc, (brief.tenderer or "").strip())
@@ -73,23 +72,6 @@ def _underline_fill(run, text: str, *, size_pt: float = 12) -> None:
     _font(run, size_pt, bold=False)
     _clear_bold(run)
     run.underline = True
-
-
-def _write_top_banner(doc: Document, tenderer: str) -> None:
-    para = doc.add_paragraph()
-    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    para.paragraph_format.space_after = Pt(2)
-    run = para.add_run(tenderer)
-    _font(run, 10.5, bold=False)
-    p_pr = para._p.get_or_add_pPr()
-    p_bdr = OxmlElement("w:pBdr")
-    bottom = OxmlElement("w:bottom")
-    bottom.set(qn("w:val"), "single")
-    bottom.set(qn("w:sz"), "6")
-    bottom.set(qn("w:space"), "1")
-    bottom.set(qn("w:color"), "000000")
-    p_bdr.append(bottom)
-    p_pr.append(p_bdr)
 
 
 def _write_annex_label(doc: Document) -> None:

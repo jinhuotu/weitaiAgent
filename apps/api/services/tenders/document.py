@@ -774,6 +774,11 @@ def _ensure_toc_entries(doc: Document, *, include_commitment: bool = True) -> No
                 _drop_para(para)
 
 
+# 模板第 9、12 节 header=0，页眉贴顶，OnlyOffice/部分 Word 会裁掉字头只剩横线。
+_HEADER_DISTANCE = Cm(1.75)
+_HEADER_TOP_MIN = Cm(2.6)
+
+
 def _header_bottom_border(para: Paragraph) -> None:
     p_pr = para._p.get_or_add_pPr()
     for old in list(p_pr.findall(qn("w:pBdr"))):
@@ -782,14 +787,24 @@ def _header_bottom_border(para: Paragraph) -> None:
     bottom = OxmlElement("w:bottom")
     bottom.set(qn("w:val"), "single")
     bottom.set(qn("w:sz"), "6")
-    bottom.set(qn("w:space"), "4")
+    # space 过大会把文字往页顶推，裁切更明显；1pt 让字紧贴横线
+    bottom.set(qn("w:space"), "1")
     bottom.set(qn("w:color"), "4F4F4F")
     p_bdr.append(bottom)
     p_pr.append(p_bdr)
 
 
+def _reset_header_para(para: Paragraph) -> None:
+    fmt = para.paragraph_format
+    fmt.space_before = Pt(0)
+    fmt.space_after = Pt(0)
+    fmt.line_spacing = 1.0
+    fmt.line_spacing_rule = WD_LINE_SPACING.SINGLE
+
+
 def _write_header_para(para: Paragraph, project_name: str) -> None:
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _reset_header_para(para)
     title = (project_name or "").strip() or "投标文件"
     if len(title) > 28:
         title = title[:28] + "…"
@@ -801,12 +816,13 @@ def _write_header_para(para: Paragraph, project_name: str) -> None:
 
 def _ensure_header(section, project_name: str, *, cover: bool = False) -> None:
     """每一节都写页眉。封面节首页留空，其后各页显示项目名。"""
+    section.header_distance = _HEADER_DISTANCE
     try:
-        distance = int(section.header_distance or 0)
+        top = int(section.top_margin or 0)
     except (TypeError, ValueError):
-        distance = 0
-    if distance < 300000:
-        section.header_distance = Cm(1.5)
+        top = 0
+    if top < int(_HEADER_TOP_MIN):
+        section.top_margin = _HEADER_TOP_MIN
     header = section.header
     header.is_linked_to_previous = False
     para = header.paragraphs[0] if header.paragraphs else header.add_paragraph()
@@ -818,6 +834,7 @@ def _ensure_header(section, project_name: str, *, cover: bool = False) -> None:
     first = section.first_page_header
     first.is_linked_to_previous = False
     first_para = first.paragraphs[0] if first.paragraphs else first.add_paragraph()
+    _reset_header_para(first_para)
     _clear_runs(first_para)
 
 
@@ -2173,8 +2190,6 @@ def build_bid_docx(
     _fill_tables(doc, brief)
     warnings.extend(_fill_quote_section(doc, brief, quote_anchor))
     _normalize_blank_underlines(doc)
-    for i, section in enumerate(doc.sections):
-        _ensure_header(section, brief.projectName, cover=(i == 0))
 
     if brief.includeCommitment:
         append_commitment_letter(doc, brief)
@@ -2207,6 +2222,9 @@ def build_bid_docx(
                 "未找到资质 PDF。可将《伟泰科技资质文件最终版.pdf》复制到 "
                 "storage/tender-assets/weitai-qualifications.pdf 后重新生成"
             )
+
+    for i, section in enumerate(doc.sections):
+        _ensure_header(section, brief.projectName, cover=(i == 0))
 
     _finalize_pagination(doc)
     doc.save(str(dest))

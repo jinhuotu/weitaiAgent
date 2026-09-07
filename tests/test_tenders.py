@@ -441,6 +441,8 @@ def test_commitment_letter_fills_tenderer(tmp_path) -> None:
     )
     path, warnings = build_bid_docx(brief, tmp_path / "bid.docx", qualification_pdf=None)
     from docx import Document
+    from docx.oxml.ns import qn
+    from docx.shared import Cm
 
     doc = Document(str(path))
     text = "\n".join(p.text for p in doc.paragraphs)
@@ -451,6 +453,15 @@ def test_commitment_letter_fills_tenderer(tmp_path) -> None:
     assert "张三" in text
     assert "2026" in text
     assert any("投标承诺书" in w for w in warnings)
+    min_header = int(Cm(1.5))
+    for i, section in enumerate(doc.sections):
+        assert int(section.header_distance or 0) >= min_header, f"section {i}"
+        header_text = "\n".join(p.text for p in section.header.paragraphs)
+        assert "投标文件" in header_text
+    annex = next(p for p in doc.paragraphs if (p.text or "").strip() == "附件五：")
+    prev = annex._p.getprevious()
+    if prev is not None and prev.tag == qn("w:p"):
+        assert prev.find(qn("w:pPr")) is None or prev.find(qn("w:pPr")).find(qn("w:pBdr")) is None
     # 填空不加粗
     filled = [
         run
