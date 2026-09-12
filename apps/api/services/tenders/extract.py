@@ -16,7 +16,7 @@ from api.services.knowledge.ingest import search_knowledge_docs
 from api.services.knowledge.parsers import assert_supported, extract_text_from_file, sniff_extension
 from api.services.layouts.parse import extract_json_object
 from api.services.models.runtime import build_llm_client
-from api.services.tenders.assets import tenders_output_dir
+from api.services.tenders.assets import save_invitation_text, tender_invitations_dir
 from api.services.tenders.quote import (
     attach_sheet,
     parse_quote_from_text,
@@ -27,7 +27,6 @@ from api.services.tenders.history import (
     contains_foreign_bidder,
     latest_company_profile,
     load_history_playbooks,
-    playbook_note,
     playbooks_prompt_block,
 )
 from api.services.tenders.placeholders import collect_slots, this_bid_keys
@@ -105,7 +104,8 @@ notes（字符串数组，给经办人看的提醒；商务缺项用「废标风
 requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或台数当作本标附件）,
 missingMaterials（对象数组，每项 title/reason，资料库里还没有、邀请书额外要求的资料。不要填其他项目的文件名；程序会建空项等用户上传）,
 deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术要求，禁止写死 7kW/30kW 充电桩套话。无条款则 []）,
-performanceLines（对象数组，每项 projectName/spec/client/contact/amountYuan/summary/note/ongoing/chargerRelated；只填能确认的伟泰合同，禁止编造，没有则 []。招标优先已竣工充电桩。）,
+performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
+performanceRequirement（对象或 null：邀请书对类似业绩的资格门槛。字段 similarScope, minAmountYuan 单份最低金额元, minCount 至少几个, requireCompleted 是否须已竣工, keywords 字符串数组, note 原文短摘。邀请书没写则 null，禁止套用充电桩 20 万默认值）,
 constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填；实施方案改为图纸+文字，由经办人上传）,
 techPlanNote（中文字符串：仅当邀请书提出施工、布置、配电、运维或工期要求时，用两三句话概括伟泰拟响应的要点；没有则空字符串，禁止编造图纸、桩位和台数）,
 factoryRole（字符串：如 充电设备生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
@@ -276,21 +276,37 @@ def performance_lines_from_payload(patch: dict[str, Any]) -> list[PerformanceLin
 def merge_performance_lines(
     primary: list[PerformanceLine],
     extra: list[PerformanceLine],
+    requirement=None,
+    *,
+    preserve_flags: bool = False,
 ) -> list[PerformanceLine]:
-    from api.services.tenders.performance import is_weak_title, rank_performance_lines
+    from api.services.tenders.performance import (
+        apply_include_in_bid,
+        is_weak_title,
+        line_name_key,
+        rank_performance_lines,
+    )
 
     out: list[PerformanceLine] = []
     seen: set[str] = set()
+    preserve: dict[str, bool] = {}
     for item in list(primary or []) + list(extra or []):
         name = (item.projectName or "").strip()
         if not name or is_weak_title(name):
             continue
-        key = re.sub(r"\s+", "", name).lower()
+        key = line_name_key(name)
         if key in seen:
             continue
         seen.add(key)
         out.append(item)
-    return rank_performance_lines(out)[:8]
+    if preserve_flags:
+        for item in primary or []:
+            name = (item.projectName or "").strip()
+            if not name or is_weak_title(name):
+                continue
+            preserve[line_name_key(name)] = bool(getattr(item, "includeInBid", True))
+    ranked = rank_performance_lines(out, requirement=requirement)[:8]
+    return apply_include_in_bid(ranked, requirement, preserve=preserve if preserve_flags else None)
 
 
 def _line_field(line: object, key: str) -> str:
@@ -359,6 +375,7 @@ async def parse_invitation(
         quote_path = await _save_upload(quote_upload)
     extracted = await extract_text_from_file(path, ext=path.suffix.lower().lstrip("."))
     invitation = (extracted.text or "").strip()
+    invitation_id = save_invitation_text(invitation, stem=path.stem)
     settings = get_settings()
     max_ocr = max(0, int(settings.ocr_max_pages))
     if len(invitation) < 20:
@@ -438,6 +455,7 @@ async def parse_invitation(
                 status_code=422,
             ) from second
     brief, filled = apply_extract_patch(current or default_brief(), patch)
+    brief.invitationId = invitation_id
     company_profile = await latest_company_profile(db)
     brief, company_filled = fill_empty_company_fields(brief, current, company_profile)
     for key in company_filled:
@@ -456,6 +474,33 @@ async def parse_invitation(
         include_keys=None,
         has_agent=has_agent,
     )
+    from api.services.tenders.format_rules import (
+        extract_document_format,
+        extract_tender_no,
+        format_brief_notes,
+    )
+    from api.services.tenders.outline import choose_layout_mode, extract_outline
+    from api.services.tenders.performance import (
+        extract_performance_requirement,
+        format_requirement,
+        merge_performance_requirement,
+        performance_match_issues,
+        requirement_from_payload,
+    )
+
+    chapter, outline_items = extract_outline(invitation)
+    brief.layoutMode = choose_layout_mode(chapter, outline_items)
+    brief.outlineChapter = chapter
+    brief.outlineItems = outline_items
+    brief.documentFormat = extract_document_format(invitation)
+    tender_no = extract_tender_no(invitation)
+    if tender_no:
+        brief.tenderNo = tender_no
+    brief.performanceRequirement = merge_performance_requirement(
+        extract_performance_requirement(invitation),
+        requirement_from_payload(patch),
+        invitation=invitation,
+    )
     brief.extraPlaceholders = extras
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
@@ -466,6 +511,9 @@ async def parse_invitation(
         filled = [*filled, "quoteLines"]
         if "bidPriceYuan" not in filled and brief.bidPriceYuan > 0:
             filled.append("bidPriceYuan")
+    from api.services.tenders.tables import apply_format_table_headers
+
+    header_notes = apply_format_table_headers(brief)
     if not brief.deviationLines:
         from_quote = deviation_lines_from_quote(brief.quoteLines)
         if from_quote:
@@ -473,7 +521,11 @@ async def parse_invitation(
             filled = [*filled, "deviationLines"]
     lib_perf = await performance_from_library(db, extract_missing=False)
     if lib_perf or brief.performanceLines:
-        brief.performanceLines = merge_performance_lines(brief.performanceLines, lib_perf)
+        brief.performanceLines = merge_performance_lines(
+            brief.performanceLines,
+            lib_perf,
+            requirement=brief.performanceRequirement,
+        )
         if brief.performanceLines and "performanceLines" not in filled:
             filled = [*filled, "performanceLines"]
 
@@ -491,12 +543,23 @@ async def parse_invitation(
         *kb_notes,
         *notes_from_payload(patch),
         *quote_note,
+        *header_notes,
     ]
+    req_label = format_requirement(brief.performanceRequirement)
     if lib_perf:
-        notes.append("类似业绩已从资料库合同/发票识别；招标优先采用已竣工充电桩项目。")
-    hist_note = playbook_note(playbooks)
-    if hist_note:
-        notes.append(hist_note)
+        selected = sum(1 for row in brief.performanceLines if getattr(row, "includeInBid", True))
+        if req_label:
+            notes.append(
+                f"类似业绩已从资料库合同/发票识别，已按招标门槛预选 {selected} 条写入本标；"
+                "不符项仍在表中可勾选。资料库原件未改。"
+            )
+        else:
+            notes.append("类似业绩已从资料库合同/发票识别；未抽出本标门槛，表中业绩均列入本标，可自行勾选。")
+    if req_label:
+        notes.append(f"招标业绩要求：{req_label}")
+        notes.extend(performance_match_issues(brief.performanceLines, brief.performanceRequirement))
+    else:
+        notes.append("未从招标书抽出类似业绩门槛（同类/金额/数量），表中业绩仅供核对，未按本标筛选")
     if extracted.ocr_capped:
         notes.insert(
             0,
@@ -510,8 +573,23 @@ async def parse_invitation(
     else:
         notes.insert(0, "已根据邀请书回填：" + "、".join(_label(k) for k in filled))
     notes.extend(attachment_match_notes(attachment_match))
-    notes.append("投标人公司信息不从邀请书抽取，空项已用本公司默认值或上次投标回填，请核对法人与电话")
-    notes.append("未上传的扫描件会在 Word 里用虚线框占位，不阻止生成")
+    if outline_items:
+        copied = sum(1 for item in outline_items if (item.body or "").strip())
+        if brief.layoutMode == "outline":
+            notes.append(
+                f"已抽出组卷大纲 {len(outline_items)} 条"
+                + (f"（{chapter}）" if chapter else "")
+                + f"，将按大纲组卷；已复制空白稿 {copied} 节，承诺函只填单位和日期"
+            )
+        else:
+            notes.append(
+                f"已抽出组卷大纲 {len(outline_items)} 条"
+                + (f"（{chapter}）" if chapter else "")
+                + "，本标仍用公司固定模板；可在组卷大纲中改为按本标招标书组卷"
+            )
+    else:
+        notes.append("未从招标书抽出「投标/响应文件格式」章节，生成仍用公司固定模板")
+    notes.extend(format_brief_notes(brief.documentFormat))
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
     return {
@@ -552,6 +630,7 @@ def _label(key: str) -> str:
         "quoteLines": "分项工程量",
         "deviationLines": "技术偏差",
         "performanceLines": "类似业绩",
+        "performanceRequirement": "业绩门槛",
         "factoryRole": "原厂角色",
         "constructionPlan": "施工方案",
         "layoutPlan": "平面布置",
@@ -717,8 +796,7 @@ async def _save_upload(upload: UploadFile):
     settings = get_settings()
     filename = (upload.filename or "invitation.bin").replace("\\", "/").split("/")[-1]
     ext = assert_supported(sniff_extension(filename, upload.content_type))
-    dest_dir = tenders_output_dir().parent / "tender-invitations"
-    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_dir = tender_invitations_dir()
     dest = dest_dir / f"{uuid4().hex[:12]}.{ext}"
     max_bytes = int(settings.kb_upload_max_bytes)
     size = 0

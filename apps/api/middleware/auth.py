@@ -36,8 +36,13 @@ _PREFIX_WHITELIST = (
 
 
 def _is_onlyoffice_public(path: str) -> bool:
-    """OnlyOffice Document Server 回调与拉取 docx，不能带用户 JWT。"""
-    return path.endswith("/onlyoffice-callback") or "/onlyoffice-download" in path
+    """文档服务回调与拉取 docx，不能带用户 JWT。"""
+    return (
+        path.endswith("/onlyoffice-callback")
+        or path.endswith("/yozo-callback")
+        or "/onlyoffice-download" in path
+        or "/yozo-download" in path
+    )
 
 
 def _is_whitelisted(path: str) -> bool:

@@ -29,6 +29,7 @@ class QuoteLineIn(BaseModel):
     qty: float = 0
     unitPrice: float = Field(default=0, ge=0)
     amount: float = Field(default=0, ge=0)
+    groups: list[str] = Field(default_factory=list)
 
 
 class DeviationLine(BaseModel):
@@ -57,6 +58,94 @@ class PerformanceLine(BaseModel):
     note: str = ""
     ongoing: bool = False
     chargerRelated: bool = False
+    includeInBid: bool = True
+
+
+class PerformanceRequirement(BaseModel):
+    """本标招标书对类似业绩的资格门槛。没有抽出则为空，不套用充电桩默认 20 万。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    similarScope: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    minAmountYuan: float = Field(default=0, ge=0)
+    minCount: int = Field(default=0, ge=0, le=20)
+    requireCompleted: bool = False
+    note: str = ""
+
+
+OUTLINE_KINDS: tuple[str, ...] = (
+    "letter",
+    "legal_id",
+    "auth",
+    "quote",
+    "biz_dev",
+    "tech_dev",
+    "commitment_copy",
+    "scan",
+    "performance",
+    "factory",
+    "tech_plan",
+    "company",
+    "unknown",
+)
+
+OUTLINE_SOURCES: tuple[str, ...] = ("generate", "copy", "skip")
+
+PAGE_NUMBER_POS: tuple[str, ...] = ("bottom-center", "bottom-right", "none")
+PAGE_NUMBER_START: tuple[str, ...] = ("toc", "body", "cover")
+TOC_NUMBERING: tuple[str, ...] = ("cn", "arabic", "paren", "attach")
+
+
+class DocumentFormat(BaseModel):
+    """招标书抽出的排版要求。未写明的字段保持默认，不臆造。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    specified: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+    marginLeftCm: float = Field(default=2.8, ge=1.0, le=5.0)
+    marginRightCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginTopCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginBottomCm: float = Field(default=2.5, ge=1.0, le=5.0)
+
+    fontName: str = Field(default="宋体", max_length=32)
+    bodySizePt: float = Field(default=12, ge=8, le=26)
+    headingSizePt: float = Field(default=16, ge=10, le=26)
+    coverTitleSizePt: float = Field(default=22, ge=12, le=42)
+    coverDocSizePt: float = Field(default=26, ge=14, le=42)
+    tocTitleSizePt: float = Field(default=16, ge=10, le=26)
+    tocItemSizePt: float = Field(default=12, ge=9, le=18)
+
+    coverRequired: bool = True
+    coverShowProject: bool = True
+    coverShowTenderNo: bool = False
+    coverShowBidder: bool = True
+    coverShowCopyMark: bool = False
+    coverCopyMark: str = Field(default="正本", max_length=8)
+    coverShowDate: bool = True
+    coverNeedSeal: bool = False
+
+    tocNumbering: str = Field(default="cn", max_length=12)
+    tocNeedPageNos: bool = True
+
+    pageNumberPos: str = Field(default="bottom-center", max_length=24)
+    pageNumberStart: str = Field(default="toc", max_length=12)
+
+
+class OutlineItem(BaseModel):
+    """招标书「投标/响应文件格式」里的一条组卷要求。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = ""
+    title: str
+    kind: str = "unknown"
+    source: str = "copy"
+    required: bool = True
+    skipped: bool = False
+    body: str = ""
 
 
 class BidBrief(BaseModel):
@@ -77,6 +166,7 @@ class BidBrief(BaseModel):
     settlementPct: int = Field(default=17, ge=0, le=100)
     warrantyPct: int = Field(default=3, ge=0, le=100)
     bidDate: str = Field(default_factory=lambda: date.today().isoformat())
+    tenderNo: str = Field(default="")
 
     bidderName: str = Field(default="河南伟泰光电科技有限公司")
     bidderNature: str = Field(default="有限责任公司")
@@ -91,7 +181,7 @@ class BidBrief(BaseModel):
     foundedDate: str = Field(default="2017年07月")
     businessTerm: str = Field(default="长期")
 
-    legalPersonName: str = Field(default="张朝文")
+    legalPersonName: str = Field(default="郭志伟")
     legalPersonGender: str = Field(default="男")
     legalPersonAge: str = Field(default="28")
     legalPersonTitle: str = Field(default="执行董事")
@@ -116,8 +206,13 @@ class BidBrief(BaseModel):
     quoteSourceIncTax: float = Field(default=0, ge=0)
     quoteSource: str = Field(default="")
     quoteLines: list[QuoteLineIn] = Field(default_factory=list)
+    quoteHeaders: list[str] = Field(default_factory=list)
+    quoteRoles: list[str] = Field(default_factory=list)
     deviationLines: list[DeviationLine] = Field(default_factory=list)
+    bizDevHeaders: list[str] = Field(default_factory=list)
+    techDevHeaders: list[str] = Field(default_factory=list)
     performanceLines: list[PerformanceLine] = Field(default_factory=list)
+    performanceRequirement: PerformanceRequirement = Field(default_factory=PerformanceRequirement)
 
     constructionPlan: str = Field(default="")
     layoutPlan: str = Field(default="")
@@ -125,6 +220,14 @@ class BidBrief(BaseModel):
     omPlan: str = Field(default="")
     schedulePlan: str = Field(default="")
     techPlanNote: str = Field(default="")
+
+    # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标招标书大纲组卷。
+    layoutMode: str = Field(default="chapter5")
+    outlineChapter: str = Field(default="")
+    outlineItems: list[OutlineItem] = Field(default_factory=list)
+    documentFormat: DocumentFormat = Field(default_factory=DocumentFormat)
+    # 解析邀请书时写入，供生成后对照原文做 AI 质检。
+    invitationId: str = Field(default="", max_length=16)
 
 
 COMPANY_FIELD_KEYS: tuple[str, ...] = (

@@ -126,21 +126,23 @@ def _ymd(iso: str) -> tuple[str, str, str]:
     raw = (iso or "").strip()
     parts = raw.replace("/", "-").split("-")
     if len(parts) >= 3:
-        return parts[0], parts[1].lstrip("0") or "1", parts[2].lstrip("0") or "1"
+        month = (parts[1].lstrip("0") or "1").zfill(2)
+        day = (parts[2].lstrip("0") or "1").zfill(2)
+        return parts[0], month, day
     return "　　", "　", "　"
 
 
 def _write_sign_block(doc: Document, brief: BidBrief) -> None:
-    for _ in range(2):
+    for _ in range(3):
         doc.add_paragraph()
 
     bidder = (brief.bidderName or "").strip() or "河南伟泰光电科技有限公司"
-    signer = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
+    signer = ""
     year, month, day = _ymd(brief.bidDate)
 
     line1 = doc.add_paragraph()
-    line1.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    line1.paragraph_format.left_indent = Pt(120)
+    line1.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    line1.paragraph_format.space_before = Pt(8)
     a = line1.add_run("投 标 人：")
     _font(a, 12, bold=False)
     b = line1.add_run()
@@ -149,9 +151,8 @@ def _write_sign_block(doc: Document, brief: BidBrief) -> None:
     _font(c, 12, bold=False)
 
     line2 = doc.add_paragraph()
-    line2.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    line2.paragraph_format.left_indent = Pt(120)
-    line2.paragraph_format.space_before = Pt(10)
+    line2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    line2.paragraph_format.space_before = Pt(12)
     d = line2.add_run("法定代表人或委托代理人：")
     _font(d, 12, bold=False)
     e = line2.add_run()
@@ -160,9 +161,8 @@ def _write_sign_block(doc: Document, brief: BidBrief) -> None:
     _font(f, 12, bold=False)
 
     line3 = doc.add_paragraph()
-    line3.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    line3.paragraph_format.left_indent = Pt(120)
-    line3.paragraph_format.space_before = Pt(10)
+    line3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    line3.paragraph_format.space_before = Pt(12)
     g = line3.add_run("日    期：")
     _font(g, 12, bold=False)
     y = line3.add_run()

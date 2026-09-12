@@ -32,7 +32,8 @@ def _jwt_secret(settings: Settings | None = None) -> str:
 def document_key(path: Path) -> str:
     stat = path.stat()
     raw = f"{path.name}-{stat.st_mtime_ns}-{stat.st_size}"
-    return hashlib.sha256(raw.encode()).hexdigest()[:32]
+    # 后缀用于作废 OnlyOffice 对「转换失败」的缓存；失败后同一 key 会一直弹「下载失败」。
+    return hashlib.sha256(raw.encode()).hexdigest()[:32] + "-g3"
 
 
 def create_download_token(file_name: str, *, settings: Settings | None = None) -> str:

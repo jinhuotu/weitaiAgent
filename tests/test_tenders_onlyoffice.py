@@ -37,6 +37,20 @@ def test_document_key_changes_when_file_changes(tmp_path, oo_settings) -> None:
     assert k1 != k2
 
 
+def test_doc_preview_engine_defaults_to_browser(monkeypatch) -> None:
+    monkeypatch.delenv("TENDER_DOC_PREVIEW", raising=False)
+    monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8082")
+    get_settings.cache_clear()
+    assert get_settings().doc_preview_engine == "browser"
+
+
+def test_doc_preview_engine_onlyoffice_when_set(monkeypatch) -> None:
+    monkeypatch.setenv("TENDER_DOC_PREVIEW", "onlyoffice")
+    monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8082")
+    get_settings.cache_clear()
+    assert get_settings().doc_preview_engine == "onlyoffice"
+
+
 def test_download_token_roundtrip(oo_settings) -> None:
     token = create_download_token("abc123.docx", settings=oo_settings)
     assert verify_download_token(token, "abc123.docx", settings=oo_settings)
@@ -82,6 +96,8 @@ def test_build_editor_config_structure(tmp_path, oo_settings) -> None:
     assert customization["zoom"] == -2
     assert customization["hideRightMenu"] is True
     assert customization["compatibleFeatures"] is True
+    assert "plugins" not in customization
+    assert "-g3" in config["document"]["key"]
     assert "token" in config
 
     decoded = jwt.decode(

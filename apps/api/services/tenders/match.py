@@ -165,7 +165,7 @@ def attachment_match_notes(report: dict[str, Any] | None) -> list[str]:
     missing = [x for x in (report.get("missingFiles") or [])]
     created = [str(x.get("title") or x.get("key") or "") for x in (report.get("createdItems") or [])]
     if matched:
-        notes.append("已匹配资料库扫描件：" + "、".join(t for t in matched if t))
+        notes.append(f"已匹配资料库扫描件 {len(matched)} 项")
     req_empty = [
         str(x.get("title") or x.get("key") or "")
         for x in missing
@@ -177,13 +177,13 @@ def attachment_match_notes(report: dict[str, Any] | None) -> list[str]:
         if not x.get("required")
     ]
     if req_empty:
-        notes.append("本标需要但未上传（已用虚线框占位，不会用其他项目文件顶替）：" + "、".join(t for t in req_empty if t))
+        notes.append(
+            "未上传（虚线框占位，不会用其他项目文件顶替）：" + "、".join(t for t in req_empty if t)
+        )
     if opt_empty:
         notes.append("已纳入本标但未上传：" + "、".join(t for t in opt_empty if t))
     if created:
-        notes.append(
-            "资料库原先没有此项，已建空项请上传（不会用其他项目扫描件顶替）：" + "、".join(t for t in created if t)
-        )
+        notes.append("资料库新建空项请上传：" + "、".join(t for t in created if t))
     if not matched and not missing and not created:
         notes.append("邀请书未抽出资料清单，已默认必填法定代表人身份证。可在下方勾选资料库其他项纳入本标。")
     return notes

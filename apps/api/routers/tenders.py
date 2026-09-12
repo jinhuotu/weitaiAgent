@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
 
-from api.deps import CurrentUser, DbSession
+from api.deps import CurrentUser, DbSession, user_is_admin
+from api.services.menus import can_access_menu
+from api.services.tenders.assets import restore_chapter5_template, save_chapter5_template
 from api.services.tenders.extract import parse_invitation, parse_kb_ids
 from api.services.tenders.generate import defaults_payload_kb, resolve_output_file
 from api.services.tenders.library_kb import (
@@ -23,17 +26,31 @@ from api.services.tenders.library_kb import (
     update_library_item,
 )
 from api.services.tenders.records import (
+    ACTION_PASS,
+    ACTION_REJECT,
+    clear_mine_records,
     create_record_from_generate,
+    decide_approval,
     delete_record,
     get_record,
+    get_record_qa,
+    inspect_record_qa,
     list_records,
+    mark_result,
+    record_ids_for_actor,
     regenerate_from_record,
+    submit_for_approval,
 )
 from api.services.tenders.onlyoffice import (
     build_editor_config,
     handle_callback,
     onlyoffice_enabled,
     verify_download_token,
+)
+from api.services.tenders.yozo import (
+    build_editor_payload as build_yozo_payload,
+    handle_callback as handle_yozo_callback,
+    yozo_enabled,
 )
 from api.services.tenders.schema import BidBrief, PlaceholderItem
 from common.config import get_settings
@@ -44,6 +61,8 @@ from common.errors import AppError, ErrorCode
 from common.response import ok
 
 router = APIRouter(prefix="/tenders", tags=["tenders"])
+
+logger = logging.getLogger("api.tenders")
 
 _MIME = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -62,9 +81,41 @@ class LibraryItemPatch(BaseModel):
     hint: str | None = None
 
 
+class ApprovalDecisionIn(BaseModel):
+    passed: bool
+    comment: str = ""
+
+
+class MarkResultIn(BaseModel):
+    status: str = Field(..., min_length=1, max_length=16)
+
+
+def _require_menu(user, href: str) -> None:
+    if user_is_admin(user) or can_access_menu(user, href):
+        return
+    raise AppError(ErrorCode.FORBIDDEN, "无权限访问该功能", status_code=403)
+
+
 @router.get("/defaults")
 async def tenders_defaults(db: DbSession, user: CurrentUser):
     return ok(await defaults_payload_kb(db, created_by=int(user.id)))
+
+
+@router.post("/layout-template")
+async def tenders_upload_layout_template(user: CurrentUser, file: UploadFile = File(...)):
+    """更换公司固定投标文件空白稿（.docx）。覆盖 storage/tender-assets/chapter5.docx。"""
+    del user
+    name = (file.filename or "").lower()
+    if not name.endswith(".docx"):
+        raise AppError(ErrorCode.VALIDATION, "请上传 Word 空白稿（.docx）", status_code=422)
+    data = await file.read()
+    return ok(save_chapter5_template(data))
+
+
+@router.delete("/layout-template")
+async def tenders_restore_layout_template(user: CurrentUser):
+    del user
+    return ok(restore_chapter5_template())
 
 
 @router.get("/library")
@@ -229,11 +280,63 @@ async def tenders_list_records(
     db: DbSession,
     user: CurrentUser,
     q: str | None = Query(None, description="按项目名 / 招标人 / 创建人搜索"),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    scope: str = Query("mine", description="mine=本人；all=全部"),
+    status: str | None = Query(None, description="工作流状态"),
+    owner: str | None = Query(None, description="创建人用户名"),
+    projectType: str | None = Query(None, description="项目类型"),
+    approvalTab: str | None = Query(None, description="pending/done/mine"),
 ):
-    del user
-    return ok(await list_records(db, q=q, limit=limit, offset=offset))
+    admin = user_is_admin(user)
+    tab = (approvalTab or "").strip()
+    record_ids = None
+    submitted_only = False
+    user_id = None
+    if tab:
+        _require_menu(user, "/approval")
+        if tab == "pending":
+            status = "pending"
+        elif tab == "done":
+            record_ids = await record_ids_for_actor(
+                db, user_id=int(user.id), actions=(ACTION_PASS, ACTION_REJECT)
+            )
+        elif tab == "mine":
+            user_id = int(user.id)
+            submitted_only = True
+        else:
+            raise AppError(ErrorCode.VALIDATION, "approvalTab 无效", status_code=422)
+    else:
+        want_all = (scope or "mine").strip() == "all"
+        if want_all:
+            if not (
+                admin
+                or can_access_menu(user, "/tender-tasks")
+                or can_access_menu(user, "/approval")
+            ):
+                raise AppError(ErrorCode.FORBIDDEN, "无权查看全部投标任务", status_code=403)
+        else:
+            user_id = int(user.id)
+    return ok(
+        await list_records(
+            db,
+            q=q,
+            limit=limit,
+            offset=offset,
+            status=status,
+            owner=owner,
+            user_id=user_id,
+            project_type=projectType,
+            record_ids=record_ids,
+            submitted_only=submitted_only,
+        )
+    )
+
+
+@router.post("/records/clear-mine")
+async def tenders_clear_mine_records(db: DbSession, user: CurrentUser):
+    """清空当前用户自己的生成记录，角标计数归零。"""
+    return ok(await clear_mine_records(db, user=user, admin=user_is_admin(user)))
 
 
 @router.get("/records/{record_id}")
@@ -242,22 +345,91 @@ async def tenders_get_record(record_id: str, db: DbSession, user: CurrentUser):
     return ok(await get_record(db, record_id))
 
 
+@router.get("/records/{record_id}/qa")
+async def tenders_get_record_qa(record_id: str, db: DbSession, user: CurrentUser):
+    del user
+    return ok(await get_record_qa(db, record_id))
+
+
+@router.post("/records/{record_id}/qa")
+async def tenders_inspect_record_qa(record_id: str, db: DbSession, user: CurrentUser):
+    """生成后对照邀请书做 AI 质检：符合度与缺失项。"""
+    del user
+    return ok(await inspect_record_qa(db, record_id))
+
+
 @router.delete("/records/{record_id}")
 async def tenders_delete_record(record_id: str, db: DbSession, user: CurrentUser):
-    del user
-    return ok(await delete_record(db, record_id))
+    return ok(await delete_record(db, record_id, user=user, admin=user_is_admin(user)))
 
 
 @router.post("/records/{record_id}/regenerate")
-async def tenders_regenerate_record(record_id: str, db: DbSession, user: CurrentUser):
-    """用该记录保存的表单和当前资料库附件再生成一份。"""
+async def tenders_regenerate_record(
+    record_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    request: Request,
+):
+    """覆盖同一条记录的 Word，不重置审批状态。可传当前表单；缺省用保存快照。"""
+    raw = (await request.body() or b"").strip()
+    brief = None
+    if raw:
+        try:
+            brief = BidBrief.model_validate(json.loads(raw))
+        except Exception as exc:
+            raise AppError(ErrorCode.VALIDATION, f"表单无法解析：{exc}", status_code=422) from exc
     payload = await regenerate_from_record(
         db,
         record_id,
-        user_id=int(user.id),
-        username=user.username or "",
+        user=user,
+        admin=user_is_admin(user),
+        brief=brief,
     )
     return ok(payload)
+
+
+@router.post("/records/{record_id}/submit")
+async def tenders_submit_record(record_id: str, db: DbSession, user: CurrentUser):
+    return ok(
+        await submit_for_approval(db, record_id, user=user, admin=user_is_admin(user))
+    )
+
+
+@router.post("/records/{record_id}/decide")
+async def tenders_decide_record(
+    record_id: str,
+    body: ApprovalDecisionIn,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _require_menu(user, "/approval")
+    return ok(
+        await decide_approval(
+            db,
+            record_id,
+            user=user,
+            passed=body.passed,
+            comment=body.comment or "",
+        )
+    )
+
+
+@router.post("/records/{record_id}/mark")
+async def tenders_mark_record(
+    record_id: str,
+    body: MarkResultIn,
+    db: DbSession,
+    user: CurrentUser,
+):
+    return ok(
+        await mark_result(
+            db,
+            record_id,
+            user=user,
+            admin=user_is_admin(user),
+            status=body.status,
+        )
+    )
 
 
 @router.get("/files/{file_name}")
@@ -287,29 +459,52 @@ async def tenders_editor_config(
     height: int | None = Query(None, ge=400, le=3000, description="编辑器高度（px，随视口传入）"),
     mode: str = Query("edit", description="edit=可编辑；view=只读预览（更快）"),
 ):
-    """OnlyOffice 在线 Word 编辑器配置（需登录）。"""
+    """在线预览/改稿配置。browser=docx-preview；onlyoffice / yozo 走文档服务。"""
     del db
+    settings = get_settings()
+    resolve_output_file(file_name)
+    display = (download_name or file_name).strip().replace("\\", "/").split("/")[-1]
+    display = re.sub(r'[\r\n"]+', "", display) or file_name
+    user_name = user.username or user.display_name or "用户"
+    engine = settings.doc_preview_engine
+    if engine == "yozo":
+        if not yozo_enabled(settings):
+            raise AppError(
+                ErrorCode.BAD_REQUEST,
+                "永中 Web Office 未配置，请设置 YOZO_DOCUMENT_SERVER_URL",
+                status_code=503,
+            )
+        return ok(
+            build_yozo_payload(
+                file_name,
+                download_name=display,
+                user_id=str(user.id),
+                user_name=user_name,
+                mode=mode,
+                settings=settings,
+            )
+        )
+    if engine != "onlyoffice":
+        return ok({"engine": "browser", "documentServerUrl": "", "iframeUrl": "", "config": {}})
     if not onlyoffice_enabled():
         raise AppError(
             ErrorCode.BAD_REQUEST,
             "OnlyOffice 未配置，请设置 ONLYOFFICE_DOCUMENT_SERVER_URL 并启动 Document Server",
             status_code=503,
         )
-    resolve_output_file(file_name)
-    settings = get_settings()
-    display = (download_name or file_name).strip().replace("\\", "/").split("/")[-1]
-    display = re.sub(r'[\r\n"]+', "", display) or file_name
     config = build_editor_config(
         file_name,
         download_name=display,
         user_id=str(user.id),
-        user_name=user.username or user.display_name or "用户",
+        user_name=user_name,
         editor_height_px=height,
         mode=mode,
     )
     return ok(
         {
+            "engine": "onlyoffice",
             "documentServerUrl": settings.onlyoffice_document_server_url.rstrip("/"),
+            "iframeUrl": "",
             "config": config,
         }
     )
@@ -324,12 +519,15 @@ async def tenders_onlyoffice_download(
     """OnlyOffice 容器拉取 docx（短效 token，不走用户 JWT）。"""
     del db
     if not verify_download_token(token, file_name):
+        logger.warning("onlyoffice download rejected file=%s", file_name)
         raise AppError(ErrorCode.UNAUTHORIZED, "invalid or expired download token", status_code=401)
     path = resolve_output_file(file_name)
+    logger.info("onlyoffice download ok file=%s bytes=%s", file_name, path.stat().st_size)
+    # 不要带 filename=：attachment 的 Content-Disposition 会让 Document Server 拉取失败。
     return FileResponse(
         path,
         media_type=_MIME.get(path.suffix.lower(), "application/octet-stream"),
-        filename=path.name,
+        headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
     )
 
 
@@ -349,6 +547,39 @@ async def tenders_onlyoffice_callback(
     if not isinstance(body, dict):
         raise AppError(ErrorCode.BAD_REQUEST, "invalid callback body", status_code=400)
     result = await handle_callback(file_name, body)
+    return JSONResponse(content=result)
+
+
+@router.get("/files/{file_name}/yozo-download")
+async def tenders_yozo_download(
+    file_name: str,
+    token: str,
+    db: DbSession,
+):
+    """永中服务器拉取 docx（短效 token，不走用户 JWT）。"""
+    del db
+    if not verify_download_token(token, file_name):
+        logger.warning("yozo download rejected file=%s", file_name)
+        raise AppError(ErrorCode.UNAUTHORIZED, "invalid or expired download token", status_code=401)
+    path = resolve_output_file(file_name)
+    logger.info("yozo download ok file=%s bytes=%s", file_name, path.stat().st_size)
+    return FileResponse(
+        path,
+        media_type=_MIME.get(path.suffix.lower(), "application/octet-stream"),
+        headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
+    )
+
+
+@router.post("/files/{file_name}/yozo-callback")
+async def tenders_yozo_callback(
+    file_name: str,
+    request: Request,
+    db: DbSession,
+):
+    """永中保存回调（须返回 errorCode=0，不能包 envelope）。"""
+    del db
+    resolve_output_file(file_name)
+    result = await handle_yozo_callback(file_name, request)
     return JSONResponse(content=result)
 
 

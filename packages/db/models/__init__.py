@@ -17,7 +17,7 @@ from db.models.mcp import McpServer, McpTool
 from db.models.model_config import ModelConfig
 from db.models.prompt import Prompt
 from db.models.role import Role, UserRole
-from db.models.tender import TenderRecord
+from db.models.tender import TenderApprovalLog, TenderRecord
 from db.models.user import User
 from db.models.workflow import Workflow, WorkflowRun, WorkflowRunStep, WorkflowVersion
 
@@ -44,4 +44,5 @@ __all__ = [
     "McpTool",
     "ScenarioAgent",
     "TenderRecord",
+    "TenderApprovalLog",
 ]

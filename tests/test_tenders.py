@@ -51,6 +51,22 @@ def test_chapter5_template_exists() -> None:
     assert path.stat().st_size > 10000
 
 
+def test_custom_layout_template_overrides_bundled(tmp_path, monkeypatch) -> None:
+    from api.services.tenders import assets as assets_mod
+
+    monkeypatch.setattr(assets_mod, "tender_assets_dir", lambda: tmp_path)
+    custom = tmp_path / "chapter5.docx"
+    custom.write_bytes(b"PK" + b"x" * 2000)
+    path = assets_mod.find_chapter5_template()
+    assert path == custom
+    status = assets_mod.chapter5_template_status()
+    assert status["custom"] is True
+    assert status["source"] == "custom"
+    restored = assets_mod.restore_chapter5_template()
+    assert restored["custom"] is False
+    assert not custom.exists()
+
+
 def test_rmb_uppercase_integer() -> None:
     assert rmb_uppercase(518800) == "伍拾壹万捌仟捌佰元整"
     assert rmb_uppercase(0) == "零元整"
@@ -169,25 +185,49 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
         if rfonts is not None:
             assert rfonts.get(qn("w:eastAsia")) != "黑体"
 
-    # 封面签字空位、投标函「投 标 人」：横线不加粗，不用形状线
-    cover = next(
+    cover_bidder = next(
         p
         for p in doc.paragraphs
-        if "法定代表人或其委托代理人" in (p.text or "")
-        and "（签字）" in (p.text or "")
+        if "投标人" in "".join((p.text or "").split())
         and "盖单位公章" in (p.text or "")
+        and "河南伟泰" in (p.text or "")
+        and "法定代表人" not in (p.text or "")
     )
-    for run in cover.runs:
-        rpr = run._element.find(qn("w:rPr"))
-        if rpr is None or rpr.find(qn("w:u")) is None:
-            continue
-        if (run.text or "").strip():
-            continue
-        assert rpr.find(qn("w:b")) is None
-        assert run.bold is not True
-
-    spaced = next(p for p in doc.paragraphs if (p.text or "").startswith("投 标 人"))
-    assert "河南伟泰" in spaced.text
+    cover_legal = next(
+        p
+        for p in doc.paragraphs
+        if "法定代表人或其委托代理人：" in (p.text or "")
+        and "（签字）" in (p.text or "")
+        and "盖单位公章" not in (p.text or "")
+        and "签字或盖章" not in (p.text or "")
+    )
+    cover_date = next(
+        p
+        for p in doc.paragraphs
+        if "".join((p.text or "").split()).startswith("日期：")
+        and "2026" in (p.text or "")
+    )
+    assert "法定代表人" not in (cover_bidder.text or "")
+    assert float(cover_date.paragraph_format.left_indent or 0) > 0
+    cover_style = cover_bidder._p.find(qn("w:pPr"))
+    cover_pstyle = cover_style.find(qn("w:pStyle")) if cover_style is not None else None
+    assert cover_pstyle is None or cover_pstyle.get(qn("w:val")) != "Heading1"
+    legal_label = next(r for r in cover_legal.runs if "法定代表人" in (r.text or ""))
+    assert legal_label.bold is not True
+    legal_fonts = None
+    legal_rpr = legal_label._element.find(qn("w:rPr"))
+    if legal_rpr is not None and legal_rpr.find(qn("w:rFonts")) is not None:
+        legal_fonts = legal_rpr.find(qn("w:rFonts")).get(qn("w:eastAsia"))
+    assert legal_fonts not in {"微软雅黑", "黑体", "Microsoft YaHei", "SimHei"}
+    assert any(r.underline is True for r in cover_legal.runs)
+    assert "（签字）" in (cover_legal.text or "")
+    assert "郭志伟" not in (cover_legal.text or "")
+    assert cover_legal._p.find(".//" + qn("w:tab")) is None
+    assert "\u3000" in (cover_legal.text or "")
+    assert "——" not in (cover_legal.text or "") and "---" not in (cover_legal.text or "")
+    spaced = next(
+        p for p in doc.paragraphs if "投　标　人" in (p.text or "") and "河南伟泰" in (p.text or "")
+    )
     assert "w:drawing" not in spaced._p.xml
     assert "w:pict" not in spaced._p.xml
     assert "AlternateContent" not in spaced._p.xml
@@ -206,8 +246,10 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
     assert "PAGE" in footer_xml
     assert "w:fldChar" in footer_xml
     header_text = doc.sections[-1].header.paragraphs[0].text
-    assert "投标文件" in header_text
-    assert "投标文件" in (doc.sections[0].header.paragraphs[0].text or "")
+    assert "高途智成港" in header_text
+    assert "投标文件" not in header_text
+    assert "高途智成港" in (doc.sections[0].header.paragraphs[0].text or "")
+    assert "投标文件" not in (doc.sections[0].header.paragraphs[0].text or "")
     # 分页改造后不再写 updateFields=true，避免 OnlyOffice/WPS 打开时全量更新域卡顿
     assert not doc.settings.element.findall(qn("w:updateFields"))
     bookmark_names = [
@@ -219,6 +261,8 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
     appendix = next(t for t in doc.tables if "项目名称" in t.rows[0].cells[0].text)
     assert brief.projectName in appendix.rows[0].cells[-1].text
     assert "w:pBdr" not in appendix.rows[0].cells[-1]._tc.xml
+    for row in appendix.rows:
+        assert "<w:u " not in row.cells[-1]._tc.xml
 
     from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
     from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -398,15 +442,17 @@ def test_factory_commitment_follows_tender_name(tmp_path) -> None:
     from docx import Document
 
     doc = Document(str(path))
+    addr = next(p for p in doc.paragraphs if (p.text or "").startswith("测试招标人新能源有限公司"))
+    assert "：" in addr.text
     factory = next(p for p in doc.paragraphs if "作为充电设备生产厂商" in (p.text or ""))
-    assert "测试招标人新能源有限公司" in factory.text
+    assert "我单位" in factory.text
     assert "厂内新能源充电桩采购项目" in factory.text
     assert "联源热电" not in factory.text
     assert "45" in factory.text
     assert "3" in factory.text
     filled = [run.text for run in factory.runs if run.underline is True]
-    assert any("测试招标人新能源有限公司" in t for t in filled)
     assert any("厂内新能源充电桩采购项目" in t for t in filled)
+    assert any("承诺单位" in (p.text or "") for p in doc.paragraphs)
 
 
 def test_factory_commitment_falls_back_to_project_name(tmp_path) -> None:
@@ -423,9 +469,195 @@ def test_factory_commitment_falls_back_to_project_name(tmp_path) -> None:
     from docx import Document
 
     doc = Document(str(path))
+    addr = next(p for p in doc.paragraphs if (p.text or "").startswith("备件采购投标项目"))
+    assert "：" in addr.text
     factory = next(p for p in doc.paragraphs if "作为投标产品生产厂商" in (p.text or ""))
-    assert factory.text.startswith("备件采购投标项目：")
     assert "充电设备生产厂商" not in factory.text
+
+
+def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    brief = BidBrief(
+        projectName="厂内新能源充电桩采购项目",
+        tenderer="测试招标人新能源有限公司",
+        bidPriceYuan=518800,
+        bidderAddress="河南省郑州市高新区开发区梧桐街与红松路交叉口东南角远大产业园区内6号楼三层",
+        bidderPhone="17630567052",
+        bidderWebsite="",
+        bidderFax="",
+        bidderPostcode="",
+        attachQualifications=False,
+        includePlaceholders=False,
+        includeCommitment=True,
+        bidDate="2026-09-09",
+    )
+    path, _warnings = build_bid_docx(brief, tmp_path / "bid.docx", qualification_pdf=None)
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.oxml.ns import qn
+
+    def _has_blank_u(para) -> bool:
+        xml = para._p.xml
+        if "w:tab" in xml and 'w:val="single"' in xml:
+            return True
+        return any(
+            r.underline is True
+            and (
+                "\u3000" in (r.text or "")
+                or r._element.find(qn("w:tab")) is not None
+            )
+            for r in para.runs
+        )
+
+    doc = Document(str(path))
+    addr = next(
+        p
+        for p in doc.paragraphs
+        if "址" in (p.text or "") and "梧桐街" in (p.text or "")
+    )
+    assert any(run.underline is True and "梧桐街" in (run.text or "") for run in addr.runs)
+    legal_i = next(i for i, p in enumerate(doc.paragraphs) if "法定代表人身份证明" in (p.text or ""))
+    legal_addr = next(
+        p
+        for p in doc.paragraphs[legal_i:]
+        if "地址" in (p.text or "") and "梧桐街" in (p.text or "")
+    )
+    assert float(legal_addr.paragraph_format.line_spacing or 0) >= 1.9
+    web = next(p for p in doc.paragraphs if "".join((p.text or "").split()).startswith("网址"))
+    assert _has_blank_u(web)
+    assert (web.text or "").count("\u3000") >= 18
+    assert web._p.find(".//" + qn("w:tab")) is None
+    assert "─" not in (web.text or "")
+    assert "---" not in (web.text or "")
+    phone = next(
+        p
+        for p in doc.paragraphs
+        if "17630567052" in (p.text or "") and "电话" in "".join((p.text or "").split())
+    )
+    assert any(r.underline is True and "17630567052" in (r.text or "") for r in phone.runs)
+    assert (phone.text or "").count("\u3000") >= 10
+    letter_rep = next(
+        p
+        for p in doc.paragraphs
+        if "法定代表人或其委托代理人" in (p.text or "") and "签字或盖章" in (p.text or "")
+    )
+    assert _has_blank_u(letter_rep) or any(r.underline is True for r in letter_rep.runs)
+    assert "（签字或盖章）" in (letter_rep.text or "")
+    assert "郭志伟" not in (letter_rep.text or "")
+    assert "梧桐街" not in (letter_rep.text or "")
+    letter_label = next(r for r in letter_rep.runs if (r.text or "").startswith("法定代表人"))
+    assert letter_label.bold is not True
+    letter_east = None
+    letter_rpr = letter_label._element.find(qn("w:rPr"))
+    if letter_rpr is not None and letter_rpr.find(qn("w:rFonts")) is not None:
+        letter_east = letter_rpr.find(qn("w:rFonts")).get(qn("w:eastAsia"))
+    assert letter_east not in {"微软雅黑", "黑体", "Microsoft YaHei", "SimHei"}
+    fax = next(p for p in doc.paragraphs if "".join((p.text or "").split()).startswith("传真"))
+    assert _has_blank_u(fax)
+    assert "邮政编码" not in (fax.text or "")
+    assert (fax.text or "").count("\u3000") >= 18
+    post_i = next(i for i, p in enumerate(doc.paragraphs) if "邮政编码" in (p.text or ""))
+    post = doc.paragraphs[post_i]
+    assert (post.text or "").count("\u3000") >= 18
+    letter_date = next(
+        p
+        for p in doc.paragraphs[post_i:]
+        if "".join((p.text or "").split()).startswith("日期") and "2026" in (p.text or "")
+    )
+    assert "2026年" in (letter_date.text or "").replace(" ", "").replace("\u3000", "")
+    assert (letter_date.text or "").count("\u3000") >= 10
+    assert float(letter_date.paragraph_format.left_indent or 0) > 0
+    pay_bidder = next(
+        p for p in doc.paragraphs if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
+    )
+    assert "法定代表人" not in (pay_bidder.text or "")
+    assert "盖单位" in (pay_bidder.text or "") and "章）" in (pay_bidder.text or "")
+    until = next(p for p in doc.paragraphs if "委托期限" in (p.text or ""))
+    assert "至本项目投标有效期届满" in (until.text or "")
+    assert "代理人无转委托权" in (until.text or "")
+    legal_heads = [
+        i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "法定代表人身份证明"
+    ]
+    legal_i = legal_heads[-1]
+    legal_bidder_i = next(
+        i
+        for i, p in enumerate(doc.paragraphs[legal_i:], start=legal_i)
+        if "".join((p.text or "").split()).startswith("投标人")
+        and "盖单位公章" in (p.text or "")
+        and "法定代表人" not in (p.text or "")
+    )
+    legal_bidder = doc.paragraphs[legal_bidder_i]
+    legal_date = next(
+        p
+        for p in doc.paragraphs[legal_bidder_i:]
+        if "".join((p.text or "").split()).startswith("日期：") and "2026" in (p.text or "")
+    )
+    assert "日期" in "".join((legal_date.text or "").split())
+    assert abs(
+        float(legal_bidder.paragraph_format.left_indent or 0)
+        - float(legal_date.paragraph_format.left_indent or 0)
+    ) < 50000
+    auth_heads = [i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "授权委托书"]
+    auth_i = auth_heads[-1]
+    auth_bidder_i = next(
+        i
+        for i, p in enumerate(doc.paragraphs[auth_i:], start=auth_i)
+        if "".join((p.text or "").split()).startswith("投标人") and "盖单位公章" in (p.text or "")
+    )
+    auth_bidder = doc.paragraphs[auth_bidder_i]
+    assert "法定代表人" not in (auth_bidder.text or "")
+    auth_date = next(
+        p
+        for p in doc.paragraphs[auth_bidder_i:]
+        if "".join((p.text or "").split()).startswith("日期：") and "2026" in (p.text or "")
+    )
+    assert abs(
+        float(auth_bidder.paragraph_format.left_indent or 0)
+        - float(auth_date.paragraph_format.left_indent or 0)
+    ) < 50000
+    auth_end = next(
+        i
+        for i, p in enumerate(doc.paragraphs[auth_i:], start=auth_i)
+        if (p.text or "").strip() in {"技术偏差表", "原厂生产承诺"}
+    )
+    agent_lines = [
+        i
+        for i, p in enumerate(doc.paragraphs[auth_i:auth_end], start=auth_i)
+        if "".join((p.text or "").split()).startswith("委托代理人")
+    ]
+    agent_id_lines = [
+        i
+        for i, p in enumerate(doc.paragraphs[auth_i:auth_end], start=auth_i)
+        if "".join((p.text or "").split()).startswith("身份证号码")
+    ]
+    assert len(agent_lines) == 1
+    assert agent_lines[0] > auth_bidder_i
+    assert len(agent_id_lines) == 2
+    assert auth_bidder_i < agent_id_lines[0] < agent_lines[0] < agent_id_lines[1]
+    factory_body = next(p for p in doc.paragraphs if "作为充电设备生产厂商" in (p.text or ""))
+    assert factory_body.paragraph_format.first_line_indent
+    assert any("承诺单位" in (p.text or "") for p in doc.paragraphs)
+    commit_title = next(i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "投标承诺书")
+    sign = next(
+        p
+        for p in doc.paragraphs[commit_title:]
+        if "投 标 人" in (p.text or "") and "盖章" in (p.text or "")
+    )
+    assert sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+
+
+def _run_has_tab(run) -> bool:
+    from docx.oxml.ns import qn
+
+    return run._element.find(qn("w:tab")) is not None
+
+
+def _run_has_u(run) -> bool:
+    from docx.oxml.ns import qn
+
+    rpr = run._element.find(qn("w:rPr"))
+    return rpr is not None and rpr.find(qn("w:u")) is not None
 
 
 def test_commitment_letter_fills_tenderer(tmp_path) -> None:
@@ -457,7 +689,8 @@ def test_commitment_letter_fills_tenderer(tmp_path) -> None:
     for i, section in enumerate(doc.sections):
         assert int(section.header_distance or 0) >= min_header, f"section {i}"
         header_text = "\n".join(p.text for p in section.header.paragraphs)
-        assert "投标文件" in header_text
+        assert "厂内新能源充电桩采购项目" in header_text
+        assert "投标文件" not in header_text
     annex = next(p for p in doc.paragraphs if (p.text or "").strip() == "附件五：")
     prev = annex._p.getprevious()
     if prev is not None and prev.tag == qn("w:p"):
@@ -495,7 +728,7 @@ def test_extra_placeholder_box(tmp_path) -> None:
 
 
 def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
-    """资料库已有扫描件时，生成路径只占位不嵌入，保证速度。"""
+    """证件类扫描件写入 Word，紧接技术标之后。"""
     from PIL import Image
 
     from api.services.tenders import slots as slots_mod
@@ -520,21 +753,100 @@ def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
     from docx import Document
 
     doc = Document(str(path))
-    text = "\n".join(p.text for p in doc.paragraphs)
-    assert "（一）法定代表人身份证正反面" in text
-    assert any("未嵌入" in w or "占位" in w or "加速" in w for w in warnings)
-    box_hits = sum(
-        1
-        for t in doc.tables
-        for row in t.rows
-        for c in row.cells
-        if "在此粘贴扫描件" in (c.text or "")
-    )
-    assert box_hits >= 1
-    # 生成默认不嵌图
-    xml = "\n".join(p._p.xml for p in doc.paragraphs)
-    assert "a:blip" not in xml and "pic:blipFill" not in xml
+    texts = [p.text or "" for p in doc.paragraphs]
+    assert any("附件：资料库扫描件" in t for t in texts)
+    assert any("（一）法定代表人身份证正反面" in t for t in texts)
+    tech_i = next(i for i, t in enumerate(texts) if "技术标" in t.replace(" ", "") and "实施方案" in t)
+    slot_i = next(i for i, t in enumerate(texts) if "法定代表人身份证正反面" in t)
+    assert tech_i < slot_i
+    xml = doc.element.body.xml
+    assert "a:blip" in xml or "pic:blipFill" in xml
     clear_slot("id_legal")
+
+
+def test_id_legal_front_back_side_by_side_one_page(tmp_path) -> None:
+    """身份证正反面合成一张横版小图，紧跟小标题，不各占一页。"""
+    from PIL import Image
+    from docx import Document
+    from docx.oxml.ns import qn
+    from docx.shared import Cm
+
+    from api.services.tenders.placeholders import append_placeholder_section
+    from api.services.tenders.schema import PlaceholderItem
+
+    front = tmp_path / "id-front.png"
+    back = tmp_path / "id-back.png"
+    Image.new("RGB", (220, 350), (190, 170, 150)).save(front)
+    Image.new("RGB", (220, 350), (150, 170, 190)).save(back)
+
+    doc = Document()
+    doc.add_paragraph("技术标实施方案")
+    filled, boxes, _notes = append_placeholder_section(
+        doc,
+        [PlaceholderItem(key="id_legal", title="法定代表人身份证正反面")],
+        {"id_legal": [front, back]},
+    )
+    assert filled == 1
+    assert boxes == 0
+
+    heading = next(p for p in doc.paragraphs if "法定代表人身份证正反面" in (p.text or ""))
+    extents = []
+    el = heading._element.getnext()
+    while el is not None:
+        if el.tag == qn("w:tbl"):
+            break
+        extents.extend(el.findall(".//" + qn("wp:extent")))
+        el = el.getnext()
+    assert len(extents) == 1
+    cx = int(extents[0].get("cx") or 0)
+    cy = int(extents[0].get("cy") or 0)
+    assert cx > cy
+    assert cx < int(Cm(16.5).emu)
+    assert cy < int(Cm(5.5).emu)
+
+
+def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    from api.services.tenders.placeholders import append_placeholder_section
+    from api.services.tenders.schema import PlaceholderItem
+
+    tall = tmp_path / "report.png"
+    Image.new("RGB", (400, 720), (200, 200, 200)).save(tall)
+    skip_pdf = tmp_path / "finance.pdf"
+    skip_pdf.write_bytes(b"%PDF-1.4\n")
+
+    doc = Document()
+    doc.add_paragraph("技术标实施方案")
+    filled, boxes, notes = append_placeholder_section(
+        doc,
+        [
+            PlaceholderItem(key="product", title="所投产品检测报告 / 3C / 对应功率桩型证明"),
+            PlaceholderItem(key="finance", title="近三年财务审计报告"),
+            PlaceholderItem(key="bond", title="投标保证金缴存回单"),
+        ],
+        {"product": [tall], "finance": [skip_pdf]},
+    )
+    assert filled >= 1
+    blob = "\n".join(p.text or "" for p in doc.paragraphs)
+    assert "资料库已有" not in blob
+    assert "为加快生成" not in blob
+    assert "576aa2fbf71a" not in blob
+    assert "未写入扫描页" not in blob
+    assert "finance.pdf" not in blob
+    xml = doc.element.body.xml
+    assert "a:blip" in xml or "pic:blipFill" in xml
+    table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
+    assert "（在此粘贴扫描件）" in table_text
+    assert any("未嵌入 Word" in n or "装订时请" in n for n in notes) or boxes >= 1
+
+    finance = next(p for p in doc.paragraphs if "近三年财务审计报告" in (p.text or ""))
+    prev = finance._element.getprevious()
+    assert prev is not None
+    has_break = any(br.get(qn("w:type")) == "page" for br in prev.iter(qn("w:br")))
+    assert has_break
 
 
 def test_collect_slots_status_keys() -> None:
@@ -1254,6 +1566,20 @@ def test_ordered_perf_lines_completed_first() -> None:
     )
     ordered = _ordered_perf_lines(brief)
     assert [item.projectName for item in ordered] == ["已完成充电桩B", "在建充电桩A"]
+
+
+def test_ordered_perf_lines_skips_unchecked() -> None:
+    from api.services.tenders.document import _ordered_perf_lines
+    from api.services.tenders.schema import BidBrief, PerformanceLine
+
+    brief = BidBrief(
+        performanceLines=[
+            PerformanceLine(projectName="写入充电桩", chargerRelated=True, includeInBid=True),
+            PerformanceLine(projectName="不写充电桩", chargerRelated=True, includeInBid=False),
+        ]
+    )
+    ordered = _ordered_perf_lines(brief)
+    assert [item.projectName for item in ordered] == ["写入充电桩"]
 
 
 def test_technical_soft_issues_do_not_block() -> None:

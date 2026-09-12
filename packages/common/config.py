@@ -110,13 +110,45 @@ class Settings(BaseSettings):
     kb_score_floor: float = 0.12
     kb_keep_ratio: float = 0.38
 
-    # ---- OnlyOffice 在线 Word（投标文件编辑）----
+    # ---- 在线 Word 改稿引擎 ----
+    # browser=前端 docx-preview（无文档服务时的只读预览）
+    # onlyoffice=OnlyOffice Document Server
+    # yozo=永中 Web Office 内网私有化（远程文档 + 保存回调）
+    tender_doc_preview: str = "browser"
+
+    # ---- OnlyOffice 在线 Word ----
     # 浏览器加载 Document Server 的 api.js；容器内需能访问 onlyoffice_public_api_base
     onlyoffice_document_server_url: str = "http://127.0.0.1:8082"
     onlyoffice_jwt_secret: str = "onlyoffice-dev-secret-change-me"
-    # OnlyOffice 容器拉取 docx / 回调保存用的 API 根（Windows/Mac Docker 默认 host.docker.internal）
+    # 文档服务拉取 docx / 回调保存用的 API 根（Windows/Mac Docker 默认 host.docker.internal）
     onlyoffice_public_api_base: str = "http://host.docker.internal:8100"
     onlyoffice_download_token_ttl_seconds: int = 3600
+
+    # ---- 永中 Web Office（内网自建）----
+    # 浏览器访问的永中服务根，例如 http://192.168.1.10:8080
+    yozo_document_server_url: str = ""
+    # 开档页面路径。私有化 3.x 常见为 / 或 /index.html，以测试包为准
+    yozo_open_path: str = "/"
+    # query=把参数拼进 URL；json=使用 jsonParams（部分 3.x 版本）
+    yozo_open_style: str = "query"
+    # 永中服务器访问本 API 的根。空则沿用 ONLYOFFICE_PUBLIC_API_BASE
+    yozo_public_api_base: str = ""
+    # 可选：私有化若仍要 HMAC 验签则填写；纯远程文档可不填
+    yozo_app_id: str = ""
+    yozo_app_key: str = ""
+    # 可选：从永中再下载新版本时的 API 根（云编辑 DMC，或私有化等价地址）
+    yozo_api_base: str = ""
+
+    @property
+    def doc_preview_engine(self) -> str:
+        raw = (self.tender_doc_preview or "browser").strip().lower()
+        if raw in {"yozo", "yozosoft", "yozowo", "weboffice", "yz"}:
+            if self.yozo_document_server_url.strip():
+                return "yozo"
+            return "browser"
+        if raw in {"onlyoffice", "oo", "office"} and self.onlyoffice_document_server_url.strip():
+            return "onlyoffice"
+        return "browser"
 
     @property
     def cors_origin_list(self) -> list[str]:

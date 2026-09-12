@@ -7,10 +7,11 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from api.services.tenders.assets import find_qualification_pdf, tenders_output_dir
+from api.services.tenders.assets import chapter5_template_status, find_qualification_pdf, tenders_output_dir
 from api.services.tenders.document import build_bid_docx
 from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
 from api.services.tenders.slots import list_slots_status
+from common.config import get_settings
 
 _FILE_RE = re.compile(r"^[a-f0-9]{12}\.(docx|pdf)$", re.I)
 _UNSAFE = re.compile(r'[\\/:*?"<>|\s]+')
@@ -41,13 +42,36 @@ def generate_bid(
     docx_name = f"{stem}.docx"
     dest = out_dir / docx_name
     pdf_src = find_qualification_pdf() if brief.attachQualifications else None
-    _, warnings = build_bid_docx(
-        brief,
-        dest,
-        qualification_pdf=pdf_src,
-        catalog_slots=catalog_slots,
-        catalog_media=catalog_media,
+    use_outline = (brief.layoutMode or "").strip() == "outline" and any(
+        not item.skipped for item in (brief.outlineItems or [])
     )
+    if use_outline:
+        try:
+            from api.services.tenders.assemble import assemble_bid_docx
+        except ImportError as exc:
+            from common.errors import AppError, ErrorCode
+
+            raise AppError(
+                ErrorCode.INTERNAL,
+                "组卷模块加载失败。Windows 下改后端代码不会自动重载，请重启 API 后再点「生成并预览」。",
+                status_code=500,
+            ) from exc
+
+        _, warnings = assemble_bid_docx(
+            brief,
+            dest,
+            qualification_pdf=pdf_src,
+            catalog_slots=catalog_slots,
+            catalog_media=catalog_media,
+        )
+    else:
+        _, warnings = build_bid_docx(
+            brief,
+            dest,
+            qualification_pdf=pdf_src,
+            catalog_slots=catalog_slots,
+            catalog_media=catalog_media,
+        )
 
     pdf_name = ""
     if pdf_src is not None:
@@ -83,7 +107,9 @@ def defaults_payload(extra: list[PlaceholderItem] | None = None) -> dict[str, ob
     brief = default_brief()
     data = brief.model_dump()
     data["qualification"] = qualification_status()
+    data["chapter5Template"] = chapter5_template_status()
     data["slots"] = list_slots_status(extra)
+    data["docPreview"] = get_settings().doc_preview_engine
     return data
 
 

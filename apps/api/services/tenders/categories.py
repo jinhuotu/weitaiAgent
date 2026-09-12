@@ -83,8 +83,12 @@ def technical_soft_issues(
         drawing_files = list_slot_files(TECH_DRAWING_KEY)
     if not drawing_files:
         issues.append("技术标：尚未上传实施方案图纸")
-    if not any((row.projectName or "").strip() for row in (brief.performanceLines or [])):
+    from api.services.tenders.performance import bid_performance_lines, performance_match_issues
+
+    if not any((row.projectName or "").strip() for row in bid_performance_lines(brief.performanceLines or [])):
         issues.append("商务标：类似业绩为空，资格评审可能扣分（已竣工充电桩优先）")
+    else:
+        issues.extend(performance_match_issues(brief.performanceLines, brief.performanceRequirement))
     required = set(required_keys or [])
     for item in slots or []:
         if slot_volume(item.key, item.title) != "technical":

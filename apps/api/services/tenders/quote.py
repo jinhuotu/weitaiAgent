@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from api.services.tenders.schema import BidBrief
+from api.services.tenders.tables import classify_quote_headers, group_indexes, quote_role
 
 _TWO = Decimal("0.01")
 SHEET_INC_TAX = Decimal("518800")
@@ -38,10 +39,6 @@ def _q(value: object) -> Decimal:
         return Decimal("0")
 
 
-def _norm(text: object) -> str:
-    return re.sub(r"[\s/（）()【】\[\]:：]", "", str(text or "")).lower()
-
-
 @dataclass(frozen=True)
 class QuoteLine:
     seq: str
@@ -51,6 +48,7 @@ class QuoteLine:
     qty: Decimal
     unit_price: Decimal
     amount: Decimal
+    groups: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -62,6 +60,8 @@ class QuoteSheet:
     total_inc_tax: Decimal
     note: str
     source_inc_tax: Decimal
+    headers: tuple[str, ...] = ()
+    roles: tuple[str, ...] = ()
 
 
 def _qty(value: object) -> Decimal:
@@ -86,45 +86,20 @@ def is_template_sheet(sheet: QuoteSheet) -> bool:
 
 
 def _col_kind(cell: object) -> str | None:
-    n = _norm(cell)
-    if not n:
+    return quote_role(cell)
+
+
+def _header_map(cells: list[object]) -> dict[str, int] | None:
+    layout = classify_quote_headers(cells)
+    if layout is None:
         return None
-    if n in {"序号", "编号", "no", "num"} or n.startswith("序号"):
-        return "seq"
-    # 技术参数/明细列优先于「单价」等，避免表头含「参数」时误判
-    if any(
-        k in n
-        for k in (
-            "技术参数",
-            "技术要求",
-            "参数要求",
-            "规格型号",
-            "规格参数",
-            "特征描述",
-            "工作内容",
-            "设备参数",
-            "配置要求",
-        )
-    ):
-        return "spec"
-    if n in {"规格", "参数", "明细"} or n.endswith("明细"):
-        return "spec"
-    if n in {"单位", "计量单位"} or n.endswith("单位"):
-        return "unit"
-    if any(k in n for k in ("工程量", "数量")):
-        return "qty"
-    if any(k in n for k in ("综合单价", "不含税单价", "单价")):
-        return "price"
-    if n in {"合价", "金额"} or n.endswith("合价") or "不含税合价" in n:
-        return "amount"
-    if any(k in n for k in ("设备名称", "项目名称", "货物名称", "物料名称", "品名")):
-        return "name"
-    if n in {"设备", "名称", "项目", "货物", "物料"}:
-        return "name"
-    # 宽松兜底：「规格」单独出现已在上；含「参数」但不像单价列
-    if "参数" in n and "单价" not in n and "合价" not in n:
-        return "spec"
-    return None
+    mapping: dict[str, int] = {}
+    for i, role in enumerate(layout.roles):
+        if role == "group":
+            continue
+        if role not in mapping:
+            mapping[role] = i
+    return mapping
 
 
 def _cell_text(value: object) -> str:
@@ -183,34 +158,40 @@ def _normalize_cell(value: object) -> object:
 def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteSheet | None:
     """从二维表抽出报价行。表头需能识别名称+数量/单价。"""
     header_i = -1
+    layout = None
     mapping: dict[str, int] = {}
     title = (title_hint or "").strip()
     normalized_rows: list[list[object]] = [[_normalize_cell(c) for c in row] for row in rows]
     for i, row in enumerate(normalized_rows[:20]):
-        found = _header_map(row)
-        if found:
+        found_layout = classify_quote_headers(row)
+        if found_layout:
             header_i = i
-            mapping = found
+            layout = found_layout
+            mapping = _header_map(row) or {}
             if not title:
                 for prev in reversed(normalized_rows[:i]):
                     head = _cell_text(prev[0] if prev else "")
-                    if head and not _header_map(prev):
+                    if head and classify_quote_headers(prev) is None:
                         title = head
                         break
             break
-    if header_i < 0:
+    if header_i < 0 or layout is None or "name" not in mapping:
         return None
 
+    group_cols = group_indexes(layout)
     lines: list[QuoteLine] = []
     tax_rate = Decimal("0.13")
     total_ex = Decimal("0")
     total_inc = Decimal("0")
     note = ""
+    prev_groups: list[str] = [""] * len(group_cols)
     for row in normalized_rows[header_i + 1 :]:
-        cells = list(row) + [None] * 8
+        cells = list(row) + [None] * max(8, len(layout.titles))
         name = _cell_text(cells[mapping["name"]]) if "name" in mapping else ""
         seq_raw = cells[mapping["seq"]] if "seq" in mapping else None
-        label = name or _cell_text(seq_raw)
+        raw_groups = [_cell_text(cells[idx]) for idx in group_cols]
+        groups = _carry_groups(raw_groups, prev_groups)
+        label = name or next((g for g in groups if g), "") or _cell_text(seq_raw)
         if str(seq_raw or "").startswith("备注") or (label.startswith("备注") and not name):
             note = _cell_text(seq_raw or name)
             continue
@@ -241,6 +222,7 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
         seq = _cell_text(seq_raw) if seq_raw not in (None, "") else str(len(lines) + 1)
         if seq.endswith(".0") and seq[:-2].isdigit():
             seq = seq[:-2]
+        prev_groups = list(groups)
         lines.append(
             QuoteLine(
                 seq=seq,
@@ -250,6 +232,7 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
                 qty=qty,
                 unit_price=price,
                 amount=amount,
+                groups=tuple(groups),
             )
         )
         if len(lines) >= _MAX_LINES:
@@ -270,7 +253,21 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
         total_inc_tax=total_inc,
         note=note,
         source_inc_tax=total_inc,
+        headers=layout.titles,
+        roles=layout.roles,
     )
+
+
+def _carry_groups(current: list[str], previous: list[str]) -> list[str]:
+    out: list[str] = []
+    for i, value in enumerate(current):
+        if value:
+            out.append(value)
+        elif i < len(previous):
+            out.append(previous[i])
+        else:
+            out.append("")
+    return out
 
 
 def parse_quote_path(path: Path | None) -> QuoteSheet | None:
@@ -342,6 +339,7 @@ def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
                 qty=qty,
                 unit_price=price,
                 amount=amount,
+                groups=tuple(str(g or "").strip() for g in (item.groups or [])),
             )
         )
     if not lines:
@@ -362,6 +360,8 @@ def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
         total_inc_tax=total_inc,
         note="",
         source_inc_tax=total_inc,
+        headers=tuple(h for h in (brief.quoteHeaders or []) if str(h).strip()),
+        roles=tuple(brief.quoteRoles or ()),
     )
 
 
@@ -384,6 +384,7 @@ def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief
             "qty": float(ln.qty),
             "unitPrice": float(ln.unit_price),
             "amount": float(ln.amount),
+            "groups": list(ln.groups),
         }
         for ln in sheet.lines
     ]
@@ -391,6 +392,9 @@ def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief
     data["quoteTaxRate"] = float(sheet.tax_rate)
     data["quoteSourceIncTax"] = float(sheet.source_inc_tax)
     data["quoteSource"] = source
+    if sheet.headers:
+        data["quoteHeaders"] = list(sheet.headers)
+        data["quoteRoles"] = list(sheet.roles)
     if float(data.get("bidPriceYuan") or 0) <= 0 and sheet.total_inc_tax > 0:
         data["bidPriceYuan"] = float(sheet.total_inc_tax)
     return BidBrief.model_validate(data)
@@ -442,8 +446,12 @@ def scale_quote(sheet: QuoteSheet, target_inc_tax: Decimal) -> QuoteSheet:
     factor = target / source
     scaled: list[QuoteLine] = []
     for line in sheet.lines:
-        unit = (line.unit_price * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
-        amt = (unit * line.qty).quantize(_TWO, rounding=ROUND_HALF_UP)
+        if line.qty:
+            unit = (line.unit_price * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
+            amt = (unit * line.qty).quantize(_TWO, rounding=ROUND_HALF_UP)
+        else:
+            unit = (line.unit_price * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
+            amt = (line.amount * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
         scaled.append(replace(line, unit_price=unit, amount=amt))
     rate = sheet.tax_rate if sheet.tax_rate > 0 else Decimal("0.13")
     target_ex = (target / (1 + rate)).quantize(_TWO, rounding=ROUND_HALF_UP)

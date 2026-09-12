@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.layouts.parse import extract_json_object
-from api.services.tenders.schema import PerformanceLine
+from api.services.tenders.schema import PerformanceLine, PerformanceRequirement
 from common.errors import AppError
 
 logger = logging.getLogger("api.tenders.performance")
@@ -22,6 +23,15 @@ _WEAK_NAME = ("snipaste", "screenshot", "img_", "dsc_", "wechat", "微信", "屏
 _CHARGER_MARK = ("充电", "充电桩", "充电机", "群充", "直流桩", "交流桩", "箱变")
 _ONGOING_MARK = ("在建", "未竣工", "施工中", "供货中", "尚未验收")
 _DONE_MARK = ("已竣工", "竣工", "已验收", "验收合格", "已完成", "完工")
+
+
+@dataclass
+class PerformanceMatchResult:
+    passed: bool
+    amount_ok: bool = True
+    similar_ok: bool = True
+    completed_ok: bool = True
+    reasons: list[str] = field(default_factory=list)
 
 
 def is_weak_title(name: str) -> bool:
@@ -39,7 +49,9 @@ def is_charger_line(line: PerformanceLine) -> bool:
 
 
 def dump_perf_meta(line: PerformanceLine) -> str:
-    return PERF_META_PREFIX + json.dumps(line.model_dump(mode="json"), ensure_ascii=False)
+    data = line.model_dump(mode="json")
+    data.pop("includeInBid", None)
+    return PERF_META_PREFIX + json.dumps(data, ensure_ascii=False)
 
 
 def load_perf_meta(raw: str | None) -> PerformanceLine | None:
@@ -162,16 +174,381 @@ def fallback_from_text(text: str, filename: str) -> PerformanceLine | None:
     )
 
 
-def rank_performance_lines(lines: list[PerformanceLine]) -> list[PerformanceLine]:
-    """招标优先已竣工充电桩，其次其他已完成，再在建。"""
+def rank_performance_lines(
+    lines: list[PerformanceLine],
+    requirement: PerformanceRequirement | None = None,
+) -> list[PerformanceLine]:
+    """有招标门槛时符合项在前；否则已竣工充电桩优先，其次其他已完成，再在建。"""
     usable = [item for item in lines if (item.projectName or "").strip() and not is_weak_title(item.projectName)]
+    active = requirement_active(requirement)
 
-    def key(item: PerformanceLine) -> tuple[int, int, float]:
+    def key(item: PerformanceLine) -> tuple[int, int, int, float]:
+        matched = 1 if active and match_performance_line(item, requirement).passed else 0
         charger = 1 if is_charger_line(item) else 0
         done = 0 if item.ongoing else 1
-        return (done, charger, float(item.amountYuan or 0))
+        return (matched, done, charger, float(item.amountYuan or 0))
 
     return sorted(usable, key=key, reverse=True)
+
+
+def line_name_key(name: str) -> str:
+    return re.sub(r"\s+", "", name or "").lower()
+
+
+def bid_performance_lines(lines: list[PerformanceLine] | None) -> list[PerformanceLine]:
+    """本标勾选写入 Word / 附件的业绩行。"""
+    out: list[PerformanceLine] = []
+    for item in lines or []:
+        if not (item.projectName or "").strip() or is_weak_title(item.projectName):
+            continue
+        if not bool(getattr(item, "includeInBid", True)):
+            continue
+        out.append(item)
+    return out
+
+
+def apply_include_in_bid(
+    lines: list[PerformanceLine],
+    requirement: PerformanceRequirement | None,
+    *,
+    preserve: dict[str, bool] | None = None,
+) -> list[PerformanceLine]:
+    """有招标门槛时默认只勾选符合项；preserve 保留用户已勾选/取消的行。"""
+    held = preserve or {}
+    active = requirement_active(requirement)
+    for item in lines:
+        key = line_name_key(item.projectName)
+        if key in held:
+            item.includeInBid = held[key]
+        elif active:
+            item.includeInBid = match_performance_line(item, requirement).passed
+        else:
+            item.includeInBid = True
+    return lines
+
+
+_PERF_ANCHOR = re.compile(
+    r"类似项目|类似业绩|同类项目|同类工程|合同业绩|企业业绩|"
+    r"近三年.{0,12}(?:业绩|类似)|业绩证明|类似的项目"
+)
+_SCOPE_WORDS = (
+    "充电桩",
+    "充电设施",
+    "充电机",
+    "直流桩",
+    "交流桩",
+    "群充",
+    "热力",
+    "供热",
+    "供暖",
+    "信息化",
+    "系统集成",
+    "软件开发",
+    "DICT",
+    "电缆",
+    "箱变",
+    "光伏",
+    "变电站",
+    "电力施工",
+    "EPC",
+)
+_CHARGER_SCOPE = frozenset({"充电桩", "充电设施", "充电机", "直流桩", "交流桩", "群充"})
+_CN_COUNT = {
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+}
+_AMOUNT_NEAR = re.compile(
+    r"(?:单份|单项|单个合同|每份合同|每份|合同金额|金额|签约合同价)[^。；;]{0,18}"
+    r"(?:不少于|不低于|达到|须达到|应达到|以上|≥|>=|>＝)"
+    r"(?:人民币)?"
+    r"(?P<num>\d+(?:\.\d+)?)(?P<unit>万元|万|元)"
+)
+_AMOUNT_BEFORE = re.compile(
+    r"(?:不少于|不低于)(?:人民币)?(?P<num>\d+(?:\.\d+)?)(?P<unit>万元|万)"
+    r"[^。；;]{0,12}(?:类似|同类|合同)"
+)
+_COUNT_PAT = re.compile(
+    r"(?:至少|不少于)(?:提供)?(?P<n>\d+|[一二三四五六七八九十两])(?:个|项|份)"
+    r"|提供(?P<n2>\d+|[一二三四五六七八九十两])(?:个|项|份).{0,8}(?:类似|同类)"
+)
+_SCOPE_PAT = re.compile(r"(?:类似|同类)(?:的)?(?P<scope>[^，。；;、]{2,16}?)(?:项目|工程|合同|业绩)")
+
+
+def requirement_active(req: PerformanceRequirement | None) -> bool:
+    if req is None:
+        return False
+    return bool(
+        (req.minAmountYuan or 0) > 0
+        or (req.minCount or 0) > 0
+        or req.requireCompleted
+        or (req.keywords or [])
+        or (req.similarScope or "").strip()
+    )
+
+
+def empty_requirement() -> PerformanceRequirement:
+    return PerformanceRequirement()
+
+
+def extract_performance_requirement(text: str) -> PerformanceRequirement:
+    """从招标/邀请书抽出业绩门槛。找不到则空对象，不套用默认 20 万。"""
+    windows = _perf_windows(text)
+    if not windows:
+        return empty_requirement()
+    blob = "".join(windows)
+    amount = _amount_from_windows(windows)
+    count = _count_from_blob(blob)
+    keywords = [word for word in _SCOPE_WORDS if word in blob]
+    scopes = []
+    for window in windows:
+        for match in _SCOPE_PAT.finditer(window):
+            scope = (match.group("scope") or "").strip("的 ")
+            if scope and scope not in {"项目", "工程", "合同"} and len(scope) <= 16:
+                scopes.append(scope)
+    similar = scopes[0] if scopes else ("、".join(keywords[:3]) if keywords else "")
+    if similar:
+        for word in _SCOPE_WORDS:
+            if word in similar and word not in keywords:
+                keywords.append(word)
+    require_completed = any(mark in blob for mark in ("已竣工", "已完成", "竣工验收", "已验收", "近三年完成"))
+    if any(mark in blob for mark in ("在建亦可", "含在建", "在建项目也可")):
+        require_completed = False
+    note = windows[0][:120] if windows else ""
+    return PerformanceRequirement(
+        similarScope=similar[:80],
+        keywords=keywords[:8],
+        minAmountYuan=amount,
+        minCount=count,
+        requireCompleted=require_completed,
+        note=note,
+    )
+
+
+def requirement_from_payload(patch: dict[str, Any] | None) -> PerformanceRequirement:
+    raw = (patch or {}).get("performanceRequirement")
+    if not isinstance(raw, dict):
+        return empty_requirement()
+    amount = _amount_from_value(raw.get("minAmountYuan") or raw.get("minAmount"))
+    try:
+        count = int(raw.get("minCount") or 0)
+    except (TypeError, ValueError):
+        count = 0
+    keywords = [
+        str(item).strip()
+        for item in (raw.get("keywords") or [])
+        if isinstance(item, str) and str(item).strip()
+    ]
+    similar = str(raw.get("similarScope") or raw.get("scope") or "").strip()[:80]
+    for word in _SCOPE_WORDS:
+        if word in similar and word not in keywords:
+            keywords.append(word)
+    return PerformanceRequirement(
+        similarScope=similar,
+        keywords=keywords[:8],
+        minAmountYuan=max(0.0, amount),
+        minCount=max(0, min(count, 20)),
+        requireCompleted=bool(raw.get("requireCompleted")),
+        note=str(raw.get("note") or "").strip()[:160],
+    )
+
+
+def merge_performance_requirement(
+    rule: PerformanceRequirement | None,
+    llm: PerformanceRequirement | None,
+    *,
+    invitation: str = "",
+) -> PerformanceRequirement:
+    left = rule or empty_requirement()
+    right = llm or empty_requirement()
+    compact_inv = re.sub(r"\s+", "", invitation or "")
+    amount = left.minAmountYuan or 0
+    if amount <= 0 and right.minAmountYuan > 0 and _amount_mentioned(compact_inv, right.minAmountYuan):
+        amount = right.minAmountYuan
+    count = left.minCount or 0
+    if count <= 0 and 0 < right.minCount <= 20:
+        count = right.minCount
+    keywords = list(dict.fromkeys([*(left.keywords or []), *(right.keywords or [])]))[:8]
+    similar = (left.similarScope or "").strip() or (right.similarScope or "").strip()
+    note = (left.note or "").strip() or (right.note or "").strip()
+    return PerformanceRequirement(
+        similarScope=similar[:80],
+        keywords=keywords,
+        minAmountYuan=amount,
+        minCount=count,
+        requireCompleted=bool(left.requireCompleted or right.requireCompleted),
+        note=note[:160],
+    )
+
+
+def match_performance_line(
+    line: PerformanceLine,
+    requirement: PerformanceRequirement | None,
+) -> PerformanceMatchResult:
+    req = requirement or empty_requirement()
+    if not requirement_active(req):
+        return PerformanceMatchResult(passed=True, amount_ok=True, similar_ok=True, completed_ok=True, reasons=[])
+    blob = compact_perf_text(line)
+    amount_ok = True
+    similar_ok = True
+    completed_ok = True
+    reasons: list[str] = []
+    if req.minAmountYuan > 0:
+        if float(line.amountYuan or 0) <= 0:
+            amount_ok = False
+            reasons.append("金额未识别")
+        elif float(line.amountYuan or 0) + 0.5 < req.minAmountYuan:
+            amount_ok = False
+            reasons.append("金额不足")
+    if req.keywords or (req.similarScope or "").strip():
+        similar_ok = _similar_hit(line, blob, req)
+        if not similar_ok:
+            reasons.append("类型不符")
+    if req.requireCompleted and line.ongoing:
+        completed_ok = False
+        reasons.append("在建")
+    return PerformanceMatchResult(
+        passed=amount_ok and similar_ok and completed_ok,
+        amount_ok=amount_ok,
+        similar_ok=similar_ok,
+        completed_ok=completed_ok,
+        reasons=reasons,
+    )
+
+
+def format_requirement(req: PerformanceRequirement | None) -> str:
+    if not requirement_active(req):
+        return ""
+    assert req is not None
+    parts: list[str] = []
+    scope = (req.similarScope or "").strip() or "、".join(req.keywords[:3])
+    if scope:
+        parts.append(f"同类「{scope}」")
+    if req.minAmountYuan > 0:
+        parts.append(f"单份≥{_amount_label(req.minAmountYuan)}")
+    if req.minCount > 0:
+        parts.append(f"至少{req.minCount}个")
+    if req.requireCompleted:
+        parts.append("须已竣工")
+    return "，".join(parts)
+
+
+def performance_match_issues(
+    lines: list[PerformanceLine],
+    requirement: PerformanceRequirement | None,
+) -> list[str]:
+    if not requirement_active(requirement):
+        return []
+    assert requirement is not None
+    selected = bid_performance_lines(lines)
+    listed = [
+        item
+        for item in (lines or [])
+        if (item.projectName or "").strip() and not is_weak_title(item.projectName)
+    ]
+    passed = sum(1 for item in selected if match_performance_line(item, requirement).passed)
+    label = format_requirement(requirement)
+    if not listed:
+        return [f"类似业绩为空，招标要求：{label}"]
+    if not selected:
+        return [f"类似业绩未勾选写入本标，招标要求：{label}"]
+    if requirement.minCount > 0 and passed < requirement.minCount:
+        return [f"类似业绩符合招标要求 {passed} 条，招标要求至少 {requirement.minCount} 个（{label}）"]
+    if passed == 0:
+        return [f"类似业绩均未达到招标要求（{label}）"]
+    return []
+
+
+def compact_perf_text(line: PerformanceLine) -> str:
+    return re.sub(
+        r"\s+",
+        "",
+        f"{line.projectName}{line.spec}{line.summary}{line.note}{line.client}",
+    )
+
+
+def _similar_hit(line: PerformanceLine, blob: str, req: PerformanceRequirement) -> bool:
+    for word in req.keywords or []:
+        if word and word in blob:
+            return True
+        if word in _CHARGER_SCOPE and is_charger_line(line):
+            return True
+    scope = re.sub(r"\s+", "", req.similarScope or "")
+    if len(scope) >= 2 and scope in blob:
+        return True
+    return False
+
+
+def _perf_windows(text: str) -> list[str]:
+    raw = text or ""
+    windows: list[str] = []
+    for match in _PERF_ANCHOR.finditer(raw):
+        start = max(0, match.start() - 80)
+        end = min(len(raw), match.end() + 260)
+        chunk = re.sub(r"\s+", "", raw[start:end])
+        if "保证金" in chunk and not any(mark in chunk for mark in ("类似", "业绩", "同类")):
+            continue
+        if chunk and chunk not in windows:
+            windows.append(chunk)
+    return windows[:6]
+
+
+def _amount_from_windows(windows: list[str]) -> float:
+    singles: list[float] = []
+    others: list[float] = []
+    for window in windows:
+        for pat in (_AMOUNT_NEAR, _AMOUNT_BEFORE):
+            for match in pat.finditer(window):
+                left = window[max(0, match.start() - 16) : match.start()]
+                mid = window[max(0, match.start() - 8) : match.end() + 8]
+                if "累计" in mid or "保证金" in left:
+                    continue
+                value = _amount_from_value(f"{match.group('num')}{match.group('unit')}")
+                if value <= 0:
+                    continue
+                if "单份" in left or "每份" in left or "单项" in left:
+                    singles.append(value)
+                else:
+                    others.append(value)
+    if singles:
+        return max(singles)
+    return max(others) if others else 0.0
+
+
+def _count_from_blob(blob: str) -> int:
+    match = _COUNT_PAT.search(blob or "")
+    if not match:
+        return 0
+    raw = match.group("n") or match.group("n2") or ""
+    if raw.isdigit():
+        return max(0, min(int(raw), 20))
+    return _CN_COUNT.get(raw, 0)
+
+
+def _amount_mentioned(compact_inv: str, amount: float) -> bool:
+    if amount <= 0 or not compact_inv:
+        return False
+    as_int = str(int(round(amount)))
+    wan = amount / 10000.0
+    wan_int = str(int(round(wan))) if abs(wan - round(wan)) < 0.05 else ""
+    return as_int in compact_inv or (wan_int and f"{wan_int}万" in compact_inv)
+
+
+def _amount_label(amount: float) -> str:
+    if amount >= 10000 and abs(amount / 10000 - round(amount / 10000)) < 0.005:
+        return f"{int(round(amount / 10000))}万元"
+    if amount >= 10000:
+        compact = f"{amount / 10000:.2f}".rstrip("0").rstrip(".")
+        return f"{compact}万元"
+    return f"{int(amount)}元"
 
 
 async def extract_performance_from_path(

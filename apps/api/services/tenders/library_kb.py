@@ -476,6 +476,45 @@ async def performance_from_library(
     return rank_performance_lines(lines)[:8]
 
 
+async def filter_performance_attachments(
+    db: AsyncSession,
+    paths: list[Path],
+    selected: list,
+) -> list[Path]:
+    """附件只跟本标勾选的合同走，资料库其余原件不动。"""
+    from api.services.tenders.performance import line_name_key
+
+    names = {line_name_key(getattr(item, "projectName", "") or "") for item in selected or []}
+    names.discard("")
+    if not names:
+        return []
+    try:
+        parent, children = await _get_parent(db, "perf")
+    except AppError:
+        return list(paths)
+    by_resolved: dict[str, KnowledgeDocument] = {}
+    for doc, path in _iter_file_docs(parent, children):
+        try:
+            by_resolved[str(path.resolve())] = doc
+        except OSError:
+            by_resolved[str(path)] = doc
+    kept: list[Path] = []
+    for path in paths:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        doc = by_resolved.get(key)
+        if doc is None:
+            continue
+        line = load_perf_meta(doc.summary)
+        if line is None:
+            continue
+        if line_name_key(line.projectName) in names:
+            kept.append(path)
+    return kept
+
+
 async def count_uncached_performance_files(db: AsyncSession) -> int:
     """尚未抽出业绩摘要的合同/发票数量（生成时可提示，不阻塞）。"""
     try:
