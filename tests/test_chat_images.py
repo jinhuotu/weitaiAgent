@@ -11,8 +11,10 @@ from api.services.ai.chat_images import (
     DEFAULT_IMAGE_PROMPT,
     MAX_IMAGES,
     decode_chat_images,
+    extract_layout_attachments,
     hydrate_images_for_api,
     llm_image_parts,
+    merge_images_with_attachments,
     multimodal_user_content,
     persist_chat_images,
     state_images_from_input,
@@ -117,3 +119,26 @@ def test_state_images_from_input_data_url() -> None:
     )
     assert len(out) == 1
     assert out[0]["dataUrl"].startswith("data:image/png;base64,")
+
+
+def test_layout_attachment_keeps_download_name() -> None:
+    merged = merge_images_with_attachments(
+        [],
+        [
+            {
+                "fileName": "充电站-充电站平面布置图-01-abcd1234.dxf",
+                "downloadName": "充电站-充电站平面布置图-01.dxf",
+                "kind": "dxf",
+                "label": "CAD 总平面（DXF）",
+            }
+        ],
+    )
+    atts = extract_layout_attachments(merged)
+    assert atts == [
+        {
+            "fileName": "充电站-充电站平面布置图-01-abcd1234.dxf",
+            "kind": "dxf",
+            "label": "CAD 总平面（DXF）",
+            "downloadName": "充电站-充电站平面布置图-01.dxf",
+        }
+    ]

@@ -4,8 +4,8 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from common.errors import AppError, ErrorCode
 from common.security import decode_token
@@ -57,8 +57,19 @@ async def require_admin(user: Annotated[User, Depends(get_current_user)]) -> Use
     return user
 
 
+def user_is_superuser(user: User) -> bool:
+    return bool(getattr(user, "is_superuser", False))
+
+
+async def require_superuser(user: Annotated[User, Depends(get_current_user)]) -> User:
+    if not user_is_superuser(user):
+        raise AppError(ErrorCode.FORBIDDEN, "仅超级管理员可修改审批流程", status_code=403)
+    return user
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
 AdminUser = Annotated[User, Depends(require_admin)]
+SuperuserUser = Annotated[User, Depends(require_superuser)]
 
 
 async def get_request_id(

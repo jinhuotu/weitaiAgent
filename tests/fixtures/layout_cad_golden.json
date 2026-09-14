@@ -1,0 +1,282 @@
+{
+  "id": "layout_cad_golden",
+  "phase": 0,
+  "title": "充电站总平面对照样本",
+  "doc": "对照施工图样本冻结的方案 JSON。内部单位米。源图尺寸按毫米记在 sourceDrawing。车位按目录 5×17 落盘（源图注记净车位 4×17，宽 4m 会被装箱当成轿车）。500kW 桩在契约里记为 dc_320kw。后续 CAD 导出应用本文件的 plan，不要重新发明坐标。",
+  "query": "国道323线旁不规则梯形场地，南侧出入口，靠北墙双排斜列布置8个重卡车位，8台500kW重卡直流桩，2台2000kVA箱变。",
+  "sourceDrawing": {
+    "kind": "construction_site_plan",
+    "sheetTitle": "充电站平面布置图",
+    "sheetNo": "01",
+    "stage": "施工图",
+    "units": "mm",
+    "notes": [
+      "1.站内含重卡车位8个，重卡净车位4*17(m)，8台500kW重卡直流桩，2台2000KVA箱变。"
+    ],
+    "dimensionsMm": {
+      "northEdge": 72946.82,
+      "transformerA": 4562.2,
+      "transformerB": 4575.17,
+      "eastSegment": 10000.0,
+      "stallWidth": 4000.0
+    },
+    "roadLabel": "国道323线",
+    "layout": "dual_herringbone_north_wall"
+  },
+  "constraints": {
+    "schemaVersion": "1",
+    "kind": "ev_charging_station_constraints",
+    "source": "golden_sample",
+    "site": {
+      "areaM2": 3174,
+      "widthM": 72.947,
+      "heightM": 50,
+      "shapeFrom": "vision",
+      "gates": [
+        {
+          "side": "south",
+          "along": "center",
+          "widthM": 16,
+          "label": "出入口"
+        }
+      ]
+    },
+    "fleet": {
+      "cars": 0,
+      "trucks": 8,
+      "piles": 8,
+      "pileEqualsStall": true
+    },
+    "chargers": {
+      "dcType": "dc_320kw",
+      "acCount": 0,
+      "acType": "ac_14kw"
+    },
+    "transformers": [
+      {
+        "count": 2,
+        "kva": 2000,
+        "type": "box_transformer"
+      }
+    ],
+    "layout": {
+      "mode": "dual_row_angle",
+      "angleDeg": 35,
+      "wallSide": "north",
+      "backToBack": false
+    },
+    "priority": ["user_text", "catalog", "vision_geometry", "case_mode_only"],
+    "forbid": [
+      "copy_case_counts",
+      "copy_case_kva",
+      "copy_case_site",
+      "use_ocr_digits_as_spec",
+      "drop_stalls_if_tight"
+    ],
+    "unset": [],
+    "notes": [
+      "源图注记500kW，契约只能记 dc_320kw",
+      "源图净车位4×17，夹具按目录5×17落盘以免被当成轿车"
+    ]
+  },
+  "plan": {
+    "schemaVersion": "1",
+    "kind": "ev_charging_station_plan",
+    "titleBlock": {
+      "title": "充电站平面布置图",
+      "sheetNo": "01",
+      "project": "充电站"
+    },
+    "site": {
+      "widthM": 72.947,
+      "heightM": 50,
+      "northDeg": 0,
+      "gate": {
+        "side": "south",
+        "offsetM": 28,
+        "widthM": 16,
+        "label": "出入口",
+        "roadLabel": "国道323线"
+      },
+      "polygon": [
+        { "x": 8.0, "y": 0.0 },
+        { "x": 62.0, "y": 0.0 },
+        { "x": 72.947, "y": 50.0 },
+        { "x": 0.0, "y": 50.0 }
+      ]
+    },
+    "buildings": [
+      {
+        "id": "tx_yard",
+        "label": "箱变区",
+        "kind": "building",
+        "rect": { "x": 20.0, "y": 43.6, "w": 16.0, "h": 5.8 }
+      }
+    ],
+    "parkingRows": [
+      {
+        "id": "trucks_west",
+        "stalls": 4,
+        "stallWidthM": 5.0,
+        "stallLengthM": 17.0,
+        "angleDeg": -35,
+        "origin": { "x": 12.0, "y": 26.0 },
+        "along": "x",
+        "pitchM": 6.2,
+        "charger": { "type": "dc_320kw", "startNo": 1, "side": "head" },
+        "labelPrefix": "重卡直流桩"
+      },
+      {
+        "id": "trucks_east",
+        "stalls": 4,
+        "stallWidthM": 5.0,
+        "stallLengthM": 17.0,
+        "angleDeg": 35,
+        "origin": { "x": 44.0, "y": 26.0 },
+        "along": "x",
+        "pitchM": 6.2,
+        "charger": { "type": "dc_320kw", "startNo": 5, "side": "head" },
+        "labelPrefix": "重卡直流桩"
+      }
+    ],
+    "aisles": [
+      {
+        "id": "aisle_south",
+        "centerline": [
+          { "x": 36.5, "y": 4.0 },
+          { "x": 36.5, "y": 24.0 }
+        ],
+        "widthM": 15,
+        "kind": "drive",
+        "label": "回转车道"
+      }
+    ],
+    "equipment": [
+      {
+        "id": "tx1",
+        "type": "box_transformer",
+        "x": 24.5,
+        "y": 46.4,
+        "label": "1#箱变",
+        "capacityKva": 2000
+      },
+      {
+        "id": "tx2",
+        "type": "box_transformer",
+        "x": 31.5,
+        "y": 46.4,
+        "label": "2#箱变",
+        "capacityKva": 2000
+      }
+    ],
+    "trenches": [
+      {
+        "id": "tr1",
+        "widthMm": 1200,
+        "heightMm": 1100,
+        "polyline": [
+          { "x": 10.0, "y": 42.2 },
+          { "x": 64.0, "y": 42.2 }
+        ],
+        "label": "电缆沟 1200(W)x1100(H)"
+      }
+    ],
+    "cables": [],
+    "trees": [],
+    "greenery": [
+      {
+        "polygon": [
+          { "x": 34.2, "y": 26.5 },
+          { "x": 38.8, "y": 26.5 },
+          { "x": 37.2, "y": 39.0 },
+          { "x": 35.8, "y": 39.0 }
+        ],
+        "label": "绿化"
+      }
+    ],
+    "roads": [
+      {
+        "polygon": [
+          { "x": -4.0, "y": -8.0 },
+          { "x": 78.0, "y": -8.0 },
+          { "x": 78.0, "y": -1.2 },
+          { "x": -4.0, "y": -1.2 }
+        ],
+        "label": "国道323线"
+      }
+    ],
+    "legend": ["truck", "parking", "dc_320kw", "box_transformer"],
+    "notes": [
+      "1.站内含重卡车位8个，重卡净车位4*17(m)，8台500kW重卡直流桩，2台2000kVA箱变。"
+    ],
+    "sheetStyle": {
+      "scale": "1:200",
+      "paper": "A3",
+      "showGrid": false,
+      "showDimensions": true,
+      "showNorthArrow": true,
+      "showTitleBlock": true,
+      "showLegend": true
+    }
+  },
+  "expect": {
+    "stalls": 8,
+    "trucks": 8,
+    "cars": 0,
+    "piles": 8,
+    "transformers": 2,
+    "transformerKva": 2000,
+    "chargerType": "dc_320kw",
+    "rowIds": ["trucks_west", "trucks_east"],
+    "rowOrigins": [[12.0, 26.0], [44.0, 26.0]],
+    "transformerXY": [[24.5, 46.4], [31.5, 46.4]],
+    "anglesDeg": [-35, 35],
+    "catalogStallM": [5.0, 17.0],
+    "sourceStallM": [4.0, 17.0],
+    "gateSide": "south",
+    "gateLabel": "出入口",
+    "roadLabel": "国道323线",
+    "sheetTitle": "充电站平面布置图",
+    "sheetNo": "01",
+    "paper": "A3",
+    "scale": "1:200",
+    "irregularSite": true,
+    "northEdgeM": 72.947
+  },
+  "cad": {
+    "units": "mm",
+    "insunits": 4,
+    "paper": "A3",
+    "scale": "1:200",
+    "modelspace": "geometry_1to1_mm",
+    "paperspace": "充电站平面布置图",
+    "layers": [
+      { "name": "WT-SITE", "color": 7, "role": "红线/围墙" },
+      { "name": "WT-PARK", "color": 4, "role": "车位" },
+      { "name": "WT-VEHICLE", "color": 4, "role": "车辆块" },
+      { "name": "WT-EQUIP", "color": 1, "role": "桩、箱变" },
+      { "name": "WT-ROAD", "color": 7, "role": "道路、箭头" },
+      { "name": "WT-DIM", "color": 3, "role": "尺寸" },
+      { "name": "WT-ANNO", "color": 7, "role": "文字说明" },
+      { "name": "WT-GREEN", "color": 3, "role": "绿化" },
+      { "name": "WT-SHEET", "color": 7, "role": "图框/图例/标题栏" }
+    ],
+    "blocks": [
+      "WT_TRUCK",
+      "WT_DC_PILE",
+      "WT_TRANSFORMER",
+      "WT_BUILDING",
+      "WT_ARROW",
+      "WT_NORTH"
+    ],
+    "mustHave": [
+      "title_block",
+      "legend",
+      "north_arrow",
+      "notes",
+      "green_dimensions",
+      "gate_label",
+      "road_label"
+    ]
+  }
+}

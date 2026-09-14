@@ -33,7 +33,7 @@ from api.services.layouts.brief import (
     parse_layout_brief,
     prune_unmentioned_site_context,
 )
-from api.services.layouts.cad import is_cad_path, rasterize_dxf, write_plan_dxf
+from api.services.layouts.cad import is_cad_path, rasterize_dxf
 from api.services.layouts.check import check_plan, issues_as_notes, repair_plan
 from api.services.layouts.rules import default_sheet_notes
 from api.services.layouts.svg import write_plan_svg
@@ -1180,6 +1180,9 @@ async def _exec_layout_out(*, data: dict[str, Any], state: dict[str, Any]) -> di
 
     apply_query_charger_to_plan(plan, query)
     sync_charger_annotations(plan)
+    from api.services.layouts.cad_export.notes import ensure_cad_notes
+
+    ensure_cad_notes(plan, query=query, constraints=constraints)
     dumped = plan.model_dump(mode="json")
     state["layout"] = dumped
     session = state.get("chatSession")
@@ -1204,30 +1207,81 @@ async def _exec_layout_out(*, data: dict[str, Any], state: dict[str, Any]) -> di
     svg_path = ""
     layout_files: list[dict[str, str]] = []
     if do_render:
-        blob = render_plan_png(plan, query=query)
-        _append_output_image(state, "image/png", blob)
-        png_bytes = len(blob)
+        from pathlib import Path
+
+        from api.services.layouts.cad import export_plan_cad, write_plan_dxf
+        from api.services.layouts.cad_export.files import layout_download_name, layout_stored_name
+        from common.config import get_settings
+
+        root = Path(get_settings().storage_root).expanduser().resolve() / "layouts"
+        root.mkdir(parents=True, exist_ok=True)
+        dxf_name = layout_stored_name(plan, ext="dxf")
+        blob = b""
         try:
-            from pathlib import Path
-            from uuid import uuid4
-
-            from common.config import get_settings
-
-            stem = uuid4().hex[:12]
-            root = Path(get_settings().storage_root).expanduser().resolve() / "layouts"
-            root.mkdir(parents=True, exist_ok=True)
-            saved = write_plan_dxf(plan, root / f"{stem}.dxf")
+            saved, blob = export_plan_cad(plan, root / dxf_name, query=query)
             dxf_path = str(saved)
             state["lastSavedPath"] = dxf_path
             layout_files.append(
                 {
                     "fileName": saved.name,
+                    "downloadName": layout_download_name(plan, ext="dxf"),
                     "kind": "dxf",
-                    "label": "DXF（CAD）",
+                    "label": "CAD 总平面（DXF）",
                 }
             )
+            try:
+                from api.services.layouts.cad_export.dwg import write_plan_dwg
+
+                dwg = write_plan_dwg(saved)
+            except Exception:  # noqa: BLE001
+                dwg = None
+            if dwg is not None:
+                layout_files.append(
+                    {
+                        "fileName": dwg.name,
+                        "downloadName": layout_download_name(plan, ext="dwg"),
+                        "kind": "dwg",
+                        "label": "CAD 总平面（DWG）",
+                    }
+                )
         except Exception:  # noqa: BLE001
             dxf_path = ""
+            try:
+                blob = render_plan_png(plan, query=query)
+            except Exception:  # noqa: BLE001
+                blob = b""
+            try:
+                saved = write_plan_dxf(plan, root / dxf_name)
+                dxf_path = str(saved)
+                state["lastSavedPath"] = dxf_path
+                layout_files.append(
+                    {
+                        "fileName": saved.name,
+                        "downloadName": layout_download_name(plan, ext="dxf"),
+                        "kind": "dxf",
+                        "label": "CAD 总平面（DXF）",
+                    }
+                )
+                try:
+                    from api.services.layouts.cad_export.dwg import write_plan_dwg
+
+                    dwg = write_plan_dwg(saved)
+                except Exception:  # noqa: BLE001
+                    dwg = None
+                if dwg is not None:
+                    layout_files.append(
+                        {
+                            "fileName": dwg.name,
+                            "downloadName": layout_download_name(plan, ext="dwg"),
+                            "kind": "dwg",
+                            "label": "CAD 总平面（DWG）",
+                        }
+                    )
+            except Exception:  # noqa: BLE001
+                dxf_path = ""
+        if blob:
+            _append_output_image(state, "image/png", blob)
+            png_bytes = len(blob)
         try:
             from pathlib import Path
 
@@ -1244,6 +1298,7 @@ async def _exec_layout_out(*, data: dict[str, Any], state: dict[str, Any]) -> di
             layout_files.append(
                 {
                     "fileName": svg_saved.name,
+                    "downloadName": layout_download_name(plan, ext="svg"),
                     "kind": "svg",
                     "label": "SVG 矢量图",
                 }

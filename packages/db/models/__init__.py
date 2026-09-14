@@ -4,6 +4,7 @@
 """
 
 from db.models.agent import ScenarioAgent
+from db.models.approval_flow import ApprovalFlow
 from db.models.audit import LoginLog, OperationLog
 from db.models.chat import ChatMessage, ChatSession
 from db.models.knowledge import (
@@ -45,4 +46,5 @@ __all__ = [
     "ScenarioAgent",
     "TenderRecord",
     "TenderApprovalLog",
+    "ApprovalFlow",
 ]

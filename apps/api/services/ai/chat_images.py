@@ -148,13 +148,15 @@ def extract_layout_attachments(images: Any) -> list[dict[str, Any]]:
         name = str(item.get("fileName") or "").strip()
         if not name:
             continue
-        out.append(
-            {
-                "fileName": name,
-                "kind": str(item.get("kind") or ""),
-                "label": str(item.get("label") or name),
-            }
-        )
+        row = {
+            "fileName": name,
+            "kind": str(item.get("kind") or ""),
+            "label": str(item.get("label") or name),
+        }
+        download = str(item.get("downloadName") or "").strip()
+        if download:
+            row["downloadName"] = download
+        out.append(row)
     return out
 
 
@@ -166,14 +168,16 @@ def merge_images_with_attachments(
     for a in attachments or []:
         if not isinstance(a, dict) or not a.get("fileName"):
             continue
-        merged.append(
-            {
-                "__layoutAttachment": True,
-                "fileName": str(a.get("fileName")),
-                "kind": str(a.get("kind") or ""),
-                "label": str(a.get("label") or a.get("fileName")),
-            }
-        )
+        row = {
+            "__layoutAttachment": True,
+            "fileName": str(a.get("fileName")),
+            "kind": str(a.get("kind") or ""),
+            "label": str(a.get("label") or a.get("fileName")),
+        }
+        download = str(a.get("downloadName") or "").strip()
+        if download:
+            row["downloadName"] = download
+        merged.append(row)
     return merged
 
 

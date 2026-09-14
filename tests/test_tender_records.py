@@ -104,8 +104,8 @@ def test_infer_project_type_and_pass_step():
     assert infer_project_type("管廊监控") == "安防系统"
     assert infer_project_type("智慧园区") == "智慧园区"
     assert infer_project_type("弱电工程") == "弱电工程"
-    assert next_step_on_pass("部门经理审批") == (STATUS_PENDING, "总经理审批")
-    assert next_step_on_pass("财务审核") == (STATUS_APPROVED, "完成")
+    assert next_step_on_pass("部门经理审批") == (STATUS_PENDING, "review_gm")
+    assert next_step_on_pass("财务审核") == (STATUS_APPROVED, "done")
     assert workflow_locked("pending") is True
     assert workflow_locked("processing") is False
 

@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
-from sqlalchemy import Select, and_, func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.approval_flow import (
+    KEY_DONE,
+    KEY_SUBMIT,
+    default_steps,
+    display_step_name,
+    find_step,
+    get_tender_flow,
+    next_step_on_pass,
+    public_steps,
+    review_steps,
+    snapshot_from_steps,
+    steps_from_snapshot,
+    user_can_act_on_record,
+    user_can_act_on_step,
+)
 from api.services.tenders.assets import tenders_output_dir
 from api.services.tenders.generate import generate_bid
 from api.services.tenders.schema import BidBrief, PlaceholderItem
@@ -15,7 +30,6 @@ from common.errors import AppError, ErrorCode
 from common.times import to_epoch_ms
 from db.models.tender import TenderApprovalLog, TenderRecord
 from db.models.user import User
-
 
 STATUS_PROCESSING = "processing"
 STATUS_PENDING = "pending"
@@ -36,14 +50,8 @@ TASK_STATUSES = frozenset(
 LOCKED_STATUSES = frozenset(
     {STATUS_PENDING, STATUS_APPROVED, STATUS_SUBMITTED, STATUS_WON, STATUS_LOST}
 )
-APPROVAL_STEPS = (
-    "提交申请",
-    "部门经理审批",
-    "总经理审批",
-    "财务审核",
-    "完成",
-)
-REVIEW_STEPS = ("部门经理审批", "总经理审批", "财务审核")
+APPROVAL_STEPS = tuple(str(item.get("name") or "") for item in default_steps())
+REVIEW_STEPS = tuple(str(item.get("name") or "") for item in review_steps(default_steps()))
 ACTION_SUBMIT = "submit"
 ACTION_PASS = "pass"
 ACTION_REJECT = "reject"
@@ -72,19 +80,8 @@ def workflow_locked(status: str | None) -> bool:
     return (status or STATUS_PROCESSING) in LOCKED_STATUSES
 
 
-def next_step_on_pass(current_step: str) -> tuple[str, str]:
-    """返回 (status, current_step)。最后一审通过则 approved + 完成。"""
-    step = (current_step or "").strip() or REVIEW_STEPS[0]
-    if step not in REVIEW_STEPS:
-        step = REVIEW_STEPS[0]
-    idx = REVIEW_STEPS.index(step)
-    if idx >= len(REVIEW_STEPS) - 1:
-        return STATUS_APPROVED, APPROVAL_STEPS[-1]
-    return STATUS_PENDING, REVIEW_STEPS[idx + 1]
-
-
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _record_to_dict(
@@ -98,6 +95,9 @@ def _record_to_dict(
     status = (getattr(row, "status", None) or STATUS_PROCESSING).strip() or STATUS_PROCESSING
     submitted_at = getattr(row, "submitted_at", None)
     decided_at = getattr(row, "decided_at", None)
+    snapshot_steps = steps_from_snapshot(getattr(row, "approval_snapshot", None))
+    raw_step = getattr(row, "current_step", None) or ""
+    current_found = find_step(snapshot_steps, raw_step) if snapshot_steps else None
     data: dict[str, object] = {
         "id": row.public_id,
         "projectName": row.project_name or "",
@@ -116,7 +116,9 @@ def _record_to_dict(
         "status": status,
         "deadline": getattr(row, "deadline", None) or "",
         "projectType": getattr(row, "project_type", None) or "",
-        "currentStep": getattr(row, "current_step", None) or "",
+        "currentStep": display_step_name(snapshot_steps, raw_step),
+        "currentStepKey": str((current_found or {}).get("key") or raw_step),
+        "approvalSteps": public_steps(snapshot_steps) if snapshot_steps else None,
         "submittedAt": to_epoch_ms(submitted_at) if submitted_at else None,
         "decidedAt": to_epoch_ms(decided_at) if decided_at else None,
         "workflowLocked": workflow_locked(status),
@@ -395,6 +397,7 @@ async def list_records(
     project_type: str | None = None,
     record_ids: list[int] | None = None,
     submitted_only: bool = False,
+    pending_for: User | None = None,
 ) -> dict[str, object]:
     clause = _filter_clause(
         q=q, status=status, owner=owner, user_id=user_id, project_type=project_type
@@ -412,10 +415,27 @@ async def list_records(
             return {"total": 0, "items": []}
         base = base.where(TenderRecord.id.in_(record_ids))
         stmt = stmt.where(TenderRecord.id.in_(record_ids))
-    total = int((await db.execute(base)).scalar_one() or 0)
-    rows = (
-        await db.execute(stmt.offset(max(0, offset)).limit(max(1, min(limit, 200))))
-    ).scalars().all()
+    if pending_for is not None:
+        rows = (await db.execute(stmt.limit(500))).scalars().all()
+        if not getattr(pending_for, "is_superuser", False):
+            rows = [
+                row
+                for row in rows
+                if user_can_act_on_record(
+                    pending_for,
+                    getattr(row, "approval_snapshot", None),
+                    getattr(row, "current_step", None),
+                )
+            ]
+        total = len(rows)
+        start = max(0, offset)
+        end = start + max(1, min(limit, 200))
+        rows = rows[start:end]
+    else:
+        total = int((await db.execute(base)).scalar_one() or 0)
+        rows = (
+            await db.execute(stmt.offset(max(0, offset)).limit(max(1, min(limit, 200))))
+        ).scalars().all()
     extras = await _list_log_extras(db, [int(r.id) for r in rows])
     return {
         "total": total,
@@ -628,10 +648,24 @@ async def submit_for_approval(
         raise AppError(ErrorCode.VALIDATION, "只有编制中的任务可以提交审批", status_code=422)
     if not (tenders_output_dir() / row.docx_file).is_file():
         raise AppError(ErrorCode.VALIDATION, "Word 文件缺失，无法提交审批", status_code=422)
+    flow = await get_tender_flow(db, can_edit=False)
+    steps = flow.get("steps") if isinstance(flow, dict) else None
+    chain = review_steps(steps if isinstance(steps, list) else default_steps())
+    if not chain:
+        raise AppError(ErrorCode.VALIDATION, "请先配置至少一个审批环节", status_code=422)
+    snapshot_steps = steps if isinstance(steps, list) else default_steps()
     row.status = STATUS_PENDING
-    row.current_step = REVIEW_STEPS[0]
+    row.approval_snapshot = snapshot_from_steps(snapshot_steps)
+    row.current_step = str(chain[0].get("key") or KEY_SUBMIT)
     row.submitted_at = _now()
-    await _add_log(db, row, user=user, action=ACTION_SUBMIT, step=row.current_step, comment="")
+    await _add_log(
+        db,
+        row,
+        user=user,
+        action=ACTION_SUBMIT,
+        step=str(chain[0].get("name") or row.current_step)[:32],
+        comment="",
+    )
     await db.commit()
     await db.refresh(row)
     extras = await _list_log_extras(db, [int(row.id)])
@@ -649,31 +683,41 @@ async def decide_approval(
     row = await _get_row(db, public_id)
     if (row.status or "") != STATUS_PENDING:
         raise AppError(ErrorCode.VALIDATION, "当前任务不在待审批状态", status_code=422)
+    steps = steps_from_snapshot(getattr(row, "approval_snapshot", None))
+    if not steps:
+        flow = await get_tender_flow(db, can_edit=False)
+        raw_steps = flow.get("steps") if isinstance(flow, dict) else None
+        steps = raw_steps if isinstance(raw_steps, list) else default_steps()
+    reviews = review_steps(steps)
+    current = find_step(steps, row.current_step) or (reviews[0] if reviews else None)
+    if not user_can_act_on_step(user, current):
+        raise AppError(ErrorCode.FORBIDDEN, "当前环节不由你审批", status_code=403)
     now = _now()
     if passed:
-        new_status, new_step = next_step_on_pass(row.current_step)
+        new_status, new_step = next_step_on_pass(row.current_step, steps)
         row.status = new_status
         row.current_step = new_step
         if new_status == STATUS_APPROVED:
             row.decided_at = now
+        log_step = display_step_name(steps, new_step)[:32]
         await _add_log(
             db,
             row,
             user=user,
             action=ACTION_PASS,
-            step=new_step,
+            step=log_step,
             comment=comment,
         )
     else:
         row.status = STATUS_PROCESSING
-        row.current_step = APPROVAL_STEPS[0]
+        row.current_step = KEY_SUBMIT
         row.decided_at = now
         await _add_log(
             db,
             row,
             user=user,
             action=ACTION_REJECT,
-            step=row.current_step,
+            step=KEY_SUBMIT,
             comment=comment or "驳回",
         )
     await db.commit()
@@ -701,7 +745,7 @@ async def mark_result(
     if target in {STATUS_WON, STATUS_LOST} and current not in {STATUS_APPROVED, STATUS_SUBMITTED}:
         raise AppError(ErrorCode.VALIDATION, "审批通过后才能标记中标结果", status_code=422)
     row.status = target
-    row.current_step = APPROVAL_STEPS[-1]
+    row.current_step = KEY_DONE
     await _add_log(db, row, user=user, action=ACTION_MARK, step=row.current_step, comment=target)
     await db.commit()
     await db.refresh(row)

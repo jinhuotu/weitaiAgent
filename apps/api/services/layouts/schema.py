@@ -31,6 +31,9 @@ EquipmentKind = Literal[
     "dc_160kw",
     "dc_120kw",
     "ac_14kw",
+    "fire_hydrant",
+    "cable_well",
+    "vent_grille",
 ]
 LegendSymbol = Literal[
     "ring_cabinet",
@@ -44,6 +47,9 @@ LegendSymbol = Literal[
     "truck",
     "greenery",
     "tree",
+    "fire_hydrant",
+    "cable_well",
+    "vent_grille",
 ]
 
 _CHARGER_ALIASES = {
@@ -83,6 +89,15 @@ _EQUIP_ALIASES = {
     "group_charger": "group_host",
     "host_cabinet": "group_host",
     "group_charging_host": "group_host",
+    "fire_hydrant": "fire_hydrant",
+    "hydrant": "fire_hydrant",
+    "xh": "fire_hydrant",
+    "cable_well": "cable_well",
+    "manhole": "cable_well",
+    "inspection_well": "cable_well",
+    "vent_grille": "vent_grille",
+    "vent": "vent_grille",
+    "louver": "vent_grille",
 }
 _LEGEND_ALIASES = {
     "ring_cabinet": "ring_cabinet",
@@ -108,6 +123,12 @@ _LEGEND_ALIASES = {
     "green": "greenery",
     "tree": "tree",
     "trees": "tree",
+    "fire_hydrant": "fire_hydrant",
+    "hydrant": "fire_hydrant",
+    "cable_well": "cable_well",
+    "manhole": "cable_well",
+    "vent_grille": "vent_grille",
+    "vent": "vent_grille",
 }
 _LEGEND_DROP = {
     "cable_trench",
@@ -150,6 +171,12 @@ def coerce_equipment_type(value: Any) -> Any:
     raw = str(value or "")
     if any(tok in raw for tok in ("群冲", "群充", "主机柜")):
         return "group_host"
+    if any(tok in raw for tok in ("消火栓", "消防栓")):
+        return "fire_hydrant"
+    if any(tok in raw for tok in ("电缆井", "人孔井", "检查井")):
+        return "cable_well"
+    if any(tok in raw for tok in ("通风", "格栅")):
+        return "vent_grille"
     key = _norm_token(value)
     if key in _EQUIP_ALIASES:
         return _EQUIP_ALIASES[key]
@@ -329,6 +356,9 @@ def coerce_legend_list(value: Any) -> Any:
                 "truck",
                 "greenery",
                 "tree",
+                "fire_hydrant",
+                "cable_well",
+                "vent_grille",
             }:
                 continue
         if mapped in seen:
@@ -577,6 +607,15 @@ class GateSpec(PlanModel):
         return coerce_gate_side(v)
 
 
+class SurveyFrame(PlanModel):
+    """场地局部米坐标 → 测量坐标。只影响 CAD 导出，装箱仍用西南角原点。"""
+
+    originXm: float = 0.0
+    originYm: float = 0.0
+    rotationDeg: float = 0.0
+    name: str = ""
+
+
 class SiteSpec(PlanModel):
     widthM: float = Field(gt=0, le=500)
     heightM: float = Field(gt=0, le=500)
@@ -584,6 +623,14 @@ class SiteSpec(PlanModel):
     gate: GateSpec | None = None
     gates: list[GateSpec] = Field(default_factory=list, max_length=8)
     polygon: list[PointM] = Field(default_factory=list, max_length=40)
+    survey: SurveyFrame | None = None
+
+    @field_validator("survey", mode="before")
+    @classmethod
+    def _coerce_survey(cls, v: Any) -> Any:
+        if v in (None, "", False, [], {}):
+            return None
+        return v
 
     @field_validator("polygon", mode="before")
     @classmethod
@@ -692,6 +739,12 @@ class TitleBlock(PlanModel):
     title: str = "充电站平面布置图"
     sheetNo: str = "001"
     project: str = ""
+    designer: str = ""
+    reviewer: str = ""
+    drawer: str = ""
+    date: str = ""
+    company: str = ""
+    stage: str = "施工图"
 
 
 class BuildingSpec(PlanModel):
@@ -749,6 +802,7 @@ class SheetStyle(PlanModel):
 
     scale: str = "1:200"
     paper: Literal["A3", "A2", "A1"] = "A3"
+    units: Literal["m", "mm"] = "mm"
     showGrid: bool = False
     showDimensions: bool = True
     showNorthArrow: bool = True

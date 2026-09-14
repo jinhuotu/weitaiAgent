@@ -659,6 +659,12 @@ async def test_layout_out_node_writes_state() -> None:
     assert len(imgs) == 1
     assert str(imgs[0].get("mimeType")) == "image/png"
     assert str(imgs[0].get("dataUrl") or "").startswith("data:image/png")
+    files = state.get("layoutFiles") or []
+    dxf = next((f for f in files if f.get("kind") == "dxf"), None)
+    assert dxf is not None
+    assert dxf.get("label") == "CAD 总平面（DXF）"
+    assert str(dxf.get("downloadName") or "").endswith(".dxf")
+    assert "充电站平面布置图" in str(dxf.get("downloadName"))
 
 
 def test_plan_dxf_writes_and_rasterizes(tmp_path) -> None:

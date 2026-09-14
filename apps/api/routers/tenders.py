@@ -8,8 +8,11 @@ import re
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
+from pydantic import BaseModel, Field
 
-from api.deps import CurrentUser, DbSession, user_is_admin
+from api.deps import CurrentUser, DbSession, SuperuserUser, user_is_admin, user_is_superuser
+from api.schemas.approval_flow import ApprovalFlowUpdateIn
+from api.services.approval_flow import get_tender_flow, save_tender_flow
 from api.services.menus import can_access_menu
 from api.services.tenders.assets import restore_chapter5_template, save_chapter5_template
 from api.services.tenders.extract import parse_invitation, parse_kb_ids
@@ -25,6 +28,13 @@ from api.services.tenders.library_kb import (
     save_library_file,
     update_library_item,
 )
+from api.services.tenders.onlyoffice import (
+    build_editor_config,
+    handle_callback,
+    onlyoffice_enabled,
+    verify_download_token,
+)
+from api.services.tenders.placeholders import TECH_DRAWING_KEY
 from api.services.tenders.records import (
     ACTION_PASS,
     ACTION_REJECT,
@@ -41,22 +51,18 @@ from api.services.tenders.records import (
     regenerate_from_record,
     submit_for_approval,
 )
-from api.services.tenders.onlyoffice import (
-    build_editor_config,
-    handle_callback,
-    onlyoffice_enabled,
-    verify_download_token,
-)
+from api.services.tenders.schema import BidBrief, PlaceholderItem
+from api.services.tenders.slots import clear_drawing_files, sanitize_slot_key, save_drawing_file
 from api.services.tenders.yozo import (
     build_editor_payload as build_yozo_payload,
+)
+from api.services.tenders.yozo import (
     handle_callback as handle_yozo_callback,
+)
+from api.services.tenders.yozo import (
     yozo_enabled,
 )
-from api.services.tenders.schema import BidBrief, PlaceholderItem
 from common.config import get_settings
-from api.services.tenders.placeholders import TECH_DRAWING_KEY
-from api.services.tenders.slots import sanitize_slot_key, save_drawing_file, clear_drawing_files
-from pydantic import BaseModel, Field
 from common.errors import AppError, ErrorCode
 from common.response import ok
 
@@ -99,6 +105,32 @@ def _require_menu(user, href: str) -> None:
 @router.get("/defaults")
 async def tenders_defaults(db: DbSession, user: CurrentUser):
     return ok(await defaults_payload_kb(db, created_by=int(user.id)))
+
+
+@router.get("/approval-flow")
+async def tenders_get_approval_flow(db: DbSession, user: CurrentUser):
+    _require_menu(user, "/approval")
+    payload = await get_tender_flow(db, can_edit=user_is_superuser(user))
+    if payload.get("canEdit"):
+        from api.services import users as users_svc
+
+        payload["roles"] = await users_svc.list_roles(db)
+    return ok(payload)
+
+
+@router.put("/approval-flow")
+async def tenders_put_approval_flow(
+    body: ApprovalFlowUpdateIn,
+    db: DbSession,
+    user: SuperuserUser,
+):
+    return ok(
+        await save_tender_flow(
+            db,
+            user=user,
+            reviews=[item.model_dump() for item in body.reviews],
+        )
+    )
 
 
 @router.post("/layout-template")
@@ -329,6 +361,7 @@ async def tenders_list_records(
             project_type=projectType,
             record_ids=record_ids,
             submitted_only=submitted_only,
+            pending_for=user if tab == "pending" else None,
         )
     )
 

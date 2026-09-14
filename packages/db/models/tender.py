@@ -70,7 +70,10 @@ class TenderRecord(Base):
         String(32), nullable=False, default="", comment="项目类型"
     )
     current_step: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="", comment="当前审批环节"
+        String(32), nullable=False, default="", comment="当前审批环节 key"
+    )
+    approval_snapshot: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="提交时的审批流程快照"
     )
     submitted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True, comment="提交审批时间"

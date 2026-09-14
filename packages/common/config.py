@@ -83,6 +83,10 @@ class Settings(BaseSettings):
     # MCP stdio 仓库根（可选）。不设则自动探测 scripts/mcp_utility_server.py。
     # 部署非标准目录时可设：WEITAI_ROOT=/opt/weitaiAgent
     weitai_root: str = ""
+    # 公司标准图框 DXF（可选）。空则用 assets/cad/title_a3.dxf，再没有则程序画标题栏。
+    cad_title_block_dxf: str = ""
+    # ODA / Teigha File Converter 可执行文件。空则按常见安装路径探测；找不到就不出 DWG。
+    cad_oda_converter: str = ""
 
     # Embedding 调用批大小 / 单条截断（知识库向量化）
     embedding_batch_size: int = 8
