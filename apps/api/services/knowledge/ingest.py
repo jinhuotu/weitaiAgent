@@ -574,7 +574,8 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
                 _apply_extract_stats(doc, extracted)
             if base_pid:
                 write_extracted_text(base_pid, doc.public_id, text)
-            doc.summary = text[:200]
+            if not (doc.summary or "").startswith("PERFJSON:"):
+                doc.summary = text[:200]
             doc.char_count = len(text)
             doc.chunk_count = 0
             doc.status = "ready"
@@ -889,9 +890,11 @@ async def _vectorize_document(db: AsyncSession, doc: KnowledgeDocument, text: st
         chunks=chunks,
         vectors=vectors,
     )
-    doc.summary = cleaned[:200]
     doc.char_count = len(cleaned)
     doc.chunk_count = len(chunks)
+    # 业绩合同的 PERFJSON 摘要供标书生成用，不能被 OCR 正文覆盖
+    if not (doc.summary or "").startswith("PERFJSON:"):
+        doc.summary = cleaned[:200]
     doc.status = "ready"
     doc.error_msg = None
 

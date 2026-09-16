@@ -105,6 +105,37 @@ def toc_item_label(index: int, scheme: str) -> str:
     return f"{cn}、"
 
 
+_TOC_CHAPTER = re.compile(r"^第[一二三四五六七八九十百零〇0-9]+章")
+
+
+def flatten_toc_tree(
+    nodes: list[dict], scheme: str = "cn"
+) -> list[tuple[str, str, int, str]]:
+    """树 → (label, title, level, bookmark)。第一章这类标题不再套 6.1。"""
+    rows: list[tuple[str, str, int, str]] = []
+
+    def walk(items: list[dict], level: int, prefix: list[int]) -> None:
+        for i, node in enumerate(items or [], start=1):
+            title = (node.get("title") or "").strip()
+            if not title:
+                continue
+            bm = (node.get("bookmark") or "").strip()
+            nums = prefix + [i]
+            if node.get("bare") or _TOC_CHAPTER.match(title):
+                label = ""
+            elif level <= 1:
+                label = toc_item_label(i - 1, scheme)
+            else:
+                label = ".".join(str(n) for n in nums) + " "
+            rows.append((label, title, level, bm))
+            kids = node.get("children") or []
+            if kids:
+                walk(kids, level + 1, nums)
+
+    walk(nodes, 1, [])
+    return rows
+
+
 def toc_page_cache(index: int, fmt: DocumentFormat) -> str:
     """打开 Word 前的占位页码。封面不编时目录为第 1 页，正文条目从第 2 页起。"""
     if fmt.pageNumberStart == "body":
@@ -172,7 +203,7 @@ def format_brief_notes(fmt: DocumentFormat) -> list[str]:
         return ["已按招标书抽出排版要求：" + "；".join(fmt.notes[:8])]
     return [
         "招标书未写页边距/字体/页码等排版条款，"
-        "生成用默认 A4、宋体，封面不编页码、从目录起页底居中编码"
+        "生成用默认 A4、宋体，封面和目录不编页码、从正文起页底居中编码"
     ]
 
 

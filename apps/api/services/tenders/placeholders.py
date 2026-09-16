@@ -31,10 +31,11 @@ _PLACEHOLDER_MAX_IMAGES = 8
 _RENDER_SCALE = 0.5
 _JPEG_QUALITY = 45
 _IMAGE_MAX_PX = 800
-# 身份证正反面：按 96dpi 把像素缩到实物大小，横版后叠在标题同一页
+# 身份证正反面：按 96dpi 把像素缩到排版厘米，横版并排铺满版心
 _ID_PAIR_MAX_IMAGES = 2
-_ID_DISPLAY_WIDTH_CM = 7.2
-_ID_DISPLAY_HEIGHT_CM = 4.6
+_ID_STRIP_WIDTH_CM = 16.6
+_ID_SINGLE_WIDTH_CM = 8.2
+_ID_STRIP_MAX_H_CM = 6.2
 _ID_PREVIEW_DPI = 96
 _ID_ASPECT_MIN = 1.22
 _ID_ASPECT_MAX = 1.98
@@ -190,6 +191,35 @@ def collect_slots(
     return ordered
 
 
+def id_slot(key: str) -> PlaceholderItem:
+    for item in DEFAULT_SLOTS:
+        if item.key == key:
+            return item
+    title = "法定代表人身份证正反面" if key == "id_legal" else "授权代理人身份证正反面"
+    return PlaceholderItem(key=key, title=title)
+
+
+def inline_id_scans(
+    doc: Document,
+    files: list[Path] | None,
+    *,
+    empty_slot: PlaceholderItem | None = None,
+    before: Paragraph | None = None,
+) -> int:
+    """把身份证正反面贴到当前页；before 有值时挪到该段之前。返回嵌入图数，0 为虚线框。"""
+    last = _last_body_child(doc)
+    media = [p for p in (files or []) if p.is_file()]
+    n = 0
+    if media:
+        n = _insert_slot_media(doc, media, compact_pair=True)
+    if n <= 0:
+        _draw_box(doc, empty_slot or PlaceholderItem(key="id_scan", title="身份证扫描件"))
+        n = 0
+    if before is not None:
+        _relocate_appended_before(doc, before=before, last_before=last)
+    return n
+
+
 def append_placeholder_section(
     doc: Document,
     slots: list[PlaceholderItem],
@@ -209,7 +239,8 @@ def append_placeholder_section(
         return 0, 0, []
     files_by_key = attachments or {}
     last_before = _last_body_child(doc)
-    doc.add_page_break()
+    if _used_on_page_cm(doc) > 1.2:
+        doc.add_page_break()
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     title.paragraph_format.space_before = Pt(8)
@@ -230,7 +261,7 @@ def append_placeholder_section(
         if not media:
             need_cm = _HEADING_CM + _BOX_CM
         elif is_id_scan:
-            need_cm = _HEADING_CM + 5.6
+            need_cm = _HEADING_CM + 6.4
         elif embed_files:
             need_cm = _HEADING_CM + _first_media_cm(embed_files) + 0.4
         else:
@@ -660,12 +691,13 @@ def _insert_id_cards(doc: Document, images: list[tuple[io.BytesIO, int, int]]) -
         return 0
     baked, width_cm, height_cm = strip
     para = doc.add_paragraph()
-    para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     pf = para.paragraph_format
-    pf.space_before = Pt(6)
-    pf.space_after = Pt(8)
-    pf.left_indent = Cm(0.3)
-    pf.keep_with_next = False
+    pf.space_before = Pt(8)
+    pf.space_after = Pt(10)
+    pf.left_indent = Cm(0)
+    pf.right_indent = Cm(0)
+    pf.keep_with_next = True
     p_pr = para._p.get_or_add_pPr()
     for old in p_pr.findall(qn("w:pageBreakBefore")):
         p_pr.remove(old)
@@ -701,10 +733,10 @@ def _compose_id_strip(buffers: list[io.BytesIO]) -> tuple[io.BytesIO, float, flo
     for im in prepared:
         canvas.paste(im, (x, 0))
         x += im.size[0] + gap
-    # 两张并排约 15.2cm 宽、4.8cm 高，和标题同一页
-    width_cm = 15.2 if len(prepared) > 1 else 7.4
+    # 两张并排铺满版心，接近身份证实物大小
+    width_cm = _ID_STRIP_WIDTH_CM if len(prepared) > 1 else _ID_SINGLE_WIDTH_CM
     height_cm = width_cm * card_h / float(canvas.size[0] or 1)
-    height_cm = min(height_cm, 5.2)
+    height_cm = min(height_cm, _ID_STRIP_MAX_H_CM)
     px_w = max(1, int(round(width_cm / 2.54 * _ID_PREVIEW_DPI)))
     px_h = max(1, int(round(height_cm / 2.54 * _ID_PREVIEW_DPI)))
     canvas = canvas.resize((px_w, px_h), resample)

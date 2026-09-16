@@ -21,6 +21,8 @@ WRITE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # 前缀长的放前面，避免误匹配
 _PREFIX_MODULE: tuple[tuple[str, str], ...] = (
+    ("/api/v1/quotes", "quotes"),
+    ("/api/v1/tenders", "tenders"),
     ("/api/v1/mcp-servers", "mcp"),
     ("/api/v1/workflows", "workflows"),
     ("/api/v1/knowledge", "knowledge"),
@@ -66,7 +68,10 @@ _METHOD_ACTION = {
 
 
 def retention_days() -> int:
-    days = int(get_settings().audit_log_retention_days or 7)
+    settings = get_settings()
+    days = int(settings.audit_log_retention_days or 0)
+    if days <= 0:
+        days = int(settings.log_retention_days or 7)
     return max(1, days)
 
 

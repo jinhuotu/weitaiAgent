@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from api.services import audit as audit_svc
-from common.logging import get_logger
+from common.logging import get_logger, purge_expired_log_files
 
 logger = get_logger(__name__)
 
@@ -13,10 +13,12 @@ logger = get_logger(__name__)
 async def purge_expired_audit_logs() -> dict[str, int]:
     try:
         result = await audit_svc.purge_expired_logs()
+        files = purge_expired_log_files()
         logger.info(
-            "audit log purge deleted operations=%s logins=%s retention_days=%s",
+            "log purge deleted operations=%s logins=%s files=%s retention_days=%s",
             result.get("operations", 0),
             result.get("logins", 0),
+            files,
             audit_svc.retention_days(),
         )
         return result

@@ -22,6 +22,9 @@ from db.models.knowledge import KnowledgeBase, KnowledgeBaseAcl
 from db.models.role import Role
 from db.models.user import User
 
+# 投标资料库对登录用户开放检索（与菜单侧「投标资料库」同级共享资产）
+TENDER_LIB_PUBLIC_ID = "tenderlib01"
+
 PERM_VIEW = "view"
 PERM_USE = "use"
 PERM_MANAGE = "manage"
@@ -76,6 +79,9 @@ async def perms_for_bases(
     for b in bases:
         if b.created_by is not None and int(b.created_by) == uid:
             out[b.id] = set(_ALL)
+        # 共享投标资料库：所有登录用户可查看 / 检索
+        elif b.public_id == TENDER_LIB_PUBLIC_ID:
+            out[b.id] = {PERM_VIEW, PERM_USE}
 
     ids = [b.id for b in bases]
     result = await db.execute(select(KnowledgeBaseAcl).where(KnowledgeBaseAcl.base_id.in_(ids)))
@@ -141,7 +147,11 @@ async def list_visible_bases(
     )
     if purpose == PURPOSE_RAG:
         stmt = stmt.where(
-            or_(KnowledgeBase.purpose == PURPOSE_RAG, KnowledgeBase.purpose.is_(None))
+            or_(
+                KnowledgeBase.purpose == PURPOSE_RAG,
+                KnowledgeBase.purpose.is_(None),
+                KnowledgeBase.public_id == TENDER_LIB_PUBLIC_ID,
+            )
         )
     elif purpose is not None:
         stmt = stmt.where(KnowledgeBase.purpose == purpose)

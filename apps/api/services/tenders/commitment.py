@@ -32,6 +32,10 @@ def append_commitment_letter(doc: Document, brief: BidBrief) -> None:
     doc.add_page_break()
     _write_annex_label(doc)
     _write_title(doc)
+    write_commitment_body(doc, brief)
+
+
+def write_commitment_body(doc: Document, brief: BidBrief) -> None:
     _write_to_line(doc, (brief.tenderer or "").strip())
     _write_intro(doc)
     for i, text in enumerate(_CLAUSES, start=1):

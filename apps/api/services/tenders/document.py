@@ -25,9 +25,12 @@ from api.services.tenders.commitment import append_commitment_letter
 from api.services.tenders.format_rules import (
     apply_footer_page_number,
     apply_section_page,
+    flatten_toc_tree,
     format_brief_notes,
     section_page_flags,
+    toc_page_cache,
 )
+from api.services.tenders.outline import tech_chapter_titles
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
 from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
@@ -35,6 +38,8 @@ from api.services.tenders.placeholders import (
     collect_slots,
     draw_placeholder_box,
     fill_perf_placeholders,
+    id_slot,
+    inline_id_scans,
 )
 from api.services.tenders.quote import (
     SECOND_ROUND_YUAN,
@@ -60,7 +65,7 @@ logger = logging.getLogger("api.tenders")
 
 _SONG = "宋体"
 
-# title, bookmark, 打开文档前的占位页码（封面1 + 目录2，正文从 3 起）
+# title, bookmark, 旧占位（现按 documentFormat.pageNumberStart 重算）
 _TOC_ITEMS: tuple[tuple[str, str, str], ...] = (
     ("投标函及投标函附录", "toc_letter", "3"),
     ("分项报价表", "toc_quote", "5"),
@@ -81,6 +86,8 @@ _HEADING_BOOKMARKS: tuple[tuple[str, str], ...] = (
     ("原厂生产承诺", "toc_factory"),
     ("其他材料", "toc_other"),
     ("技术标（实施方案）", "toc_other"),
+    ("投标函附录", "toc_letter_app"),
+    ("支付条件", "toc_pay"),
 )
 _CN_NUM = "一二三四五六七八九"
 
@@ -490,6 +497,7 @@ _SIGN_OFF_KW: dict = {
 _SIGN_BOTTOM_PAD_CM = 2.2
 _SIGN_MIN_GAP_CM = 1.5
 _TWIPS_PER_CM = 567
+_EMU_PER_CM = 360000.0
 
 
 def _rewrite_labeled_underline(
@@ -640,6 +648,42 @@ def _page_body_cm(doc: Document) -> float:
     )
 
 
+def _drawing_height_cm(el) -> float:
+    h = 0.0
+    for ext in el.findall(".//" + qn("wp:extent")):
+        cy = int(ext.get("cy") or 0)
+        if cy > 0:
+            h += cy / _EMU_PER_CM
+    return h
+
+
+def _tbl_height_cm(tbl) -> float:
+    h = 0.0
+    rows = tbl.findall(qn("w:tr"))
+    for tr in rows:
+        val = 0
+        tr_pr = tr.find(qn("w:trPr"))
+        if tr_pr is not None:
+            th = tr_pr.find(qn("w:trHeight"))
+            if th is not None:
+                val = int(th.get(qn("w:val")) or 0)
+        h += val / _TWIPS_PER_CM if val > 0 else 0.72
+        h += _drawing_height_cm(tr)
+    return max(h, 0.72)
+
+
+def _p_spacing_cm(child) -> float:
+    p_pr = child.find(qn("w:pPr"))
+    if p_pr is None:
+        return 0.0
+    sp = p_pr.find(qn("w:spacing"))
+    if sp is None:
+        return 0.0
+    before = int(sp.get(qn("w:before")) or 0)
+    after = int(sp.get(qn("w:after")) or 0)
+    return (before + after) / _TWIPS_PER_CM
+
+
 def _estimate_cm_on_current_page(doc: Document, stop_el=None) -> float:
     """从本页开头估正文高度，用于把落款推到接近页脚且不翻页。"""
     used = 0.0
@@ -650,8 +694,7 @@ def _estimate_cm_on_current_page(doc: Document, stop_el=None) -> float:
         if child.tag == qn("w:sectPr"):
             continue
         if child.tag == qn("w:tbl"):
-            rows = child.findall(qn("w:tr"))
-            used += 0.72 * max(1, len(rows))
+            used += _tbl_height_cm(child)
             continue
         if child.tag != qn("w:p"):
             continue
@@ -663,9 +706,13 @@ def _estimate_cm_on_current_page(doc: Document, stop_el=None) -> float:
             p_pr.find(qn("w:pageBreakBefore")) is not None or p_pr.find(qn("w:sectPr")) is not None
         ):
             used = 0.35
+            continue
+        draw_h = _drawing_height_cm(child)
+        if draw_h > 0:
+            used += draw_h + _p_spacing_cm(child) + 0.15
+            continue
         text = _el_plain_text(child).strip()
         if not text:
-            p_pr = child.find(qn("w:pPr"))
             if p_pr is not None:
                 sp = p_pr.find(qn("w:spacing"))
                 if sp is not None and (sp.get(qn("w:lineRule")) or "") == "exact":
@@ -691,10 +738,36 @@ def _sign_spacer_cm(
 ) -> float:
     used = _estimate_cm_on_current_page(doc, stop_el=stop_el)
     pad = _SIGN_BOTTOM_PAD_CM if bottom_pad_cm is None else bottom_pad_cm
-    budget = _page_body_cm(doc) - used - sign_cm - pad
-    if budget < _SIGN_MIN_GAP_CM:
-        return max(0.6, budget) if budget > 0 else 0.6
-    return min(budget, 14.0)
+    page = _page_body_cm(doc)
+    remain = page - used
+    # 本页已经放不下落后落款时不要再垫空白，否则整块签字会翻到下一页独页
+    if remain < sign_cm + _SIGN_MIN_GAP_CM:
+        return 0.0
+    budget = remain - sign_cm - pad
+    if used > page * 0.62 or budget < 0.35:
+        return 0.0
+    return min(budget, 8.0)
+
+
+def _glue_sign_off(doc: Document, spacer: Paragraph | None, lines: list[Paragraph]) -> None:
+    """落款跟前一段钉在一起，避免投标人/签字/日期单独成页。"""
+    del doc
+    first = spacer or (lines[0] if lines else None)
+    if first is None:
+        return
+    prev = first._element.getprevious()
+    while prev is not None and prev.tag not in {qn("w:p"), qn("w:tbl")}:
+        prev = prev.getprevious()
+    if prev is not None and prev.tag == qn("w:p"):
+        Paragraph(prev, first._parent).paragraph_format.keep_with_next = True
+    chain = ([spacer] if spacer is not None else []) + lines
+    for p in chain[:-1]:
+        if p is None:
+            continue
+        p.paragraph_format.keep_with_next = True
+        p.paragraph_format.keep_together = True
+    if chain:
+        chain[-1].paragraph_format.keep_together = True
 
 
 def _apply_sign_spacer_paragraph(para: Paragraph, height_cm: float) -> None:
@@ -734,26 +807,35 @@ def _add_bottom_sign_spacer(
 ) -> Paragraph:
     """在当前页正文后插入弹性空白，把随后落款压到接近页脚、且尽量不翻页。"""
     height = _sign_spacer_cm(doc, sign_cm=sign_cm, bottom_pad_cm=bottom_pad_cm)
+    if height < 0.35:
+        return None
     para = doc.add_paragraph()
     _apply_sign_spacer_paragraph(para, height)
+    para.paragraph_format.keep_with_next = True
     return para
 
 
-def _insert_bottom_sign_spacer_before(para: Paragraph, *, sign_cm: float) -> Paragraph:
+def _insert_bottom_sign_spacer_before(para: Paragraph, *, sign_cm: float) -> Paragraph | None:
     doc = para.part.document
     height = _sign_spacer_cm(doc, sign_cm=sign_cm, stop_el=para._element)
+    if height < 0.35:
+        return None
     spacer = doc.add_paragraph()
     _apply_sign_spacer_paragraph(spacer, height)
     para._element.addprevious(spacer._element)
+    spacer.paragraph_format.keep_with_next = True
     return spacer
 
 
-def _insert_bottom_sign_spacer_after(para: Paragraph, *, sign_cm: float) -> Paragraph:
+def _insert_bottom_sign_spacer_after(para: Paragraph, *, sign_cm: float) -> Paragraph | None:
     doc = para.part.document
     height = _sign_spacer_cm(doc, sign_cm=sign_cm, stop_el=para._element.getnext())
+    if height < 0.35:
+        return None
     spacer = doc.add_paragraph()
     _apply_sign_spacer_paragraph(spacer, height)
     para._element.addnext(spacer._element)
+    spacer.paragraph_format.keep_with_next = True
     return spacer
 
 
@@ -826,12 +908,18 @@ def _insert_drawings_after(cursor: Paragraph, files: list[Path], *, max_pages: i
 
 
 def _is_toc_list_line(para: Paragraph) -> bool:
-    """目录区的编号条目，不能当作章节标题改写。"""
+    """目录条目：一、 / 1.1 / 第一章。不要把正文里 List Paragraph 标题当成目录。"""
     style = para.style.name if para.style else ""
-    if style in {"List Paragraph", "toc 1", "TOC 1", "toc 2", "TOC 2"}:
+    if style in {"toc 1", "TOC 1", "toc 2", "TOC 2"}:
         return True
     raw = (para.text or "").strip()
-    return bool(re.match(r"^[一二三四五六七八九十]+[、.．]", raw))
+    if re.match(r"^[一二三四五六七八九十]+[、.．]", raw):
+        return True
+    if re.match(r"^\d+(?:\.\d+)+", raw):
+        return True
+    if re.match(r"^第[一二三四五六七八九十0-9]+章", raw):
+        return True
+    return False
 
 
 def _find_technical_heading(doc: Document) -> Paragraph | None:
@@ -867,11 +955,13 @@ def _fill_technical_section(doc: Document, brief: BidBrief, catalog_media: dict 
     cursor = intro
     sub = _insert_paragraph_after(cursor)
     _write_plain(sub, "一、文字描述", size=14, bold=True)
+    _bookmark_paragraph(sub, "toc_other_text")
     body = _insert_paragraph_after(sub)
     _write_plain(body, tech_plan_body(brief), size=12, bold=False)
     cursor = body
     draw_title = _insert_paragraph_after(cursor)
     _write_plain(draw_title, "二、图纸", size=14, bold=True)
+    _bookmark_paragraph(draw_title, "toc_other_draw")
     cursor = draw_title
     files = _tech_drawing_files(catalog_media)
     warnings: list[str] = []
@@ -1147,6 +1237,20 @@ def _add_pageref_run(para: Paragraph, bookmark: str, cache: str) -> None:
     _no_underline(end)
 
 
+def _clear_toc_tabs(para: Paragraph) -> None:
+    p_pr = para._p.get_or_add_pPr()
+    for old in p_pr.findall(qn("w:tabs")):
+        p_pr.remove(old)
+
+
+def _apply_toc_indent(para: Paragraph, level: int) -> None:
+    pf = para.paragraph_format
+    pf.left_indent = Cm(0.74 * max(0, int(level) - 1))
+    pf.first_line_indent = Cm(0)
+    pf.space_before = Pt(3 if level <= 1 else 1)
+    pf.space_after = Pt(3 if level <= 1 else 1)
+
+
 def _write_toc_line(
     para: Paragraph,
     index: int,
@@ -1155,14 +1259,25 @@ def _write_toc_line(
     cache: str,
     *,
     label: str | None = None,
+    with_pages: bool = True,
+    level: int = 1,
 ) -> None:
-    """标题 …… 页码域。去掉段落下划线，否则 WPS 会把点线画成实线。"""
     _strip_toc_numbering(para)
+    _apply_toc_indent(para, level)
+    prefix = label if label is not None else f"{_CN_NUM[index]}、"
+    size = 12.0 if level <= 1 else 10.5
+    bold = level <= 1
+    if not with_pages:
+        _clear_toc_tabs(para)
+        _clear_runs(para)
+        title_run = para.add_run(f"{prefix}{title}")
+        _font(title_run, size, bold=bold)
+        _no_underline(title_run)
+        return
     _set_dot_tab(para, _toc_tab_pos_cm(para))
     _clear_runs(para)
-    prefix = label if label is not None else f"{_CN_NUM[index]}、"
     title_run = para.add_run(f"{prefix}{title}")
-    _font(title_run, 10.5)
+    _font(title_run, size, bold=bold)
     _no_underline(title_run)
     tab_run = para.add_run()
     _set_dot_leader_font(tab_run)
@@ -1171,15 +1286,57 @@ def _write_toc_line(
     _add_pageref_run(para, bookmark, cache)
 
 
-def _ensure_toc_entries(doc: Document, *, include_commitment: bool = True) -> None:
-    """补齐目录条目（模板常缺「投标承诺书」），并去掉目录标题上的杂书签。"""
+def _chapter5_toc_tree(brief: BidBrief) -> list[dict]:
+    note = tech_plan_text(brief)
+    chaps = tech_chapter_titles(note)
+    if len(chaps) >= 2:
+        tech_kids = [{"title": t, "bookmark": "toc_other"} for t in chaps]
+    else:
+        tech_kids = [
+            {"title": "文字描述", "bookmark": "toc_other_text"},
+            {"title": "图纸", "bookmark": "toc_other_draw"},
+        ]
+    tree = [
+        {
+            "title": "投标函及投标函附录",
+            "bookmark": "toc_letter",
+            "children": [
+                {"title": "投标函", "bookmark": "toc_letter"},
+                {
+                    "title": "投标函附录",
+                    "bookmark": "toc_letter_app",
+                    "children": [
+                        {"title": "分项报价表", "bookmark": "toc_quote"},
+                        {"title": "支付条件", "bookmark": "toc_pay"},
+                    ],
+                },
+            ],
+        },
+        {
+            "title": "法定代表人身份证明及授权委托书",
+            "bookmark": "toc_legal",
+            "children": [
+                {"title": "法定代表人身份证明", "bookmark": "toc_legal"},
+                {"title": "授权委托书", "bookmark": "toc_auth"},
+            ],
+        },
+        {"title": "技术偏差表", "bookmark": "toc_dev"},
+        {"title": "企业业绩", "bookmark": "toc_perf"},
+        {"title": "原厂生产承诺", "bookmark": "toc_factory"},
+        {
+            "title": "技术标（实施方案）",
+            "bookmark": "toc_other",
+            "children": tech_kids,
+        },
+    ]
+    if brief.includeCommitment:
+        tree.append({"title": "投标承诺书", "bookmark": "toc_commit"})
+    return tree
+
+
+def _toc_region(doc: Document) -> tuple[Paragraph | None, list[Paragraph]]:
     toc_title: Paragraph | None = None
-    toc_lines: list[Paragraph] = []
-    items = (
-        _TOC_ITEMS
-        if include_commitment
-        else tuple(item for item in _TOC_ITEMS if item[1] != "toc_commit")
-    )
+    lines: list[Paragraph] = []
     for para in doc.paragraphs:
         n = _compact(para.text)
         if n == "目录":
@@ -1192,41 +1349,59 @@ def _ensure_toc_entries(doc: Document, *, include_commitment: bool = True) -> No
             break
         if _p_sectpr(para._p) is not None:
             break
-        if _pageref_bookmark(para) or _is_toc_list_line(para) or any(
-            n == _compact(title) or n.endswith(_compact(title)) for title, _, _ in items
-        ):
-            toc_lines.append(para)
+        lines.append(para)
+    return toc_title, lines
 
-    if toc_title is not None:
-        for start in list(toc_title._p.findall(qn("w:bookmarkStart"))):
-            name = start.get(qn("w:name")) or ""
-            if name.startswith("toc_"):
-                continue
-            bid = start.get(qn("w:id"))
-            toc_title._p.remove(start)
-            for end in list(toc_title._p.findall(qn("w:bookmarkEnd"))):
-                if end.get(qn("w:id")) == bid:
-                    toc_title._p.remove(end)
 
-    present = {bm for para in toc_lines if (bm := _pageref_bookmark(para))}
-    if not toc_lines and toc_title is None:
-        return
-    anchor = toc_lines[-1] if toc_lines else toc_title
-    if anchor is None:
-        return
-    for i, (title, bookmark, cache) in enumerate(items):
-        if bookmark in present:
+def _scrub_toc_title_bookmarks(toc_title: Paragraph) -> None:
+    for start in list(toc_title._p.findall(qn("w:bookmarkStart"))):
+        name = start.get(qn("w:name")) or ""
+        if name.startswith("toc_"):
             continue
-        neo = _insert_paragraph_after(anchor)
-        _write_toc_line(neo, i, title, bookmark, cache)
-        present.add(bookmark)
-        anchor = neo
-        toc_lines.append(neo)
+        bid = start.get(qn("w:id"))
+        toc_title._p.remove(start)
+        for end in list(toc_title._p.findall(qn("w:bookmarkEnd"))):
+            if end.get(qn("w:id")) == bid:
+                toc_title._p.remove(end)
 
-    if not include_commitment:
-        for para in list(toc_lines):
-            if _pageref_bookmark(para) == "toc_commit" or "投标承诺书" in (para.text or ""):
-                _drop_para(para)
+
+def _rebuild_toc(doc: Document, brief: BidBrief, *, with_pages: bool, fmt=None) -> None:
+    toc_title, old = _toc_region(doc)
+    if toc_title is None:
+        return
+    _scrub_toc_title_bookmarks(toc_title)
+    scheme = fmt.tocNumbering if fmt is not None else "cn"
+    rows = flatten_toc_tree(_chapter5_toc_tree(brief), scheme)
+    for para in old:
+        _drop_para(para)
+    anchor = toc_title
+    for i, (label, title, level, bm) in enumerate(rows):
+        cache = toc_page_cache(i, fmt) if fmt is not None else "1"
+        neo = _insert_paragraph_after(anchor)
+        _write_toc_line(
+            neo,
+            i,
+            title,
+            bm,
+            cache,
+            label=label,
+            with_pages=with_pages,
+            level=level,
+        )
+        anchor = neo
+
+
+def _ensure_toc_entries(
+    doc: Document,
+    *,
+    include_commitment: bool = True,
+    with_pages: bool = True,
+    fmt=None,
+    brief: BidBrief | None = None,
+) -> None:
+    if brief is None:
+        brief = BidBrief(includeCommitment=include_commitment)
+    _rebuild_toc(doc, brief, with_pages=with_pages, fmt=fmt)
 
 
 # 模板第 9、12 节 header=0，页眉贴顶，OnlyOffice/部分 Word 会裁掉字头只剩横线。
@@ -1408,7 +1583,7 @@ def _append_right_sign_block(after: Paragraph, brief: BidBrief, *, unit: str) ->
     signer = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
     year, month, day = _ymd(brief.bidDate)
     spacer = _insert_bottom_sign_spacer_after(after, sign_cm=4.2)
-    p1 = _insert_paragraph_after(spacer)
+    p1 = _insert_paragraph_after(spacer or after)
     _rewrite_labeled_underline(
         p1,
         [(unit, (brief.bidderName or "").strip(), "")],
@@ -1432,6 +1607,7 @@ def _append_right_sign_block(after: Paragraph, brief: BidBrief, *, unit: str) ->
         space_before=8,
         space_after=4,
     )
+    _glue_sign_off(after.part.document, spacer, [p1, p2, p3])
 
 
 def _auth_text(brief: BidBrief) -> str:
@@ -1451,7 +1627,12 @@ def _auth_text(brief: BidBrief) -> str:
     )
 
 
-def _fill_paragraphs(doc: Document, brief: BidBrief) -> Paragraph | None:
+def _fill_paragraphs(
+    doc: Document,
+    brief: BidBrief,
+    media: dict | None = None,
+    inlined: set[str] | None = None,
+) -> Paragraph | None:
     price_cn = rmb_uppercase(brief.bidPriceYuan)
     price_en = rmb_lowercase(brief.bidPriceYuan)
     extra = (brief.extraNote or "").strip() or "（无）"
@@ -1484,16 +1665,6 @@ def _fill_paragraphs(doc: Document, brief: BidBrief) -> Paragraph | None:
         if section == "toc" and not heading:
             if "备注" in n or "应编制" in n or "页码及内容" in n:
                 drop.append(para)
-                continue
-            for i, (title, bookmark, cache) in enumerate(_TOC_ITEMS):
-                key = _compact(title)
-                if (
-                    n == key
-                    or n.endswith(key)
-                    or (key == "技术标实施方案" and n in {"其他材料", "技术标实施方案"})
-                ):
-                    _write_toc_line(para, i, title, bookmark, cache)
-                    break
             continue
         if heading:
             for title, bookmark in _HEADING_BOOKMARKS:
@@ -1505,7 +1676,10 @@ def _fill_paragraphs(doc: Document, brief: BidBrief) -> Paragraph | None:
             continue
         if n == "投标函附录":
             section = "appendix"
+            _bookmark_paragraph(para, "toc_letter_app")
             continue
+        if n == "投标函" and section == "letter":
+            _bookmark_paragraph(para, "toc_letter")
         if n == "支付条件" and heading:
             section = "pay"
             continue
@@ -1746,8 +1920,18 @@ def _fill_paragraphs(doc: Document, brief: BidBrief) -> Paragraph | None:
                 _scrub_hints(para, hints_bidder)
             elif n.startswith("投标人：") and "盖单位公章" in n:
                 if not legal_sign_gapped:
+                    inline_id_scans(
+                        doc,
+                        (media or {}).get("id_legal") if media else None,
+                        empty_slot=id_slot("id_legal"),
+                        before=para,
+                    )
+                    if inlined is not None:
+                        inlined.add("id_legal")
                     _insert_bottom_sign_spacer_before(para, sign_cm=4.4)
                     legal_sign_gapped = True
+                para.paragraph_format.keep_with_next = True
+                para.paragraph_format.keep_together = True
                 _rewrite_labeled_underline(
                     para,
                     [("投标人：", brief.bidderName, "（盖单位公章）")],
@@ -1782,8 +1966,19 @@ def _fill_paragraphs(doc: Document, brief: BidBrief) -> Paragraph | None:
                 "法定代表人" in n or "盖单位公章" in n or "盖单位章" in n
             ):
                 if not auth_sign_started:
+                    if (brief.agentName or "").strip():
+                        inline_id_scans(
+                            doc,
+                            (media or {}).get("id_agent") if media else None,
+                            empty_slot=id_slot("id_agent"),
+                            before=para,
+                        )
+                        if inlined is not None:
+                            inlined.add("id_agent")
                     _insert_bottom_sign_spacer_before(para, sign_cm=6.6)
                 auth_sign_started = True
+                para.paragraph_format.keep_with_next = True
+                para.paragraph_format.keep_together = True
                 mashed_legal = "法定代表人" in n
                 _rewrite_labeled_underline(
                     para,
@@ -2540,8 +2735,49 @@ def _insert_page_break_paragraph_before(para: Paragraph) -> None:
     para._p.addprevious(br_p)
 
 
+def _plain_sectpr(doc: Document):
+    sp = deepcopy(doc.sections[0]._sectPr)
+    for tag in ("w:headerReference", "w:footerReference", "w:pgNumType", "w:titlePg"):
+        for el in list(sp.findall(qn(tag))):
+            sp.remove(el)
+    _set_section_continuous(sp)
+    return sp
+
+
+def _end_section_at_p(p_el, sect_pr) -> None:
+    p_pr = p_el.find(qn("w:pPr"))
+    if p_pr is None:
+        p_pr = OxmlElement("w:pPr")
+        p_el.insert(0, p_pr)
+    for old in list(p_pr.findall(qn("w:sectPr"))):
+        p_pr.remove(old)
+    p_pr.append(deepcopy(sect_pr))
+
+
+def _para_section_index(doc: Document, para: Paragraph) -> int:
+    idx = 0
+    target = para._p
+    for child in doc.element.body:
+        if child is target:
+            return idx
+        if child.tag == qn("w:p") and _p_sectpr(child) is not None:
+            idx += 1
+    return idx
+
+
+def _first_body_section_index(doc: Document) -> int:
+    for para in doc.paragraphs:
+        n = _compact(para.text)
+        if n != "投标函及投标函附录":
+            continue
+        if _is_toc_list_line(para):
+            continue
+        return _para_section_index(doc, para)
+    return 2
+
+
 def _isolate_toc_section(doc: Document) -> None:
-    """目录独占一页：目录前、后各插显式分页符，并去掉标题上多余的 pageBreakBefore。"""
+    """目录独占一页：目录前、后各插显式分页符，并拆成封面 / 目录 / 正文三节。"""
     toc_title: Paragraph | None = None
     first_after_toc: Paragraph | None = None
     seen_toc = False
@@ -2556,6 +2792,8 @@ def _isolate_toc_section(doc: Document) -> None:
             continue
         if _p_sectpr(para._p) is not None:
             continue
+        if _is_toc_list_line(para):
+            continue
         style = para.style.name if para.style else ""
         if style.startswith("Heading") and n and n != "目录":
             first_after_toc = para
@@ -2569,8 +2807,14 @@ def _isolate_toc_section(doc: Document) -> None:
         if (toc_title.text or "").replace("\t", "").strip() == "目录":
             _write_plain(toc_title, "目录", size=16, bold=True)
         _insert_page_break_paragraph_before(toc_title)
+        prev = toc_title._p.getprevious()
+        if prev is not None and prev.tag == qn("w:p"):
+            _end_section_at_p(prev, _plain_sectpr(doc))
     if first_after_toc is not None:
         _insert_page_break_paragraph_before(first_after_toc)
+        prev = first_after_toc._p.getprevious()
+        if prev is not None and prev.tag == qn("w:p"):
+            _end_section_at_p(prev, _plain_sectpr(doc))
 
 
 def _set_page_break_before(para: Paragraph, on: bool = True) -> None:
@@ -2628,6 +2872,8 @@ def _mark_chapter_page_starts(doc: Document) -> None:
     for para in doc.paragraphs:
         n = _compact(para.text)
         if n == "目录":
+            continue
+        if _is_toc_list_line(para):
             continue
         if not _is_chapter_start(para.text):
             continue
@@ -2857,30 +3103,24 @@ def _set_pageref_cache(para: Paragraph, number: str) -> None:
 
 
 def _apply_toc_page_numbers(doc: Document, pages: dict[str, int]) -> None:
-    seen = False
     for para in doc.paragraphs:
         bookmark = _pageref_bookmark(para)
         if bookmark:
-            seen = True
             _set_pageref_cache(para, str(pages.get(bookmark, 1)))
-            continue
-        # 目录 PAGEREF 段之后遇到投标函正文标题即可结束
-        if seen and _compact(para.text) == "投标函及投标函附录":
-            break
 
 
-def _finalize_pagination(doc: Document) -> dict[str, int]:
-    """分页：分节 continuous + 章标题显式分页 + 目录预填页码。
-
-    不再整本文估算行高（大表/长技术参数时很慢）。目录用静态缓存页码，
-    Word/WPS 可手动更新 PAGEREF。
-    """
+def _finalize_pagination(doc: Document, fmt=None) -> dict[str, int]:
+    """分页：分节 continuous + 章标题显式分页。目录页码仅在招标书要求时预填。"""
     _normalize_section_page_numbers(doc)
     _normalize_body_section_breaks(doc)
     _isolate_toc_section(doc)
     _mark_chapter_page_starts(doc)
     _pad_signature_blocks(doc)
-    pages = {bookmark: int(cache) for _title, bookmark, cache in _TOC_ITEMS}
+    if fmt is not None and not fmt.tocNeedPageNos:
+        return {}
+    pages: dict[str, int] = {}
+    for i, (_title, bookmark, _old) in enumerate(_TOC_ITEMS):
+        pages[bookmark] = int(toc_page_cache(i, fmt)) if fmt is not None else int(_old)
     pages.setdefault("toc_perf", 9)
     pages.setdefault("toc_commit", 13)
     _apply_toc_page_numbers(doc, pages)
@@ -2888,16 +3128,16 @@ def _finalize_pagination(doc: Document) -> dict[str, int]:
 
 
 def _apply_template_format(doc: Document, brief: BidBrief) -> list[str]:
-    """公司模板组卷：仅在招标书写明排版条款时改页边距/页码位置，避免动空白稿页脚。"""
+    """公司模板组卷：页脚按起编位置处理；页边距仅在招标书写明时改。"""
     fmt = brief.documentFormat
     notes = format_brief_notes(fmt)
     if fmt.coverNeedSeal:
         notes.append("招标书要求封面加盖公章，请在打印后于封面预留处盖章")
-    if not fmt.specified:
-        return notes
+    body_si = _first_body_section_index(doc)
     for i, section in enumerate(doc.sections):
-        apply_section_page(section, fmt)
-        numbered, restart = section_page_flags(i, fmt, body_section=1)
+        if fmt.specified:
+            apply_section_page(section, fmt)
+        numbered, restart = section_page_flags(i, fmt, body_section=body_si)
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
     return notes
 
@@ -2931,9 +3171,18 @@ def build_bid_docx(
     doc = Document(str(dest))
     _pin_cjk_fonts(doc)
     _hide_proofing_marks(doc)
-    quote_anchor = _fill_paragraphs(doc, brief)
-    _ensure_toc_entries(doc, include_commitment=bool(brief.includeCommitment))
-    warnings.extend(_fill_technical_section(doc, brief, catalog_media))
+    slots = catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
+    media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
+    inlined_ids: set[str] = set()
+    quote_anchor = _fill_paragraphs(doc, brief, media=media, inlined=inlined_ids)
+    _ensure_toc_entries(
+        doc,
+        include_commitment=bool(brief.includeCommitment),
+        with_pages=bool(brief.documentFormat.tocNeedPageNos),
+        fmt=brief.documentFormat,
+        brief=brief,
+    )
+    warnings.extend(_fill_technical_section(doc, brief, media))
     _fill_tables(doc, brief)
     warnings.extend(_fill_quote_section(doc, brief, quote_anchor))
     _normalize_blank_underlines(doc)
@@ -2947,16 +3196,17 @@ def build_bid_docx(
         warnings.append("已附「投标承诺书」（附件五），请核对后签字盖章")
 
     if brief.includePlaceholders:
-        slots = catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
-        media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
+        attach = [s for s in slots if (s.key or "").strip() not in inlined_ids]
         commit = None
         for para in reversed(doc.paragraphs):
             if _compact(para.text) == "投标承诺书" and not _is_toc_list_line(para):
                 commit = para
                 break
-        n_filled, n_boxes, insert_notes = append_placeholder_section(
-            doc, slots, media, before=commit
-        )
+        n_filled, n_boxes, insert_notes = 0, 0, []
+        if attach:
+            n_filled, n_boxes, insert_notes = append_placeholder_section(
+                doc, attach, media, before=commit
+            )
         if n_filled:
             warnings.append(f"附件区已处理 {n_filled} 项（证件类已嵌入，大附件多为占位加速）")
         if n_boxes:
@@ -2977,16 +3227,18 @@ def build_bid_docx(
                 "storage/tender-assets/weitai-qualifications.pdf 后重新生成"
             )
 
+    _finalize_pagination(doc, brief.documentFormat)
     for i, section in enumerate(doc.sections):
         _ensure_header(section, brief.projectName, cover=(i == 0))
-
-    _finalize_pagination(doc)
     warnings.extend(_apply_template_format(doc, brief))
     doc.save(str(dest))
     if pages:
         warnings.append(f"已插入资质文件 {pages} 页扫描件")
-    warnings.append(
-        "目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
-        "目录页码已预填；若与正文不符，可在 Word/WPS 中右键目录域「更新域」。"
-    )
+    tail = "封面与目录不编页码，从正文首页起编。目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
+    if brief.documentFormat.tocNeedPageNos:
+        tail = (
+            "目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
+            "目录页码已预填；若与正文不符，可在 Word/WPS 中右键目录域「更新域」。"
+        )
+    warnings.append(tail)
     return dest, warnings

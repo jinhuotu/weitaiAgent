@@ -18,7 +18,8 @@ def test_extract_skips_unspecified_invitation() -> None:
     fmt = extract_document_format("第一章 投标邀请\n项目名称：某某充电站\n投标人须知")
     assert fmt.specified is False
     assert fmt.pageNumberPos == "bottom-center"
-    assert fmt.pageNumberStart == "toc"
+    assert fmt.pageNumberStart == "body"
+    assert fmt.tocNeedPageNos is True
     assert fmt.tocNumbering == "cn"
     assert extract_tender_no("项目名称：某某") == ""
 
@@ -183,9 +184,10 @@ def test_assemble_default_skips_cover_page_number(tmp_path) -> None:
     dest = tmp_path / "default-fmt.docx"
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     doc = Document(str(dest))
-    assert len(doc.sections) >= 2
+    assert len(doc.sections) >= 3
     assert "PAGE" not in doc.sections[0].footer.paragraphs[0]._p.xml
-    assert "PAGE" in doc.sections[1].footer.paragraphs[0]._p.xml
+    assert "PAGE" not in doc.sections[1].footer.paragraphs[0]._p.xml
+    assert "PAGE" in doc.sections[2].footer.paragraphs[0]._p.xml
     assert abs(float(doc.sections[0].left_margin.cm) - 2.8) < 0.05
     assert abs(float(doc.sections[0].page_width.cm) - 21.0) < 0.05
 

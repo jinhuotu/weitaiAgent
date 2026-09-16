@@ -16,6 +16,7 @@ from api.services.tenders.schema import (
     DeviationLine,
     OutlineItem,
     PerformanceLine,
+    PlaceholderItem,
     QuoteLineIn,
     default_brief,
 )
@@ -90,6 +91,29 @@ def test_fill_copy_blanks_only_placeholders() -> None:
     assert "2026年09月08日" in filled
     assert "不侵犯任何第三方知识产权" in filled
     assert "（招标人名称）" not in filled
+
+
+def test_fill_copy_blanks_empty_zhi_and_bidder_not_sign() -> None:
+    raw = (
+        "投标承诺书致：\n"
+        "我公司现做出如下承诺：\n"
+        "投标人： （盖章）\n"
+        "法定代表人或委托代理人：（签字并盖章）\n"
+        "日期： 年月日"
+    )
+    filled = fill_copy_blanks(
+        raw,
+        bidder="河南伟泰光电科技有限公司",
+        project="厂内充电桩采购",
+        tenderer="二连浩特市联源热电有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-15",
+    )
+    assert "投标承诺书\n致：二连浩特市联源热电有限公司" in filled
+    assert "投标人：河南伟泰光电科技有限公司（盖章）" in filled
+    assert "2026年09月15日" in filled
+    assert "郭志伟" not in filled
+    assert "签字并盖章" in filled
 
 
 def test_fill_copy_blanks_leaves_sign_name_empty() -> None:
@@ -678,25 +702,20 @@ def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     assert not any(t.startswith("按招标书「") for t in texts)
     toc_letter = next(p for p in doc.paragraphs if p.text.startswith("一、投标函"))
     assert not any(_run_underlined(run) for run in toc_letter.runs if "投标函" in (run.text or ""))
-    fonts = [
-        el.get(qn("w:ascii"))
-        for run in toc_letter.runs
-        for el in run._element.iter(qn("w:rFonts"))
-    ]
-    assert "Times New Roman" in fonts
     instr = "".join(
         t.text or "" for el in toc_letter._p.iter(qn("w:instrText")) for t in [el]
     )
     assert "PAGEREF" in instr
-    assert any(p.text.startswith("十一、业绩证明资料") for p in doc.paragraphs)
+    assert any("四、业绩证明资料" in p.text for p in doc.paragraphs)
+    assert any("2.1 法定代表人身份证明" in p.text or p.text.startswith("2.1") for p in doc.paragraphs)
+    assert any("资格审查资料" in p.text for p in doc.paragraphs)
 
-    name_cell = next(
-        row.cells[1]
-        for table in doc.tables
-        for row in table.rows
-        if "投标人名称" in (row.cells[0].text or "")
+    name_line = next(
+        p
+        for p in doc.paragraphs
+        if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
     )
-    assert not any(_run_underlined(run) for para in name_cell.paragraphs for run in para.runs)
+    assert any(_run_underlined(run) for run in name_line.runs if "伟泰" in (run.text or ""))
 
     auth_sign = next(
         p
@@ -792,3 +811,271 @@ def test_assemble_auth_sign_single_line_aligned(tmp_path) -> None:
             if len(rows) == 1 and not cell_text:
                 empty_boxes.append(child)
     assert not empty_boxes
+
+
+def test_paragraphs_keep_title_and_zhi_apart() -> None:
+    from api.services.tenders.assemble import _paragraphs_from_body
+
+    lines = _paragraphs_from_body(
+        "投标承诺书\n致：\n我公司现做出如下承诺：\n[第13页]\n二连浩特市联源热电有限公司"
+    )
+    assert "投标承诺书" in lines
+    assert any(ln.startswith("致") for ln in lines)
+    assert not any("投标承诺书致" in compact_title(ln) for ln in lines)
+    assert not any("第13页" in ln for ln in lines)
+    assert "二连浩特市联源热电有限公司" not in lines
+
+
+def test_assemble_commitment_copy_keeps_form_layout(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.tenderer = "二连浩特市联源热电有限公司"
+    brief.bidDate = "2026-09-15"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="投标承诺书",
+            kind="commitment_copy",
+            source="copy",
+            body=(
+                "投标承诺书致：\n"
+                "我公司现做出如下承诺：\n"
+                "1、保证投标文件内容无任何虚假。\n"
+                "投标人： （盖章）\n"
+                "法定代表人或委托代理人： （签字并盖章）\n"
+                "日期： 年月日\n"
+                "[第13页]\n"
+                "二连浩特市联源热电有限公司\n"
+            ),
+        ),
+    ]
+    dest = tmp_path / "commitment.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    texts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+    blob = "\n".join(texts)
+    titles = [t for t in texts if compact_title(t) == "投标承诺书"]
+    assert titles
+    zhi = next(t for t in texts if compact_title(t).startswith("致"))
+    assert "二连浩特市联源热电有限公司" in zhi
+    assert "投标承诺书致" not in compact_title(zhi)
+    bidder = next(t for t in texts if "盖章" in t and "签字" not in t)
+    assert "河南伟泰光电科技有限公司" in bidder
+    sign = next(t for t in texts if "签字并盖章" in t)
+    assert "郭志伟" not in sign
+    assert "2026年09月15日" in blob or ("2026" in blob and "09" in blob and "15" in blob)
+    assert "第13页" not in blob
+    assert not any(compact_title(t) == "二连浩特市联源热电有限公司" for t in texts)
+    zhi_para = next(p for p in doc.paragraphs if compact_title(p.text).startswith("致"))
+    sign_para = next(p for p in doc.paragraphs if "签字并盖章" in p.text)
+    bidder_para = next(p for p in doc.paragraphs if "盖章" in p.text and "签字" not in p.text)
+    assert "w:u" in zhi_para._p.xml
+    assert "w:u" in sign_para._p.xml
+    assert "w:u" in bidder_para._p.xml
+
+
+def test_coalesce_broken_legal_id_lines() -> None:
+    from api.services.tenders.assemble import _paragraphs_from_body
+
+    lines = _paragraphs_from_body(
+        "成立时\n间：\n________\n年\n________\n月\n日经营期限：长期\n姓名：郭志伟"
+    )
+    blob = "｜".join(lines)
+    assert "成立时间：" in blob
+    assert "经营期限：长期" in blob
+    assert all(ln != "成立时" and ln != "间：" for ln in lines)
+
+
+def test_assemble_legal_id_copy_stays_on_form(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o02",
+            title="法定代表人身份证明",
+            kind="legal_id",
+            source="copy",
+            body=(
+                "三、法定代表人身份证明\n投标人名称：________\n成立时\n间：\n年\n月\n"
+                "日经营期限：长期\n姓名： 性别： 年龄： 职务：\n系（投标人名称）的法定代表人。"
+            ),
+        ),
+    ]
+    dest = tmp_path / "legal-id.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    texts = [p.text.strip() for p in doc.paragraphs]
+    nonempty = [t for t in texts if t]
+    assert "特此证明。" in nonempty
+    assert all(t != "成立时" and t != "间：" for t in nonempty)
+    rel = next(t for t in nonempty if "法定代表人" in t and "系" in t)
+    assert "郭志伟" in rel
+    assert "河南伟泰光电科技有限公司" in rel
+    person = next(t for t in nonempty if "姓名" in t and "职务" in t)
+    assert "郭志伟" in person
+    assert "执行董事" in person
+    toc = next(p for p in doc.paragraphs if p.text.startswith("一、法定代表人身份证明"))
+    instr = "".join(t.text or "" for el in toc._p.iter(qn("w:instrText")) for t in [el])
+    assert "PAGEREF" in instr
+    assert 'w:leader="dot"' in toc._p.xml
+
+
+def test_assemble_inlines_id_cards_not_in_appendix(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    front = tmp_path / "id-front.png"
+    back = tmp_path / "id-back.png"
+    Image.new("RGB", (220, 350), (190, 170, 150)).save(front)
+    Image.new("RGB", (220, 350), (150, 170, 190)).save(back)
+    agent_f = tmp_path / "ag-front.png"
+    agent_b = tmp_path / "ag-back.png"
+    Image.new("RGB", (220, 350), (120, 160, 140)).save(agent_f)
+    Image.new("RGB", (220, 350), (140, 120, 160)).save(agent_b)
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = True
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.agentName = "李四"
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="法定代表人身份证明", kind="legal_id", source="generate"),
+        OutlineItem(id="o02", title="授权委托书", kind="auth", source="generate"),
+    ]
+    dest = tmp_path / "ids.docx"
+    assemble_bid_docx(
+        brief,
+        dest,
+        qualification_pdf=None,
+        catalog_slots=[
+            PlaceholderItem(key="id_legal", title="法定代表人身份证正反面"),
+            PlaceholderItem(key="id_agent", title="授权代理人身份证正反面"),
+            PlaceholderItem(key="bond", title="投标保证金缴存回单"),
+        ],
+        catalog_media={
+            "id_legal": [front, back],
+            "id_agent": [agent_f, agent_b],
+        },
+    )
+    doc = Document(str(dest))
+    texts = [p.text or "" for p in doc.paragraphs]
+    assert not any("（一）法定代表人身份证正反面" in t for t in texts)
+    assert not any("授权代理人身份证" in t and t.startswith("（") for t in texts)
+    assert any("投标保证金缴存回单" in t for t in texts)
+    legal_i = next(i for i, t in enumerate(texts) if t.strip() == "法定代表人身份证明")
+    auth_i = next(i for i, t in enumerate(texts) if t.strip() == "授权委托书")
+    legal_sign = next(
+        i
+        for i, t in enumerate(texts[legal_i:auth_i], start=legal_i)
+        if "投标人" in "".join(t.split()) and "盖单位公章" in t
+    )
+    auth_sign = next(
+        i
+        for i, t in enumerate(texts[auth_i:], start=auth_i)
+        if "投标人" in "".join(t.split()) and "盖单位公章" in t
+    )
+
+    def _blip_between(a: int, b: int) -> bool:
+        el = doc.paragraphs[a]._element.getnext()
+        stop = doc.paragraphs[b]._element
+        while el is not None and el is not stop:
+            if el.findall(".//" + qn("a:blip")) or el.findall(".//" + qn("pic:blipFill")):
+                return True
+            el = el.getnext()
+        return False
+
+    assert _blip_between(legal_i, legal_sign)
+    assert _blip_between(auth_i, auth_sign)
+    id_para = next(
+        p
+        for p in doc.paragraphs[legal_i:legal_sign]
+        if p._p.findall(".//" + qn("wp:extent"))
+    )
+    assert id_para.paragraph_format.keep_with_next is True
+    assert doc.paragraphs[legal_sign].paragraph_format.keep_with_next is True
+    assert doc.paragraphs[auth_sign].paragraph_format.keep_with_next is True
+
+
+def test_estimate_counts_id_scan_height(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.document import _estimate_cm_on_current_page
+    from api.services.tenders.placeholders import id_slot, inline_id_scans
+
+    front = tmp_path / "f.png"
+    back = tmp_path / "b.png"
+    Image.new("RGB", (220, 350), (180, 160, 140)).save(front)
+    Image.new("RGB", (220, 350), (140, 160, 180)).save(back)
+    doc = Document()
+    doc.add_paragraph("法定代表人身份证明")
+    before = _estimate_cm_on_current_page(doc)
+    inline_id_scans(doc, [front, back], empty_slot=id_slot("id_legal"))
+    after = _estimate_cm_on_current_page(doc)
+    assert after - before >= 4.5
+
+
+def test_assemble_seal_register_fills_company_table(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="印鉴预留备案表", kind="company", source="copy", body=""),
+    ]
+    dest = tmp_path / "seal.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    blob = _docx_text(doc)
+    assert "公司证件、印章备案表" in blob
+    assert "河南伟泰光电科技有限公司" in blob
+    assert "公章" in blob
+    assert "财务章" in blob
+    assert "合同章" in blob
+    assert "印鉴备案" in blob
+    assert "三处备案印鉴为红色章" in blob
+
+
+def test_assemble_commitment_fallback_writes_clauses(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.tenderer = "二连浩特市联源热电有限公司"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="投标承诺书", kind="commitment_copy", source="copy", body=""),
+    ]
+    dest = tmp_path / "commit.docx"
+    path, warnings = assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(path))
+    blob = _docx_text(doc)
+    assert "我公司现做出如下承诺" in blob
+    assert "二连浩特市联源热电有限公司" in blob
+    assert any("常用承诺条款" in w for w in warnings)

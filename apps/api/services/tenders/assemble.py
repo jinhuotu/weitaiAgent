@@ -15,25 +15,41 @@ from docx.shared import Cm, Pt, RGBColor
 
 from api.services.tenders.document import (
     _add_bottom_sign_spacer,
+    _apply_toc_page_numbers,
     _bookmark_paragraph,
     _ensure_header,
+    _estimate_bookmark_pages,
+    _p_sectpr,
+    _paragraph_has_page_break,
     _pin_cjk_fonts,
+    _rewrite_date_line,
+    _rewrite_labeled_underline,
+    _sect_starts_new_page,
     _write_toc_line,
 )
 from api.services.tenders.format_rules import (
     apply_footer_page_number,
     apply_section_page,
+    flatten_toc_tree,
     format_brief_notes,
     section_page_flags,
-    toc_item_label,
     toc_page_cache,
 )
-from api.services.tenders.modules import COPY_KINDS, MODULE_KINDS, render_module
-from api.services.tenders.outline import compact_title, fill_copy_blanks, looks_like_form_template
+from api.services.tenders.modules import COPY_KINDS, MODULE_KINDS, is_seal_register, render_module
+from api.services.tenders.outline import (
+    build_outline_toc_tree,
+    compact_title,
+    drop_ocr_junk_lines,
+    fill_copy_blanks,
+    looks_like_form_template,
+    split_mashed_zhi_line,
+)
 from api.services.tenders.placeholders import (
     append_placeholder_section,
     collect_slots,
     draw_placeholder_box,
+    id_slot,
+    inline_id_scans,
 )
 from api.services.tenders.schema import BidBrief, DocumentFormat, OutlineItem, PlaceholderItem
 from api.services.tenders.slots import attachments_for_slots
@@ -41,8 +57,13 @@ from api.services.tenders.slots import attachments_for_slots
 logger = logging.getLogger("api.tenders.assemble")
 
 _SONG = "宋体"
-# 函/授权等可沿用招标书空白稿版式；报价/偏离/业绩仍走结构化模块。
-_FORM_LAYOUT_KINDS = frozenset({"letter", "auth", "factory"})
+# 函/授权/承诺书沿用招标书空白稿版式；报价/偏离/业绩仍走结构化模块。
+_FORM_LAYOUT_KINDS = frozenset({"letter", "auth", "factory", "commitment_copy"})
+_SIGN_LABEL = re.compile(
+    r"^(投标人名称|供应商名称|投标人|供应商|法定代表人或其委托代理人|"
+    r"法定代表人或委托代理人|法定代表人|委托代理人|授权代表|"
+    r"联系人|联系电话|电话|地址|住址)[：:]?(.*)$"
+)
 _SIGN_TOKEN = re.compile(
     r"(投标人|供应商|法定代表人|授权代表|委托代理人|联系人|联系电话|电话|地址|日期|（章）|\(章\)|签字)"
 )
@@ -89,7 +110,7 @@ def assemble_bid_docx(
     _write_cover(doc, brief, fmt)
     _add_next_section(doc, fmt)
     bookmarks = [f"toc_{(item.id or f'o{i + 1:02d}')}" for i, item in enumerate(items)]
-    _write_toc(doc, items, brief.outlineChapter, fmt, bookmarks)
+    _write_toc(doc, items, brief, fmt, bookmarks)
     body_section_index = 1
     if fmt.pageNumberStart == "body":
         _add_next_section(doc, fmt)
@@ -97,19 +118,28 @@ def assemble_bid_docx(
     copied = 0
     generated = 0
     title_only: list[str] = []
+    slots = catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
+    media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
+    inlined_ids: set[str] = set()
     for i, item in enumerate(items):
         if not (i == 0 and fmt.pageNumberStart == "body"):
-            doc.add_page_break()
+            _chapter_break(doc)
         kind = (item.kind or "unknown").strip() or "unknown"
         source = (item.source or "").strip() or "copy"
         raw_body = (item.body or "").strip()
         keep_form = kind in _FORM_LAYOUT_KINDS and looks_like_form_template(raw_body)
-        use_copy = source == "copy" or kind in COPY_KINDS or keep_form
+        # 身份证明从 PDF 抽出来会拆成「成立时 / 间 / 年 / 月 / 日」，用模块排版
+        # 印鉴预留表是格子，OCR 粘成一行，不能当正文复制
+        use_copy = (
+            kind != "legal_id"
+            and not is_seal_register(item)
+            and (source == "copy" or kind in COPY_KINDS or keep_form)
+        )
         use_module = (not use_copy) and kind in MODULE_KINDS
         bm = bookmarks[i]
         if use_module:
             _write_heading(doc, item.title, fmt, bm)
-            for note in render_module(doc, brief, item):
+            for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
                 if note not in warnings:
                     warnings.append(note)
             generated += 1
@@ -146,11 +176,20 @@ def assemble_bid_docx(
                 if copied_ok:
                     _bookmark_first_new(doc, start, bm)
             if copied_ok:
+                if kind == "auth":
+                    _inline_copied_id(
+                        doc,
+                        start=start,
+                        key="id_agent",
+                        media=media,
+                        inlined=inlined_ids,
+                        has_agent=bool((brief.agentName or "").strip()),
+                    )
                 copied += 1
                 continue
             if kind in MODULE_KINDS and source != "copy" and kind not in COPY_KINDS:
                 _write_heading(doc, item.title, fmt, bm)
-                for note in render_module(doc, brief, item):
+                for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
                     if note not in warnings:
                         warnings.append(note)
                 generated += 1
@@ -162,9 +201,10 @@ def assemble_bid_docx(
         title_only.append(item.title)
         _write_heading(doc, item.title, fmt, bm)
         if kind == "commitment_copy":
-            warnings.append(
-                f"「{item.title}」未从招标书复制到原文，未使用充电桩固定承诺书，请核对后手工补"
-            )
+            from api.services.tenders.commitment import write_commitment_body
+
+            write_commitment_body(doc, brief)
+            warnings.append(f"「{item.title}」未抽到招标书原文，已按常用承诺条款填写，请对照邀请书核对")
         elif kind == "scan":
             draw_placeholder_box(
                 doc,
@@ -183,11 +223,11 @@ def assemble_bid_docx(
         warnings.append("招标书要求封面加盖公章，请在打印后于封面预留处盖章")
 
     if brief.includePlaceholders:
-        slots = (
-            catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
-        )
-        media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
-        n_filled, n_boxes, insert_notes = append_placeholder_section(doc, slots, media)
+        attach = [s for s in slots if (s.key or "").strip() not in inlined_ids]
+        if attach:
+            n_filled, n_boxes, insert_notes = append_placeholder_section(doc, attach, media)
+        else:
+            n_filled, n_boxes, insert_notes = 0, 0, []
         if n_boxes:
             warnings.append(f"资料库扫描件 {n_boxes} 处用虚线框占位")
         for note in insert_notes:
@@ -207,6 +247,8 @@ def assemble_bid_docx(
         _ensure_header(section, brief.projectName, cover=(si == 0))
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
 
+    _fill_toc_pages(doc, fmt)
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dest))
     return dest, warnings
@@ -216,6 +258,41 @@ def _add_next_section(doc: Document, fmt: DocumentFormat):
     section = doc.add_section(WD_SECTION.NEW_PAGE)
     apply_section_page(section, fmt)
     return section
+
+
+def _chapter_break(doc: Document) -> None:
+    """上一节已经是分页/新节时不要再插一次，否则会多出一页只有页眉。"""
+    body = list(doc.element.body)
+    for child in reversed(body):
+        if child.tag == qn("w:sectPr"):
+            continue
+        if child.tag == qn("w:tbl"):
+            break
+        if child.tag != qn("w:p"):
+            continue
+        if _paragraph_has_page_break(child):
+            return
+        sect = _p_sectpr(child)
+        if sect is not None and _sect_starts_new_page(sect):
+            return
+        text = "".join(node.text or "" for node in child.iter(qn("w:t"))).strip()
+        if text:
+            break
+    doc.add_page_break()
+
+
+def _fill_toc_pages(doc: Document, fmt: DocumentFormat) -> None:
+    raw = _estimate_bookmark_pages(doc)
+    if not raw:
+        return
+    if fmt.pageNumberStart == "body":
+        base = min(raw.values())
+        pages = {k: max(1, v - base + 1) for k, v in raw.items()}
+    elif fmt.pageNumberStart == "cover":
+        pages = {k: max(1, v) for k, v in raw.items()}
+    else:
+        pages = {k: max(1, v - 1) for k, v in raw.items()}
+    _apply_toc_page_numbers(doc, pages)
 
 
 def _bookmark_first_new(doc: Document, start: int, name: str) -> None:
@@ -281,31 +358,57 @@ def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat) -> None:
 def _write_toc(
     doc: Document,
     items: list[OutlineItem],
-    chapter: str,
+    brief: BidBrief,
     fmt: DocumentFormat,
     bookmarks: list[str],
 ) -> None:
-    del chapter
+    from api.services.tenders.categories import tech_plan_text
+
     head = doc.add_paragraph()
     head.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _run(head, "目录", size=fmt.tocTitleSizePt, bold=True, font=fmt.fontName)
-    for i, item in enumerate(items):
+    tree = build_outline_toc_tree(items, bookmarks, tech_text=tech_plan_text(brief))
+    rows = flatten_toc_tree(tree, fmt.tocNumbering)
+    for i, (label, title, level, bm) in enumerate(rows):
         para = doc.add_paragraph()
-        label = toc_item_label(i, fmt.tocNumbering)
-        if not fmt.tocNeedPageNos:
-            pf = para.paragraph_format
-            pf.space_before = Pt(2)
-            pf.space_after = Pt(2)
-            _run(para, f"{label}{item.title}", size=fmt.tocItemSizePt, font=fmt.fontName)
-            continue
         _write_toc_line(
             para,
             i,
-            item.title,
-            bookmarks[i],
+            title,
+            bm,
             toc_page_cache(i, fmt),
             label=label,
+            with_pages=True,
+            level=level,
         )
+
+
+def _inline_copied_id(
+    doc: Document,
+    *,
+    start: int,
+    key: str,
+    media: dict | None,
+    inlined: set[str],
+    has_agent: bool,
+) -> None:
+    if key == "id_agent" and not has_agent:
+        return
+    before = None
+    for p in doc.paragraphs[start:]:
+        t = "".join((p.text or "").split())
+        if t.startswith("投标人") and (
+            "盖单位公章" in t or "（章）" in t or "(章)" in t or "签字" in t
+        ):
+            before = p
+            break
+    n = inline_id_scans(
+        doc,
+        (media or {}).get(key) if media else None,
+        empty_slot=id_slot(key),
+        before=before,
+    )
+    inlined.add(key)
 
 
 def _write_heading(doc: Document, title: str, fmt: DocumentFormat, bookmark: str | None = None):
@@ -324,6 +427,80 @@ def _write_heading(doc: Document, title: str, fmt: DocumentFormat, bookmark: str
     if bookmark:
         _bookmark_paragraph(para, bookmark)
     return para
+
+
+def _write_copied_salute(doc: Document, block: str) -> None:
+    n = compact_title(block)
+    if not n.startswith("致"):
+        _form_para(doc, block, size=12, align="left", space_after=8)
+        return
+    m = re.match(r"^致[：:]?(.*)$", n)
+    value = re.sub(r"[＿_—\-－]+", "", (m.group(1) if m else "").strip())
+    para = doc.add_paragraph()
+    _rewrite_labeled_underline(
+        para,
+        [("致：", value, "")],
+        align=WD_ALIGN_PARAGRAPH.LEFT,
+        left_indent_cm=0,
+        right_indent_cm=0.4,
+        line_spacing=1.5,
+        space_before=6,
+        space_after=10,
+        nowrap=True,
+        line_em=22,
+    )
+
+
+def _write_copied_sign_line(doc: Document, block: str) -> None:
+    n = compact_title(block)
+    date_m = re.search(r"(\d{4})年(\d{1,2})月(\d{1,2})日", n)
+    if "日期" in n or re.fullmatch(r"年\s*月\s*日", (block or "").strip()):
+        para = doc.add_paragraph()
+        y = mth = d = ""
+        if date_m:
+            y, mth, d = date_m.group(1), date_m.group(2), date_m.group(3)
+        _rewrite_date_line(
+            para,
+            y,
+            mth,
+            d,
+            align=WD_ALIGN_PARAGRAPH.LEFT,
+            left_indent_cm=0,
+            right_indent_cm=0.4,
+            nowrap=True,
+            label="日期：",
+            label_width=5,
+            line_em=8,
+            space_before=8,
+            space_after=4,
+        )
+        return
+    matched = _SIGN_LABEL.match(n)
+    if not matched:
+        _form_para(doc, block, size=12, align="left", space_after=2, line_spacing=1.15)
+        return
+    label = matched.group(1) + "："
+    rest = matched.group(2) or ""
+    suf_m = re.search(r"([（(][^)）]*[)）])\s*$", rest)
+    suffix = suf_m.group(1) if suf_m else ""
+    value = rest[: suf_m.start()] if suf_m else rest
+    value = re.sub(r"[＿_—\-－\s]+", "", value)
+    if "签字" in f"{label}{suffix}":
+        value = ""
+    para = doc.add_paragraph()
+    _rewrite_labeled_underline(
+        para,
+        [(label, value, suffix)],
+        align=WD_ALIGN_PARAGRAPH.LEFT,
+        left_indent_cm=0,
+        right_indent_cm=0.4,
+        line_spacing=1.5,
+        space_before=8,
+        space_after=4,
+        nowrap=True,
+        line_em=16,
+        label_width=5 if len(matched.group(1)) <= 4 else None,
+    )
 
 
 def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat) -> None:
@@ -365,21 +542,13 @@ def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat) -> None:
             )
             continue
         if role == "salute":
-            _form_para(doc, block, size=body, align="left", space_after=8, font=font)
+            _write_copied_salute(doc, block)
             continue
         if role == "sign_row":
             _write_sign_columns(doc, _split_sign_columns(block) or [block], fmt)
             continue
         if role == "sign":
-            _form_para(
-                doc,
-                block,
-                size=body,
-                align="left",
-                space_after=2,
-                line_spacing=1.15,
-                font=font,
-            )
+            _write_copied_sign_line(doc, block)
             continue
         _form_para(
             doc,
@@ -433,15 +602,20 @@ def _form_line_role(line: str) -> str:
         return "title"
     if _split_sign_columns(raw):
         return "sign_row"
-    if raw.startswith("致") or (
+    if compact.startswith("致") or (
         (raw.endswith("：") or raw.endswith(":"))
-        and ("有限公司" in raw or "致" in raw)
+        and ("有限公司" in compact or compact.startswith("致"))
         and len(compact) <= 40
+        and not compact.startswith(("投标承诺书", "承诺函", "投标函"))
     ):
         return "salute"
-    if _SIGN_TOKEN.search(raw) and len(compact) <= 48:
+    sign_hit = _SIGN_TOKEN.search(compact) or _SIGN_TOKEN.search(raw)
+    if sign_hit and (
+        len(compact) <= 48
+        or compact.startswith(("投标人", "供应商", "法定代表人", "日期", "委托代理人"))
+    ):
         return "sign"
-    if re.search(r"年\S{0,6}月\S{0,6}日", raw) and len(compact) <= 24:
+    if re.search(r"年\S{0,6}月\S{0,6}日", compact) and len(compact) <= 28:
         return "sign"
     return "body"
 
@@ -554,9 +728,43 @@ def _paragraphs_from_body(text: str) -> list[str]:
     lines = [ln.strip() for ln in raw.split("\n")]
     lines = [ln for ln in lines if ln]
     if len(lines) <= 1 and len(raw) > 240:
-        parts = re.split(r"(?<=[。；;])", raw)
-        return [p.strip() for p in parts if p.strip()]
-    return lines
+        lines = [p.strip() for p in re.split(r"(?<=[。；;])", raw) if p.strip()]
+    spread: list[str] = []
+    for ln in lines:
+        spread.extend(split_mashed_zhi_line(ln))
+    return _coalesce_broken_form_lines(drop_ocr_junk_lines(spread))
+
+
+_UNDER_ONLY = re.compile(r"^[-—–_＿\s]{2,}$")
+_YMD_BIT = re.compile(r"^[年月日]([：:].*)?$")
+_FRAG_HEAD = re.compile(r"[时日名址性]$")
+_FRAG_TAIL = re.compile(r"^[间期称址质][：:]?")
+
+
+def _coalesce_broken_form_lines(lines: list[str]) -> list[str]:
+    """把 OCR/PDF 拆开的「成立时」「间：」「年」「月」「日」拼回一行。"""
+    out: list[str] = []
+    for ln in lines:
+        s = (ln or "").strip()
+        if not s or _UNDER_ONLY.match(s):
+            continue
+        s = re.sub(r"(日)(经营期限)", r"\1\n\2", s)
+        chunks = [p.strip() for p in s.split("\n") if p.strip()]
+        for chunk in chunks:
+            if out and (_YMD_BIT.match(chunk) or (_FRAG_HEAD.search(out[-1]) and _FRAG_TAIL.match(chunk))):
+                out[-1] += chunk
+                continue
+            if (
+                out
+                and len(chunk) <= 3
+                and chunk.endswith(("：", ":"))
+                and compact_title(chunk) not in {"致：", "致:"}
+                and not out[-1].endswith(("：", ":", "。", "；"))
+            ):
+                out[-1] += chunk
+                continue
+            out.append(chunk)
+    return out
 
 
 def _run(para, text: str, *, size: float = 12, bold: bool = False, font: str = _SONG) -> None:

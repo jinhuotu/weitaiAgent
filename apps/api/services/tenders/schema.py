@@ -131,7 +131,7 @@ class DocumentFormat(BaseModel):
     tocNeedPageNos: bool = True
 
     pageNumberPos: str = Field(default="bottom-center", max_length=24)
-    pageNumberStart: str = Field(default="toc", max_length=12)
+    pageNumberStart: str = Field(default="body", max_length=12)
 
 
 class OutlineItem(BaseModel):
@@ -146,6 +146,7 @@ class OutlineItem(BaseModel):
     required: bool = True
     skipped: bool = False
     body: str = ""
+    level: int = Field(default=1, ge=1, le=4)
 
 
 class BidBrief(BaseModel):

@@ -320,6 +320,10 @@ def _unlink_output(name: str | None) -> None:
             path.unlink(missing_ok=True)
     except OSError:
         pass
+    if str(name).lower().endswith(".docx"):
+        from api.services.tenders.preview_pdf import unlink_preview_pdf
+
+        unlink_preview_pdf(str(name))
 
 
 async def create_record_from_generate(

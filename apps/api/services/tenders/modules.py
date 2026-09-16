@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
@@ -17,9 +18,11 @@ from api.services.tenders.document import (
     _add_bottom_sign_spacer,
     _apply_fixed_table_widths,
     _auth_text,
+    _glue_sign_off,
     _deviation_rows,
     _distribute_twips,
     _fill_quote_section,
+    _form_run,
     _insert_table_after,
     _no_underline,
     _ordered_perf_lines,
@@ -27,31 +30,47 @@ from api.services.tenders.document import (
     _rewrite_date_line,
     _rewrite_labeled_underline,
     _set_tbl_borders,
+    _set_word_wrap,
     _usable_width_twips,
     _write_cell,
     _write_factory_commitment,
     _ymd,
 )
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
-from api.services.tenders.placeholders import TECH_DRAWING_SLOT, draw_placeholder_box
+from api.services.tenders.outline import is_seal_register
+from api.services.tenders.placeholders import (
+    TECH_DRAWING_SLOT,
+    _set_row_height,
+    draw_placeholder_box,
+    id_slot,
+    inline_id_scans,
+)
 from api.services.tenders.schema import BidBrief, OutlineItem, PerformanceLine
 from api.services.tenders.tables import resolve_dev_layout, resolve_quote_layout, width_ratios
 
 _SONG = "宋体"
 
 MODULE_KINDS = frozenset(
-    {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan"}
+    {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan", "company"}
 )
 COPY_KINDS = frozenset({"commitment_copy", "company"})
 
 _DEV_SHARED_NOTE = "商务/技术偏离表共用同一组偏离数据，表头已按招标书格式章抽取"
 
 
-def render_module(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+def render_module(
+    doc: Document,
+    brief: BidBrief,
+    item: OutlineItem,
+    media: dict | None = None,
+    inlined: set[str] | None = None,
+) -> list[str]:
     kind = (item.kind or "").strip()
     handler = _HANDLERS.get(kind)
     if handler is None:
         return [f"「{item.title}」无对应填空模块"]
+    if kind in {"legal_id", "auth"}:
+        return handler(doc, brief, item, media=media, inlined=inlined)
     return handler(doc, brief, item)
 
 
@@ -97,44 +116,134 @@ def _letter(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     return []
 
 
-def _legal_id(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+_ID_FIELD_KW: dict = {
+    "align": WD_ALIGN_PARAGRAPH.LEFT,
+    "left_indent_cm": 1.5,
+    "right_indent_cm": 0.4,
+    "line_spacing": 1.75,
+    "space_before": 6,
+    "space_after": 4,
+    "line_em": 20,
+    "nowrap": True,
+}
+
+
+def _legal_id(
+    doc: Document,
+    brief: BidBrief,
+    item: OutlineItem,
+    media: dict | None = None,
+    inlined: set[str] | None = None,
+) -> list[str]:
     del item
-    founded = _founded_text(brief.foundedDate)
-    rows = [
-        ("投标人名称", (brief.bidderName or "").strip()),
-        ("单位性质", (brief.bidderNature or "").strip()),
-        ("地址", (brief.bidderAddress or "").strip()),
-        ("成立时间", founded),
-        ("经营期限", (brief.businessTerm or "").strip()),
-        ("姓名", (brief.legalPersonName or "").strip()),
-        ("性别", (brief.legalPersonGender or "").strip()),
-        ("年龄", (brief.legalPersonAge or "").strip()),
-        ("职务", (brief.legalPersonTitle or "").strip()),
-        ("身份证号码", (brief.legalPersonIdNo or "").strip()),
-    ]
-    _kv_table(doc, rows)
-    legal = (brief.legalPersonName or "").strip() or "　　　"
-    _para_parts(
+    _id_field(doc, "投标人名称：", (brief.bidderName or "").strip())
+    _id_field(doc, "单位性质：", (brief.bidderNature or "").strip())
+    _id_field(
         doc,
-        [
-            ("上述 ", False),
-            (legal, True),
-            (" 系 ", False),
-            ((brief.bidderName or "").strip(), True),
-            (" 的法定代表人。", False),
-        ],
-        indent=True,
+        "地址：",
+        (brief.bidderAddress or "").strip(),
+        nowrap=False,
+        line_spacing=2.0,
+        space_before=10,
+        space_after=10,
+        line_em=28,
     )
+    founded = (brief.foundedDate or "").strip()
+    fy, fm, fd = _ymd(founded) if founded else ("", "", "")
+    if fy and not fy.startswith("　") and any(ch.isdigit() for ch in fy):
+        date_para = doc.add_paragraph()
+        _rewrite_date_line(
+            date_para,
+            fy,
+            fm,
+            fd,
+            **{**_ID_FIELD_KW, "label": "成立时间：", "line_em": 0},
+        )
+    else:
+        _id_field(doc, "成立时间：", _founded_text(founded))
+    _id_field(doc, "经营期限：", (brief.businessTerm or "").strip())
+    _id_person_line(doc, brief)
+    legal = (brief.legalPersonName or "").strip() or "　　　"
+    bidder = (brief.bidderName or "").strip()
+    rel = doc.add_paragraph()
+    pf = rel.paragraph_format
+    pf.first_line_indent = Cm(0.74)
+    pf.line_spacing = 1.75
+    pf.space_before = Pt(10)
+    pf.space_after = Pt(8)
+    _set_word_wrap(rel, enabled=False)
+    _form_run(rel, "上述", underline=False)
+    _form_run(rel, f" {legal} ", underline=True)
+    _form_run(rel, "系", underline=False)
+    _form_run(rel, f" {bidder} ", underline=True)
+    _form_run(rel, "的法定代表人。", underline=False)
+    _para(doc, "特此证明。")
+    attach = _para(doc, "附：法定代表人身份证明复印件或扫描件。")
+    attach.paragraph_format.keep_with_next = True
+    notes: list[str] = []
+    n = inline_id_scans(
+        doc,
+        (media or {}).get("id_legal") if media else None,
+        empty_slot=id_slot("id_legal"),
+    )
+    if inlined is not None:
+        inlined.add("id_legal")
+    if n:
+        notes.append("法人身份证已写入身份证明页")
     _id_sign_block(doc, brief)
-    return []
+    return notes
 
 
-def _auth(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+def _id_field(doc: Document, label: str, value: str, **overrides) -> None:
+    para = doc.add_paragraph()
+    _rewrite_labeled_underline(para, [(label, value, "")], **{**_ID_FIELD_KW, **overrides})
+
+
+def _id_person_line(doc: Document, brief: BidBrief) -> None:
+    para = doc.add_paragraph()
+    pf = para.paragraph_format
+    pf.left_indent = Cm(1.5)
+    pf.right_indent = Cm(0.4)
+    pf.line_spacing = 1.75
+    pf.space_before = Pt(8)
+    pf.space_after = Pt(8)
+    pf.first_line_indent = Cm(0)
+    _set_word_wrap(para, enabled=False)
+    parts = (
+        ("姓名：", (brief.legalPersonName or "").strip()),
+        ("  性别：", (brief.legalPersonGender or "").strip()),
+        ("  年龄：", (brief.legalPersonAge or "").strip()),
+        ("  职务：", (brief.legalPersonTitle or "").strip()),
+    )
+    for lab, val in parts:
+        _form_run(para, lab, underline=False)
+        _form_run(para, f" {val or '　　'} ", underline=True)
+
+
+def _auth(
+    doc: Document,
+    brief: BidBrief,
+    item: OutlineItem,
+    media: dict | None = None,
+    inlined: set[str] | None = None,
+) -> list[str]:
     del item
     notes: list[str] = []
-    _para(doc, _auth_text(brief), indent=True)
-    if not (brief.agentName or "").strip():
+    _para(doc, _auth_text(brief), indent=True).paragraph_format.keep_with_next = True
+    has_agent = bool((brief.agentName or "").strip())
+    if not has_agent:
         notes.append("授权委托书未填写委托代理人，已按法定代表人亲自签署处理")
+        _auth_sign_block(doc, brief)
+        return notes
+    n = inline_id_scans(
+        doc,
+        (media or {}).get("id_agent") if media else None,
+        empty_slot=id_slot("id_agent"),
+    )
+    if inlined is not None:
+        inlined.add("id_agent")
+    if n:
+        notes.append("委托人身份证已写入授权委托书")
     _auth_sign_block(doc, brief)
     return notes
 
@@ -186,6 +295,71 @@ def _factory(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     return []
 
 
+def _company(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+    if is_seal_register(item):
+        return _seal_register(doc, brief)
+    _para(doc, "【待补】请按招标书本页空白稿填写。")
+    return [f"「{item.title}」招标书格式页未抽到正文"]
+
+
+def _seal_register(doc: Document, brief: BidBrief) -> list[str]:
+    name = (brief.bidderName or "").strip()
+    phone = (brief.bidderPhone or "").strip()
+    year, month, day = _ymd(brief.bidDate)
+    date = f"{year}年{month}月{day}日" if year and not year.startswith("　") else ""
+    anchor = doc.add_paragraph()
+    table = _insert_table_after(doc, anchor, rows=10, cols=6)
+    _set_tbl_borders(table)
+    table.autofit = False
+    _merge(table, 0, 0, 5)
+    _merge(table, 1, 0, 5)
+    _merge(table, 2, 0, 2)
+    _merge(table, 2, 3, 5)
+    _merge(table, 3, 0, 2)
+    _merge(table, 3, 3, 5)
+    _merge(table, 4, 0, 5)
+    _merge(table, 5, 0, 5)
+    _merge(table, 6, 0, 1)
+    _merge(table, 6, 2, 3)
+    _merge(table, 6, 4, 5)
+    _merge(table, 7, 0, 1)
+    _merge(table, 7, 2, 3)
+    _merge(table, 7, 4, 5)
+    _merge(table, 8, 0, 2)
+    _merge(table, 8, 3, 5)
+    _merge(table, 9, 0, 2)
+    _merge(table, 9, 3, 5)
+    _write_cell(table.cell(0, 0), f"{name}公司证件、印章备案表", size=14, bold=True, underline=False, center=True)
+    _write_cell(table.cell(1, 0), f"日期：{date}", size=11, bold=False, underline=False, center=True)
+    _write_cell(table.cell(2, 0), f"公司名称：{name}", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(2, 3), f"公司电话：{phone}", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(3, 0), "对公账户：", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(3, 3), "行号：", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(4, 0), "账号：", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(5, 0), "", size=10.5, bold=False, underline=False, center=True)
+    _set_row_height(table.rows[5], 2.4)
+    _write_cell(table.cell(6, 0), "公章", size=11, bold=False, underline=False, center=True)
+    _write_cell(table.cell(6, 2), "财务章", size=11, bold=False, underline=False, center=True)
+    _write_cell(table.cell(6, 4), "合同章", size=11, bold=False, underline=False, center=True)
+    for col in (0, 2, 4):
+        _write_cell(table.cell(7, col), "印鉴备案", size=10.5, bold=False, underline=False, center=True)
+    _set_row_height(table.rows[7], 3.6)
+    _write_cell(table.cell(8, 0), "法人签字样本：", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(8, 3), "", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(9, 0), "财务负责人签字样本：", size=10.5, bold=False, underline=False)
+    _write_cell(table.cell(9, 3), "财务负责人电话：", size=10.5, bold=False, underline=False)
+    _set_row_height(table.rows[8], 1.5)
+    _set_row_height(table.rows[9], 1.5)
+    _para(doc, "备注：本表中三处备案印鉴为红色章。")
+    col_twips = _distribute_twips(_usable_width_twips(doc), (1, 1, 1, 1, 1, 1))
+    _apply_fixed_table_widths(table, col_twips)
+    return ["印鉴预留备案表已按招标书格子填写公司名称和电话，印章请盖原件"]
+
+
+def _merge(table, row: int, c1: int, c2: int) -> None:
+    table.cell(row, c1).merge(table.cell(row, c2))
+
+
 def _tech_plan(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     del item
     body = tech_plan_body(brief)
@@ -209,6 +383,7 @@ _HANDLERS = {
     "tech_dev": _tech_dev,
     "performance": _performance,
     "factory": _factory,
+    "company": _company,
     "tech_plan": _tech_plan,
 }
 
@@ -278,93 +453,105 @@ def _add_sign_line(doc: Document, rows: list[tuple[str, str, str]], kw: dict, **
 
 
 def _letter_sign_block(doc: Document, brief: BidBrief) -> None:
-    _add_bottom_sign_spacer(doc, sign_cm=7.4)
+    spacer = _add_bottom_sign_spacer(doc, sign_cm=7.4)
     kw = {**_LETTER_CONTACT_KW, "nowrap": True}
     agent = (brief.agentName or "").strip()
-    _add_sign_line(
-        doc,
-        [("投　标　人：", (brief.bidderName or "").strip(), "（盖单位公章）")],
-        kw,
-        space_before=4,
-    )
-    _add_sign_line(
-        doc,
-        [("法定代表人或其委托代理人：", agent, "（签字或盖章）")],
-        kw,
-    )
-    _add_sign_line(
-        doc,
-        [("地　址：", (brief.bidderAddress or "").strip(), "")],
-        _LETTER_ADDR_KW,
-    )
+    lines = [
+        _add_sign_line(
+            doc,
+            [("投　标　人：", (brief.bidderName or "").strip(), "（盖单位公章）")],
+            kw,
+            space_before=4,
+        ),
+        _add_sign_line(
+            doc,
+            [("法定代表人或其委托代理人：", agent, "（签字或盖章）")],
+            kw,
+        ),
+        _add_sign_line(
+            doc,
+            [("地　址：", (brief.bidderAddress or "").strip(), "")],
+            _LETTER_ADDR_KW,
+        ),
+    ]
     website = (brief.bidderWebsite or "").strip()
     if website:
-        _add_sign_line(doc, [("网　　址：", website, "")], _LETTER_FIELD_KW)
-    _add_sign_line(doc, [("电　　话：", (brief.bidderPhone or "").strip(), "")], _LETTER_FIELD_KW)
+        lines.append(_add_sign_line(doc, [("网　　址：", website, "")], _LETTER_FIELD_KW))
+    lines.append(_add_sign_line(doc, [("电　　话：", (brief.bidderPhone or "").strip(), "")], _LETTER_FIELD_KW))
     fax = (brief.bidderFax or "").strip()
     if fax:
-        _add_sign_line(doc, [("传　　真：", fax, "")], _LETTER_FIELD_KW)
+        lines.append(_add_sign_line(doc, [("传　　真：", fax, "")], _LETTER_FIELD_KW))
     post = (brief.bidderPostcode or "").strip()
     if post:
-        _add_sign_line(doc, [("邮政编码：", post, "")], _LETTER_FIELD_KW)
+        lines.append(_add_sign_line(doc, [("邮政编码：", post, "")], _LETTER_FIELD_KW))
     year, month, day = _ymd(brief.bidDate)
     date_para = doc.add_paragraph()
     _rewrite_date_line(date_para, year, month, day, **{**_LETTER_FIELD_KW, "label": "日　　期："})
+    lines.append(date_para)
+    _glue_sign_off(doc, spacer, lines)
 
 
 def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
-    _add_bottom_sign_spacer(doc, sign_cm=6.6)
+    spacer = _add_bottom_sign_spacer(doc, sign_cm=6.6)
     kw = _SIGN_OFF_KW
     agent = (brief.agentName or "").strip() or "（不委托）"
-    _add_sign_line(
-        doc,
-        [("投标人：", (brief.bidderName or "").strip(), "（盖单位公章）")],
-        kw,
-        space_before=4,
-    )
-    _add_sign_line(
-        doc,
-        [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
-        kw,
-    )
-    _add_sign_line(
-        doc,
-        [("身份证号码：", (brief.legalPersonIdNo or "").strip(), "")],
-        kw,
-    )
-    _add_sign_line(
-        doc,
-        [("委托代理人：", agent, "（签字）")],
-        kw,
-    )
-    _add_sign_line(
-        doc,
-        [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
-        kw,
-    )
+    lines = [
+        _add_sign_line(
+            doc,
+            [("投标人：", (brief.bidderName or "").strip(), "（盖单位公章）")],
+            kw,
+            space_before=4,
+        ),
+        _add_sign_line(
+            doc,
+            [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
+            kw,
+        ),
+        _add_sign_line(
+            doc,
+            [("身份证号码：", (brief.legalPersonIdNo or "").strip(), "")],
+            kw,
+        ),
+        _add_sign_line(
+            doc,
+            [("委托代理人：", agent, "（签字）")],
+            kw,
+        ),
+        _add_sign_line(
+            doc,
+            [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
+            kw,
+        ),
+    ]
     year, month, day = _ymd(brief.bidDate)
     date_para = doc.add_paragraph()
     _rewrite_date_line(date_para, year, month, day, **kw)
+    lines.append(date_para)
+    _glue_sign_off(doc, spacer, lines)
 
 
 def _id_sign_block(doc: Document, brief: BidBrief, *, unit: str = "投标人：") -> None:
-    _add_bottom_sign_spacer(doc, sign_cm=4.4)
+    spacer = _add_bottom_sign_spacer(doc, sign_cm=4.4)
     kw = _SIGN_OFF_KW
     suffix = "" if unit.startswith("承诺") else "（盖单位公章）"
-    _add_sign_line(
-        doc,
-        [(unit, (brief.bidderName or "").strip(), suffix)],
-        kw,
-        space_before=4,
-    )
-    _add_sign_line(
-        doc,
-        [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
-        kw,
-    )
+    lines = [
+        _add_sign_line(
+            doc,
+            [(unit, (brief.bidderName or "").strip(), suffix)],
+            kw,
+            space_before=4,
+        ),
+        _add_sign_line(
+            doc,
+            [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
+            kw,
+        ),
+    ]
     year, month, day = _ymd(brief.bidDate)
     date_para = doc.add_paragraph()
     _rewrite_date_line(date_para, year, month, day, **kw)
+    lines.append(date_para)
+    _glue_sign_off(doc, spacer, lines)
 
 
 def _founded_text(raw: str) -> str:

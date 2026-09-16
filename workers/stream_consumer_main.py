@@ -73,9 +73,10 @@ async def _async_main() -> None:
     )
     scheduler.start()
     logger.info(
-        "APScheduler started ttl_cron=%s audit_purge=hourly retention_days=%s",
+        "APScheduler started ttl_cron=%s audit_purge=hourly retention_days=%s log_dir=%s",
         settings.chat_ttl_scan_cron,
-        settings.audit_log_retention_days,
+        settings.log_retention_days,
+        settings.log_dir,
     )
 
     loop = asyncio.get_running_loop()

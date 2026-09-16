@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -22,6 +23,7 @@ from api.services.tenders.library_kb import (
     create_library_item,
     delete_library_file,
     delete_library_item,
+    enqueue_library_rag_backfill,
     library_payload_kb,
     list_slots_status_kb,
     open_library_file,
@@ -35,6 +37,7 @@ from api.services.tenders.onlyoffice import (
     verify_download_token,
 )
 from api.services.tenders.placeholders import TECH_DRAWING_KEY
+from api.services.tenders.preview_pdf import ensure_preview_pdf
 from api.services.tenders.records import (
     ACTION_PASS,
     ACTION_REJECT,
@@ -154,6 +157,17 @@ async def tenders_restore_layout_template(user: CurrentUser):
 async def tenders_library(db: DbSession, user: CurrentUser):
     """投标资料库：知识库中的可维护扫描件清单。"""
     return ok(await library_payload_kb(db, created_by=int(user.id)))
+
+
+@router.post("/library/reindex")
+async def tenders_library_reindex(
+    db: DbSession,
+    user: CurrentUser,
+    force: bool = Query(default=False, description="true=强制重新 OCR 入库"),
+):
+    """将资料库扫描件 OCR 向量化，供 AI 智能问答检索。"""
+    del user
+    return ok(await enqueue_library_rag_backfill(db, force=bool(force)))
 
 
 @router.get("/library/files/{doc_id}")
@@ -480,6 +494,26 @@ async def tenders_download(
         path,
         media_type=_MIME.get(path.suffix.lower(), "application/octet-stream"),
         filename=name,
+    )
+
+
+@router.get("/files/{file_name}/preview-pdf")
+async def tenders_preview_pdf(
+    file_name: str,
+    db: DbSession,
+    user: CurrentUser,
+):
+    """本机 WPS/Word 排版后的 PDF，只读预览用。"""
+    del db, user
+    path = resolve_output_file(file_name)
+    if path.suffix.lower() != ".docx":
+        raise AppError(ErrorCode.BAD_REQUEST, "仅支持预览 Word 文件", status_code=400)
+    pdf = await asyncio.to_thread(ensure_preview_pdf, path)
+    return FileResponse(
+        pdf,
+        media_type="application/pdf",
+        filename="preview.pdf",
+        content_disposition_type="inline",
     )
 
 

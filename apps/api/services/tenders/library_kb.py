@@ -15,9 +15,12 @@ from api.services.knowledge.bases import PURPOSE_ASSET, create_base, get_base_by
 from api.services.knowledge.drawings import preview_jpeg_from_file
 from api.services.knowledge.ingest import (
     delete_document_record,
+    require_embedding_ready,
     resolve_storage_path,
     unlink_stored_file,
 )
+from api.services.knowledge.qdrant_store import get_qdrant_store
+from api.services.knowledge.queue import enqueue_ingest_task
 from api.services.tenders.performance import (
     dump_perf_meta,
     extract_performance_from_path,
@@ -234,11 +237,23 @@ async def _dedupe_duplicate_children(db: AsyncSession, base: KnowledgeBase) -> N
         logger.info("removed %s duplicate tender library files", removed)
 
 
+def _legacy_migrate_marker() -> Path:
+    return slots_root() / ".kb_migrated"
+
+
 async def _migrate_legacy_files(db: AsyncSession, base: KnowledgeBase) -> None:
     root = slots_root()
-    if not root.is_dir():
+    marker = _legacy_migrate_marker()
+    if marker.is_file():
         return
     docs = await _list_docs(db, base.id)
+    # 知识库里已经有扫描件：旧 slots 只是遗留拷贝，再迁会把用户刚删的图灌回来
+    if any(_doc_file_path(d) for d in docs):
+        marker.write_text("1", encoding="utf-8")
+        return
+    if not root.is_dir():
+        marker.write_text("1", encoding="utf-8")
+        return
     parents = {key_from_tags(d.tags): d for d in docs if _is_material_parent(d)}
     children_by_parent = _group_children(docs)
     copied = 0
@@ -252,15 +267,26 @@ async def _migrate_legacy_files(db: AsyncSession, base: KnowledgeBase) -> None:
         hashes = _linked_hashes(parent, children_by_parent.get(parent.public_id, []))
         for src in list_slot_files(key):
             if _already_has_file(hashes, src):
+                src.unlink(missing_ok=True)
                 continue
             child = _copy_file_as_child(base, parent, src)
             db.add(child)
             copied += 1
             if child.content_hash:
                 hashes.add(str(child.content_hash))
+            src.unlink(missing_ok=True)
     if copied:
         await db.commit()
         logger.info("migrated %s legacy tender slot files into knowledge", copied)
+        for doc in await _list_docs(db, base.id):
+            if (doc.kind or "") == "doc" and (doc.status or "") == "parsing" and int(doc.chunk_count or 0) == 0:
+                if not _doc_file_path(doc):
+                    continue
+                try:
+                    await _enqueue_library_doc(db, base=base, doc=doc, force_reextract=True)
+                except Exception:
+                    logger.exception("legacy library ingest enqueue failed id=%s", doc.public_id)
+    marker.write_text("1", encoding="utf-8")
 
 
 def _group_children(docs: list[KnowledgeDocument]) -> dict[str, list[KnowledgeDocument]]:
@@ -271,6 +297,48 @@ def _group_children(docs: list[KnowledgeDocument]) -> dict[str, list[KnowledgeDo
             continue
         out.setdefault(pid, []).append(doc)
     return out
+
+
+def _library_file_tags(parent: KnowledgeDocument | None = None) -> list[str]:
+    tags = [TAG_MATERIAL]
+    if parent is not None:
+        key = key_from_tags(parent.tags)
+        if key:
+            tags.append(slot_tag(key))
+    return tags
+
+
+def _purge_doc_vectors(doc: KnowledgeDocument) -> None:
+    try:
+        get_qdrant_store().delete_by_doc_id(doc.public_id)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("delete library vectors failed id=%s: %s", doc.public_id, exc)
+
+
+def _unlink_legacy_slot_copies(key: str, doc: KnowledgeDocument) -> None:
+    """知识库删了扫描件后，把旧 slots 目录里的同内容拷贝一并去掉，避免下次 ensure 再迁回来。"""
+    safe = (key or "").strip()
+    if not safe or not _KEY_RE.match(safe):
+        return
+    digest = str(doc.content_hash or "").strip()
+    path = _doc_file_path(doc)
+    if not digest and path is not None:
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    stem = (doc.name or "").strip()
+    fname = path.name if path is not None else ""
+    for item in list_slot_files(safe):
+        same = False
+        if digest:
+            try:
+                same = hashlib.sha256(item.read_bytes()).hexdigest() == digest
+            except OSError:
+                same = False
+        if not same and stem and item.stem == stem:
+            same = True
+        if not same and fname and item.name == fname:
+            same = True
+        if same:
+            item.unlink(missing_ok=True)
 
 
 def _copy_file_as_child(
@@ -290,18 +358,103 @@ def _copy_file_as_child(
         base_id=base.id,
         name=src.stem[:255] or src.name,
         source="file",
-        kind="drawing",
+        kind="doc",
         parent_id=parent.public_id,
         file_type=ext,
         size=src.stat().st_size,
         storage_path=rel_key,
         file_key=rel_key,
-        summary="投标扫描件（未向量化）",
+        summary="正在解析…",
         content_hash=digest,
-        tags=[TAG_MATERIAL, "图纸附件"],
-        status="ready",
+        tags=_library_file_tags(parent),
+        status="parsing",
         review_status="approved",
     )
+
+
+async def _enqueue_library_doc(
+    db: AsyncSession,
+    *,
+    base: KnowledgeBase,
+    doc: KnowledgeDocument,
+    force_reextract: bool = False,
+) -> None:
+    """把资料库扫描件送入 OCR + 向量化队列。"""
+    await require_embedding_ready(db)
+    tags = [str(t) for t in (doc.tags or []) if str(t).strip() and str(t).strip() != "图纸附件"]
+    if TAG_MATERIAL not in tags:
+        tags.insert(0, TAG_MATERIAL)
+    doc.tags = tags
+    doc.kind = "doc"
+    if not (doc.summary or "").startswith("PERFJSON:"):
+        doc.summary = "正在解析…"
+    doc.status = "parsing"
+    doc.review_status = "approved"
+    doc.error_msg = None
+    doc.chunk_count = 0
+    await db.flush()
+    await enqueue_ingest_task(db, base=base, doc=doc, force_reextract=force_reextract)
+
+
+async def enqueue_library_rag_backfill(
+    db: AsyncSession,
+    *,
+    force: bool = False,
+) -> dict[str, int]:
+    """将历史「未向量化」扫描件转为 doc 并排队 OCR 入库。"""
+    base = await ensure_library_base(db)
+    docs = await _list_docs(db, base.id)
+    from db.models.knowledge import KnowledgeIngestTask
+
+    candidates: list[KnowledgeDocument] = []
+    for doc in docs:
+        path = _doc_file_path(doc)
+        if path is None:
+            continue
+        # 仅文件夹占位的资料项父节点跳过
+        if _is_material_parent(doc) and not (doc.file_key or doc.storage_path):
+            continue
+        if force:
+            candidates.append(doc)
+            continue
+        if (doc.kind or "") == "drawing":
+            candidates.append(doc)
+            continue
+        if (doc.status or "") == "failed":
+            candidates.append(doc)
+            continue
+        if (doc.status or "") == "ready" and int(doc.chunk_count or 0) == 0:
+            candidates.append(doc)
+
+    if not candidates:
+        return {"queued": 0, "skipped": 0}
+
+    busy_result = await db.execute(
+        select(KnowledgeIngestTask.document_id).where(
+            KnowledgeIngestTask.document_id.in_([d.id for d in candidates if d.id is not None]),
+            KnowledgeIngestTask.status.in_(("queued", "running")),
+        )
+    )
+    busy = {int(x) for x in busy_result.scalars().all() if x is not None}
+
+    queued = 0
+    skipped = 0
+    for doc in candidates:
+        if doc.id is not None and int(doc.id) in busy:
+            skipped += 1
+            continue
+        if force or (doc.kind or "") == "drawing" or (doc.status or "") == "failed":
+            _purge_doc_vectors(doc)
+            force_reextract = True
+        else:
+            force_reextract = False
+        try:
+            await _enqueue_library_doc(db, base=base, doc=doc, force_reextract=force_reextract)
+            queued += 1
+        except Exception:
+            logger.exception("library rag enqueue failed id=%s", doc.public_id)
+            skipped += 1
+    return {"queued": queued, "skipped": skipped}
 
 
 def _iter_file_docs(
@@ -569,6 +722,10 @@ async def library_payload_kb(
     created_by: int | None = None,
 ) -> dict[str, object]:
     base = await ensure_library_base(db, created_by=created_by)
+    try:
+        await enqueue_library_rag_backfill(db, force=False)
+    except Exception:
+        logger.exception("library rag backfill skipped")
     slots = await list_library_items(db)
     slots = [s for s in slots if str(s.get("key") or "") != TECH_DRAWING_KEY]
     filled = sum(1 for s in slots if int(s.get("fileCount") or 0) > 0)
@@ -577,7 +734,10 @@ async def library_payload_kb(
         "filledCount": filled,
         "totalCount": len(slots),
         "baseId": base.public_id,
-        "hint": "资料存放在知识库「投标资料库」中。可新增资料项并起名；生成投标文件时按名称自动引用。",
+        "hint": (
+            "资料存放在知识库「投标资料库」中。上传后会 OCR 入库，"
+            "可在「AI 智能问答」中勾选本库检索；生成投标文件时按名称自动引用。"
+        ),
     }
 
 
@@ -715,6 +875,7 @@ async def delete_library_item(db: AsyncSession, key: str) -> dict[str, object]:
     deleted = await delete_document_record(
         db, base_public_id=base.public_id, doc_public_id=parent.public_id
     )
+    clear_slot(key)
     await db.commit()
     return {"key": key, "deleted": bool(deleted)}
 
@@ -761,9 +922,11 @@ async def save_library_file(
     base = await ensure_library_base(db)
     if replace:
         for child in children:
+            _purge_doc_vectors(child)
             unlink_stored_file(child.file_key or child.storage_path)
             await db.delete(child)
         if parent.file_key or parent.storage_path:
+            _purge_doc_vectors(parent)
             unlink_stored_file(parent.file_key or parent.storage_path)
             parent.file_key = None
             parent.storage_path = None
@@ -773,6 +936,7 @@ async def save_library_file(
     if len(_files_of(parent, children)) >= _MAX_FILES_PER_SLOT:
         raise AppError(ErrorCode.VALIDATION, f"每项最多 {_MAX_FILES_PER_SLOT} 个文件", status_code=422)
 
+    await require_embedding_ready(db)
     public_id = short_id(12)
     ext = suffix.lstrip(".")
     rel_key = f"knowledge/{base.public_id}/{public_id}.{ext}"
@@ -784,28 +948,37 @@ async def save_library_file(
         base_id=base.id,
         name=Path(name).stem[:255] or name,
         source="file",
-        kind="drawing",
+        kind="doc",
         parent_id=parent.public_id,
         file_type=ext,
         size=len(data),
         storage_path=rel_key,
         file_key=rel_key,
-        summary="投标扫描件（未向量化）",
+        summary="正在解析…",
         content_hash=hashlib.sha256(data).hexdigest(),
-        tags=[TAG_MATERIAL, "图纸附件"],
-        status="ready",
+        tags=_library_file_tags(parent),
+        status="parsing",
         review_status="approved",
     )
     db.add(child)
     await db.commit()
+    await db.refresh(child)
     if key == "perf":
         try:
-            await db.refresh(child)
             await _attach_perf_extract(db, child, dest)
             await db.commit()
+            await db.refresh(child)
         except Exception:
             logger.exception("类似业绩抽取失败 file=%s", name)
             await db.rollback()
+            await db.refresh(child)
+    try:
+        await _enqueue_library_doc(db, base=base, doc=child, force_reextract=True)
+    except Exception:
+        logger.exception("library OCR enqueue failed file=%s", name)
+        child.status = "failed"
+        child.error_msg = "无法排队 OCR 入库，请检查 Embedding 配置"
+        await db.commit()
     parent, children = await _get_parent(db, key)
     payload = item_to_slot(parent, children)
     payload["fileName"] = dest.name
@@ -832,6 +1005,8 @@ async def delete_library_file(db: AsyncSession, doc_public_id: str) -> dict[str,
     if _is_material_parent(doc):
         if not (doc.file_key or doc.storage_path):
             raise AppError(ErrorCode.VALIDATION, "该项没有可单独删除的文件", status_code=422)
+        _unlink_legacy_slot_copies(key_from_tags(doc.tags), doc)
+        _purge_doc_vectors(doc)
         unlink_stored_file(doc.file_key or doc.storage_path)
         doc.file_key = None
         doc.storage_path = None
@@ -839,11 +1014,23 @@ async def delete_library_file(db: AsyncSession, doc_public_id: str) -> dict[str,
         await db.commit()
         docs = await _list_docs(db, base.id)
         children = _group_children(docs).get(doc.public_id, [])
-        return item_to_slot(doc, children)
+        payload = item_to_slot(doc, children)
+        if int(payload.get("fileCount") or 0) == 0:
+            clear_slot(key_from_tags(doc.tags))
+        return payload
 
     parent_pid = (doc.parent_id or "").strip()
     if not parent_pid:
         raise AppError(ErrorCode.VALIDATION, "不能删除资料项本身，请用「删除项」", status_code=422)
+    parent_row = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.public_id == parent_pid,
+            KnowledgeDocument.base_id == base.id,
+        )
+    )
+    parent = parent_row.scalar_one_or_none()
+    slot_key = key_from_tags(parent.tags) if parent is not None else ""
+    _unlink_legacy_slot_copies(slot_key, doc)
     deleted = await delete_document_record(
         db, base_public_id=base.public_id, doc_public_id=doc.public_id
     )
@@ -855,17 +1042,22 @@ async def delete_library_file(db: AsyncSession, doc_public_id: str) -> dict[str,
     if parent is None:
         raise AppError(ErrorCode.NOT_FOUND, "资料项不存在", status_code=404)
     children = _group_children(docs).get(parent.public_id, [])
-    return item_to_slot(parent, children)
+    payload = item_to_slot(parent, children)
+    if int(payload.get("fileCount") or 0) == 0:
+        clear_slot(slot_key)
+    return payload
 
 
 async def clear_library_files(db: AsyncSession, key: str) -> dict[str, object]:
     parent, children = await _get_parent(db, key)
     removed = 0
     for child in children:
+        _purge_doc_vectors(child)
         unlink_stored_file(child.file_key or child.storage_path)
         await db.delete(child)
         removed += 1
     if parent.file_key or parent.storage_path:
+        _purge_doc_vectors(parent)
         unlink_stored_file(parent.file_key or parent.storage_path)
         parent.file_key = None
         parent.storage_path = None

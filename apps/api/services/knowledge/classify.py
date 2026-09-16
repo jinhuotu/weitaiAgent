@@ -116,7 +116,9 @@ def classify_kb_document(
     text: str = "",
     tags: list | None = None,
 ) -> KbClass:
-    del tags
+    # 投标资料库扫描件是公司自有资质/合同，必须进 RAG，不受「整份投标书」启发式影响
+    if any(str(t).strip() == "投标资料" for t in (tags or [])):
+        return KbClass(False, "")
     if name_looks_like_bid_package(name):
         return KbClass(True, "文件名像整份投标文件/投标函，已保留原件但不向量化，检索将跳过")
     blob = f"{name}\n{text or ''}"
@@ -136,4 +138,4 @@ def should_skip_kb_retrieval(
 ) -> bool:
     if has_skip_rag_tag(tags):
         return True
-    return classify_kb_document(name=name, text=content).skip_vectorize
+    return classify_kb_document(name=name, text=content, tags=tags).skip_vectorize

@@ -26,6 +26,7 @@ from api.routers import (
     models,
     prompts,
     roles,
+    quotes,
     tenders,
     users,
     workflows,
@@ -51,12 +52,16 @@ async def _lifespan(_app: FastAPI):
         return
     try:
         from api.services import audit as audit_svc
+        from common.logging import purge_expired_log_files
 
         deleted = await audit_svc.purge_expired_logs()
+        files = purge_expired_log_files()
         log.info(
-            "audit purge on startup operations=%s logins=%s",
+            "log purge on startup operations=%s logins=%s files=%s retention_days=%s",
             deleted.get("operations", 0),
             deleted.get("logins", 0),
+            files,
+            audit_svc.retention_days(),
         )
     except Exception:  # noqa: BLE001
         log.exception("audit purge on startup failed")
@@ -141,6 +146,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix=settings.api_prefix)
     app.include_router(layouts.router, prefix=settings.api_prefix)
     app.include_router(tenders.router, prefix=settings.api_prefix)
+    app.include_router(quotes.router, prefix=settings.api_prefix)
     app.include_router(workflows.router, prefix=settings.api_prefix)
     app.include_router(ai.router, prefix=settings.api_prefix)
 

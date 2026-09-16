@@ -55,8 +55,12 @@ class Settings(BaseSettings):
     chat_session_lock_ttl_seconds: int = 300
     chat_ttl_scan_threshold_seconds: int = 3600
     chat_ttl_scan_cron: str = "0 3 * * *"  # 每天 03:00
-    # 操作日志 / 登录日志滚动保留天数
-    audit_log_retention_days: int = 7
+    # 应用日志目录（按天文件 weitai-agent.YYYY-MM-DD.log）
+    log_dir: str = "./logs"
+    # 应用日志 / 操作登录日志默认保留天数
+    log_retention_days: int = 7
+    # 操作日志 / 登录日志保留天数；0 = 跟随 LOG_RETENTION_DAYS
+    audit_log_retention_days: int = 0
 
     jwt_secret_key: str = "change-me-in-production-use-long-random-string"
     jwt_algorithm: str = "HS256"
@@ -119,6 +123,9 @@ class Settings(BaseSettings):
     # onlyoffice=OnlyOffice Document Server
     # yozo=永中 Web Office 内网私有化（远程文档 + 保存回调）
     tender_doc_preview: str = "browser"
+    # 只读预览：用本机 WPS/Word/LibreOffice 把 docx 打成 PDF，版式对齐本地打开
+    # auto=按 WPS → Word → LibreOffice 试；off=仍用浏览器内核
+    tender_preview_converter: str = "auto"
 
     # ---- OnlyOffice 在线 Word ----
     # 浏览器加载 Document Server 的 api.js；容器内需能访问 onlyoffice_public_api_base

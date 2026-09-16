@@ -100,8 +100,20 @@ def test_classify_kb_skips_bid_package_and_foreign_body() -> None:
     assert not requirement.skip_vectorize
     guide = classify_kb_document(name="投标文件编制说明.pdf", text="如何装订")
     assert not guide.skip_vectorize
+    # 投标资料库扫描件即使文件名像投标函也要进 RAG
+    library = classify_kb_document(
+        name="授权委托投标函.pdf",
+        text="",
+        tags=["投标资料", "slot:auth"],
+    )
+    assert not library.skip_vectorize
     assert should_skip_kb_retrieval(name="历史投标文件.docx", content="本司报价")
     assert not should_skip_kb_retrieval(name="ISO体系证书说明.pdf", content="质量管理体系")
+    assert not should_skip_kb_retrieval(
+        name="商务标投标文件.pdf",
+        content="盖章页",
+        tags=["投标资料"],
+    )
 
 
 def _doc(**kw: Any) -> SimpleNamespace:

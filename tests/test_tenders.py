@@ -128,7 +128,7 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
     assert "第五章" not in text
     assert "本部分附企业介绍" not in all_text
     assert "待补附件占位" not in all_text
-    assert "（一）法定代表人身份证正反面" in all_text
+    assert "（一）法定代表人身份证正反面" not in all_text
     assert "（在此粘贴扫描件）" in all_text
     assert "投标承诺书" in text
     assert "附件五：" in text
@@ -138,20 +138,17 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
 
     toc = next(p for p in doc.paragraphs if "一、投标函及投标函附录" in p.text)
     toc_xml = toc._p.xml
-    assert 'w:leader="dot"' in toc_xml
-    assert 'w:val="right"' in toc_xml
-    assert "underscore" not in toc_xml
     assert "w:numPr" not in toc_xml
-    # 封面第 1 页、目录第 2 页，投标函从第 3 页起
-    assert "3" in toc.text
     assert "PAGEREF" in toc_xml
     assert "toc_letter" in toc_xml
-    assert 'w:val="none"' in toc_xml
-    tab_run = next(run for run in toc.runs if run._element.find(qn("w:tab")) is not None)
-    rfonts = tab_run._element.find(qn("w:rPr")).find(qn("w:rFonts"))
-    assert rfonts.get(qn("w:ascii")) == "Times New Roman"
+    assert 'w:leader="dot"' in toc_xml
     toc_sizes = {run.font.size.pt for run in toc.runs if run.font.size is not None}
-    assert toc_sizes == {10.5}
+    assert 12.0 in toc_sizes
+    toc_blob = "\n".join(p.text for p in doc.paragraphs)
+    assert "1.1 投标函" in toc_blob or "1.1投标函" in toc_blob.replace(" ", "")
+    assert "1.2.1 分项报价表" in toc_blob or "1.2.1分项报价表" in toc_blob.replace(" ", "")
+    assert "2.1 法定代表人身份证明" in toc_blob or "2.1法定代表人身份证明" in toc_blob.replace(" ", "")
+    assert any("文字描述" in (p.text or "") and (p.text or "").strip().startswith("6.") for p in doc.paragraphs)
 
     assert "（招标人名称）" in text
     assert brief.tenderer in text
@@ -723,12 +720,12 @@ def test_extra_placeholder_box(tmp_path) -> None:
     doc = Document(str(path))
     text = "\n".join(p.text for p in doc.paragraphs)
     assert "ISO体系证书" in text
-    assert "（一）法定代表人身份证正反面" in text
+    assert "（一）法定代表人身份证正反面" not in text
     assert any("虚线框" in w or "已处理" in w or "占位" in w for w in warnings)
 
 
 def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
-    """证件类扫描件写入 Word，紧接技术标之后。"""
+    """法人身份证写入身份证明页，不再出现在文末附件小标题。"""
     from PIL import Image
 
     from api.services.tenders import slots as slots_mod
@@ -751,16 +748,30 @@ def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
     )
     path, warnings = build_bid_docx(brief, tmp_path / "bid.docx", qualification_pdf=None)
     from docx import Document
+    from docx.oxml.ns import qn
 
     doc = Document(str(path))
     texts = [p.text or "" for p in doc.paragraphs]
     assert any("附件：资料库扫描件" in t for t in texts)
-    assert any("（一）法定代表人身份证正反面" in t for t in texts)
-    tech_i = next(i for i, t in enumerate(texts) if "技术标" in t.replace(" ", "") and "实施方案" in t)
-    slot_i = next(i for i, t in enumerate(texts) if "法定代表人身份证正反面" in t)
-    assert tech_i < slot_i
+    assert not any("（一）法定代表人身份证正反面" in t for t in texts)
+    legal_i = next(i for i, t in enumerate(texts) if t.strip() == "法定代表人身份证明")
+    legal_sign_i = next(
+        i
+        for i, t in enumerate(texts[legal_i:], start=legal_i)
+        if "投标人" in "".join(t.split()) and "盖单位公章" in t and "法定代表人" not in t
+    )
     xml = doc.element.body.xml
     assert "a:blip" in xml or "pic:blipFill" in xml
+    heading = doc.paragraphs[legal_i]
+    found = False
+    el = heading._element.getnext()
+    sign_el = doc.paragraphs[legal_sign_i]._element
+    while el is not None and el is not sign_el:
+        if el.findall(".//" + qn("a:blip")) or el.findall(".//" + qn("pic:blipFill")):
+            found = True
+            break
+        el = el.getnext()
+    assert found
     clear_slot("id_legal")
 
 
@@ -801,8 +812,9 @@ def test_id_legal_front_back_side_by_side_one_page(tmp_path) -> None:
     cx = int(extents[0].get("cx") or 0)
     cy = int(extents[0].get("cy") or 0)
     assert cx > cy
-    assert cx < int(Cm(16.5).emu)
-    assert cy < int(Cm(5.5).emu)
+    assert cx > int(Cm(15.8).emu)
+    assert cx < int(Cm(17.2).emu)
+    assert cy < int(Cm(6.5).emu)
 
 
 def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) -> None:
@@ -1339,6 +1351,54 @@ def test_legacy_copy_skips_same_content_hash(tmp_path) -> None:
     assert _already_has_file({digest}, other) is False
 
 
+def test_unlink_legacy_slot_copies_by_hash(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from api.services.tenders import library_kb
+
+    gone = tmp_path / "Snipaste_2026-08-27_10-45-26.png"
+    gone.write_bytes(b"snip-bytes")
+    keep = tmp_path / "keep.png"
+    keep.write_bytes(b"keep-me")
+    digest = hashlib.sha256(b"snip-bytes").hexdigest()
+    monkeypatch.setattr(
+        library_kb, "list_slot_files", lambda key: [gone, keep] if key == "perf" else []
+    )
+    monkeypatch.setattr(library_kb, "_doc_file_path", lambda _doc: None)
+    doc = SimpleNamespace(
+        content_hash=digest,
+        name="Snipaste_2026-08-27_10-45-26",
+        file_key=None,
+        storage_path=None,
+    )
+    library_kb._unlink_legacy_slot_copies("perf", doc)
+    assert not gone.exists()
+    assert keep.exists()
+
+
+def test_legacy_migrate_marker_skips_when_present(tmp_path, monkeypatch) -> None:
+    import asyncio
+
+    from api.services.tenders import library_kb
+
+    marker = tmp_path / ".kb_migrated"
+    marker.write_text("1", encoding="utf-8")
+    monkeypatch.setattr(library_kb, "_legacy_migrate_marker", lambda: marker)
+    called = {"n": 0}
+
+    async def boom(_db, _base_id):
+        called["n"] += 1
+        return []
+
+    monkeypatch.setattr(library_kb, "_list_docs", boom)
+
+    async def run() -> None:
+        await library_kb._migrate_legacy_files(None, None)  # type: ignore[arg-type]
+
+    asyncio.run(run())
+    assert called["n"] == 0
+
+
 def test_infer_factory_role() -> None:
     from api.services.tenders.document import infer_factory_role
 
@@ -1640,12 +1700,13 @@ def test_technical_section_writes_construction_plan(tmp_path) -> None:
 
 
 def test_toc_owns_own_page_and_pageref_matches_chapters(tmp_path) -> None:
-    """目录独占一页；目录 PAGEREF 缓存与章标题书签估算页一致。"""
+    """目录独占一页；封面/目录不编页码，正文页脚从 1 起。"""
     from docx import Document
     from docx.oxml.ns import qn
 
     from api.services.tenders.document import (
         _estimate_bookmark_pages,
+        _first_body_section_index,
         _p_has_page_br,
         _pageref_bookmark,
         _sect_starts_new_page,
@@ -1698,8 +1759,10 @@ def test_toc_owns_own_page_and_pageref_matches_chapters(tmp_path) -> None:
         assert types == ["continuous"]
         assert not _sect_starts_new_page(section._sectPr)
 
-    toc_lines = [p for p in doc.paragraphs if _pageref_bookmark(p)]
-    bookmarks = {_pageref_bookmark(p) for p in toc_lines}
+    assert any(_pageref_bookmark(p) for p in doc.paragraphs)
+    bookmarks = {
+        el.get(qn("w:name")) for el in doc.element.iter(qn("w:bookmarkStart"))
+    }
     assert "toc_letter" in bookmarks
     assert "toc_other" in bookmarks
     assert "toc_commit" in bookmarks
@@ -1713,20 +1776,16 @@ def test_toc_owns_own_page_and_pageref_matches_chapters(tmp_path) -> None:
     assert any("技术标（实施方案）" in t or "八、技术标" in t for t in between)
 
     pages = _estimate_bookmark_pages(doc)
-    # 生成时目录写入的是静态缓存页码（避免整本文估算拖慢）；此处只校验估算合理
-    for para in toc_lines:
-        bm = _pageref_bookmark(para)
-        assert bm
-        cached = "".join(
-            (t.text or "")
-            for r in para._p.iter(qn("w:r"))
-            for t in r.findall(qn("w:t"))
-        )
-        digits = "".join(ch for ch in cached if ch.isdigit())
-        assert digits  # 有预填页码
-        assert pages[bm] >= 2
-    # 封面=1、目录=2、投标函从第 3 页起
+    # 封面=1、目录=2、投标函从目录下一页起
     assert pages["toc_letter"] == 3
+    body_si = _first_body_section_index(doc)
+    assert body_si >= 2
+    for i, section in enumerate(doc.sections):
+        xml = section.footer.paragraphs[0]._p.xml if section.footer.paragraphs else ""
+        if i < body_si:
+            assert "PAGE" not in xml
+        else:
+            assert "PAGE" in xml
     assert pages["toc_other"] > pages["toc_letter"]
     assert pages["toc_commit"] > pages["toc_other"]
     assert pages["toc_quote"] > pages["toc_letter"]

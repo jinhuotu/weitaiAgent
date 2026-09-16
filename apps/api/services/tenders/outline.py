@@ -38,6 +38,14 @@ _SKIP_SUB = re.compile(
 _FIELD_KV = re.compile(r"[：:]")
 _CLAUSE_START = re.compile(r"^(具有|具备|应当|必须|不得|需具备)")
 _CONTACT = re.compile(r"(监督人|联系人|联系电话|联系方式|手机号|传真|经办人)")
+_PAGE_MARK = re.compile(r"^\[?第\s*\d+\s*页\]?$")
+_COMPANY_ONLY = re.compile(
+    r"^[\u4e00-\u9fff]{2,24}(?:有限责任公司|股份有限公司|有限公司)$"
+)
+_MASHED_ZHI = re.compile(
+    r"^((?:投标|响应)?承诺书|承诺函|投标函|响应函)(致[：:]?.*)$",
+    re.M,
+)
 _PHONE = re.compile(r"\d{7,}")
 _FIELD_LABEL = re.compile(
     r"^(招标编号|项目编号|采购编号|招标单位|采购人|项目名称|投标人名称|"
@@ -73,6 +81,14 @@ _FORMAT_IN_TITLE = re.compile(r"(投标文件格式|响应文件格式|投标文
 _GENERATE_KINDS = frozenset(
     {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan"}
 )
+
+_CHAPTER_HEAD = re.compile(r"^第[一二三四五六七八九十百零〇0-9]+章[^\n]{0,48}")
+_LEVEL3 = re.compile(r"^\d+\.\d+\.\d+")
+_LEVEL2_DOT = re.compile(r"^\d+\.\d+")
+_LEVEL2_PAREN = re.compile(r"^[（(][一二三四五六七八九十0-9]+[)）]")
+_LEVEL1_CN = re.compile(r"^[一二三四五六七八九十]{1,2}、")
+_LETTER_EXTRAS = frozenset({"quote", "tech_dev", "biz_dev"})
+_QUAL_KINDS = frozenset({"scan", "company"})
 
 
 def compact_title(text: str) -> str:
@@ -122,12 +138,167 @@ def classify_kind(title: str) -> str:
     return "unknown"
 
 
+def is_seal_register(item: OutlineItem | None = None, title: str = "") -> bool:
+    t = title or (item.title if item is not None else "") or ""
+    n = compact_title(t)
+    if "印鉴" in n:
+        return True
+    return "备案表" in n and any(k in n for k in ("章", "证件", "印章"))
+
+
 def source_for_kind(kind: str, *, skipped: bool = False) -> str:
     if skipped:
         return "skip"
     if kind in _GENERATE_KINDS:
         return "generate"
     return "copy"
+
+
+def item_level(raw: str) -> int:
+    s = (raw or "").strip()
+    if _CHAPTER_HEAD.match(s):
+        return 2
+    if _LEVEL3.match(s):
+        return 3
+    if _LEVEL2_DOT.match(s) or _LEVEL2_PAREN.match(s):
+        return 2
+    if _LEVEL1_CN.match(s):
+        return 1
+    return 1
+
+
+def tech_chapter_titles(text: str) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in (text or "").splitlines():
+        s = line.strip()
+        match = _CHAPTER_HEAD.match(s)
+        if not match:
+            continue
+        title = re.sub(r"[\s.·•…]+$", "", match.group(0)).strip()[:40]
+        if title and title not in seen:
+            seen.add(title)
+            out.append(title)
+    return out
+
+
+def build_outline_toc_tree(
+    items: list[OutlineItem],
+    bookmarks: list[str],
+    *,
+    tech_text: str = "",
+) -> list[dict]:
+    packed = list(zip(items, bookmarks))
+    if any(int(getattr(item, "level", 1) or 1) > 1 for item, _ in packed):
+        return _tree_from_levels(packed)
+    return _tree_from_groups(packed, tech_text=tech_text)
+
+
+def _node(title: str, bookmark: str, children: list[dict] | None = None) -> dict:
+    item = {"title": title, "bookmark": bookmark}
+    if children:
+        item["children"] = children
+    return item
+
+
+def _tree_from_levels(packed: list[tuple[OutlineItem, str]]) -> list[dict]:
+    roots: list[dict] = []
+    stack: list[tuple[int, dict]] = []
+    for item, bm in packed:
+        lv = max(1, min(int(getattr(item, "level", 1) or 1), 4))
+        node = _node(item.title, bm)
+        while stack and stack[-1][0] >= lv:
+            stack.pop()
+        if stack:
+            stack[-1][1].setdefault("children", []).append(node)
+        else:
+            roots.append(node)
+        stack.append((lv, node))
+    return roots
+
+
+def _letter_pack_title(run: list[tuple[OutlineItem, str]]) -> str:
+    for item, _ in run:
+        t = item.title or ""
+        if "及" in t and ("函" in t):
+            return t
+    blob = "".join(item.title for item, _ in run)
+    if "响应" in blob:
+        return "响应函及响应函附录"
+    return "投标函及投标函附录"
+
+
+def _tech_children(bookmark: str, item: OutlineItem, tech_text: str) -> list[dict]:
+    blob = (item.body or "").strip() or (tech_text or "")
+    chaps = tech_chapter_titles(blob)
+    if len(chaps) >= 2:
+        return [_node(title, bookmark) for title in chaps]
+    return [_node("文字描述", bookmark), _node("图纸", bookmark)]
+
+
+def _tree_from_groups(
+    packed: list[tuple[OutlineItem, str]],
+    *,
+    tech_text: str = "",
+) -> list[dict]:
+    roots: list[dict] = []
+    i = 0
+    n = len(packed)
+    while i < n:
+        item, bm = packed[i]
+        kind = (item.kind or "").strip()
+        if kind == "tech_plan":
+            roots.append(_node(item.title, bm, _tech_children(bm, item, tech_text)))
+            i += 1
+            continue
+        if kind == "letter":
+            run = [(item, bm)]
+            j = i + 1
+            while j < n and packed[j][0].kind == "letter":
+                run.append(packed[j])
+                j += 1
+            extras: list[tuple[OutlineItem, str]] = []
+            while j < n and packed[j][0].kind in _LETTER_EXTRAS:
+                extras.append(packed[j])
+                j += 1
+            if len(run) + len(extras) >= 2:
+                children = [_node(it.title, b) for it, b in run]
+                extra_nodes = [_node(it.title, b) for it, b in extras]
+                if extra_nodes:
+                    app = next((c for c in children if "附录" in (c.get("title") or "")), None)
+                    if app is not None:
+                        app["children"] = extra_nodes
+                    else:
+                        children.extend(extra_nodes)
+                roots.append(_node(_letter_pack_title(run), run[0][1], children))
+                i = j
+                continue
+        if kind == "legal_id" and i + 1 < n and packed[i + 1][0].kind == "auth":
+            auth_item, auth_bm = packed[i + 1]
+            roots.append(
+                _node(
+                    "法定代表人身份证明及授权委托书",
+                    bm,
+                    [_node(item.title, bm), _node(auth_item.title, auth_bm)],
+                )
+            )
+            i += 2
+            continue
+        if kind in _QUAL_KINDS:
+            run = [(item, bm)]
+            j = i + 1
+            while j < n and packed[j][0].kind in _QUAL_KINDS:
+                run.append(packed[j])
+                j += 1
+            if len(run) >= 2:
+                roots.append(
+                    _node("资格审查资料", bm, [_node(it.title, b) for it, b in run])
+                )
+                i = j
+                continue
+        roots.append(_node(item.title, bm))
+        i += 1
+    return roots
 
 
 def is_noise_title(title: str) -> bool:
@@ -167,7 +338,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
     lines = _candidate_lines(body or raw, whole_doc=not bool(body))
     items: list[OutlineItem] = []
     seen: set[str] = set()
-    for title in lines:
+    for title, raw_line in lines:
         key = _outline_key(title)
         if key in seen or len(key) < 2:
             continue
@@ -184,11 +355,13 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
                 source=source_for_kind(kind),
                 required=True,
                 skipped=False,
+                level=item_level(raw_line),
             )
         )
         if len(items) >= 40:
             break
-    _attach_item_bodies(items, body)
+    templates = _template_region(raw) or body
+    _attach_item_bodies(items, templates)
     return chapter, items
 
 
@@ -286,6 +459,19 @@ def fill_copy_blanks(
             out,
             flags=re.M,
         )
+
+        def _fill_zhi(m: re.Match[str]) -> str:
+            rest = re.sub(r"[＿_—\-－\s　]+", "", m.group(1) or "")
+            return f"致：{rest or tenderer}"
+
+        out = re.sub(r"^致[：:]\s*(.*)$", _fill_zhi, out, flags=re.M)
+
+        def _split_mashed_zhi(m: re.Match[str]) -> str:
+            rest = re.sub(r"[＿_—\-－\s　]+", "", m.group(2)[1:] if m.group(2) else "")
+            rest = rest.lstrip("：:")
+            return f"{m.group(1)}\n致：{rest or tenderer}"
+
+        out = _MASHED_ZHI.sub(_split_mashed_zhi, out)
     if project:
         out = re.sub(r"阅读和研究了[＿_—\-]{2,}", f"阅读和研究了{project}", out)
         out = re.sub(r"研究了[＿_—\-]{2,}(?=招标文件|采购文件)", f"研究了{project}", out)
@@ -299,6 +485,20 @@ def fill_copy_blanks(
             r"(投标人|供应商)（章）[：:]\s*[＿_—\-]{2,}",
             rf"\1（章）：{bidder}",
             out,
+        )
+
+        def _fill_bidder(m: re.Match[str]) -> str:
+            val = re.sub(r"[＿_—\-－\s　]+", "", m.group(2) or "")
+            suf = m.group(3) or ""
+            if "签字" in suf:
+                return m.group(0)
+            return f"{m.group(1)}：{val or bidder}{suf}"
+
+        out = re.sub(
+            r"^(投标人|供应商)[：:]\s*([^（(\n]{0,40}?)(\s*[（(][^)）]*[)）])?\s*$",
+            _fill_bidder,
+            out,
+            flags=re.M,
         )
     # 「签字」栏留给本人手签，不填姓名。
     if contact:
@@ -348,6 +548,7 @@ def _attach_item_bodies(items: list[OutlineItem], chapter_body: str) -> None:
             continue
         later = [pos for pos in starts if pos > start]
         end = min(later) if later else length
+        end = min(end, _next_attach_cut(chapter_body, start, item.title))
         chunk = chapter_body[start:end]
         item.body = _clean_copied_body(chunk, item.title)
 
@@ -364,13 +565,22 @@ def _template_starts(body: str, items: list[OutlineItem]) -> list[int]:
         offset += len(raw)
     starts: list[int] = []
     for hits in found:
-        if len(hits) >= 2:
-            starts.append(hits[1])
-        elif hits:
-            starts.append(hits[0])
+        if hits:
+            starts.append(hits[-1])
         else:
             starts.append(-1)
     return starts
+
+
+def _next_attach_cut(body: str, start: int, title: str) -> int:
+    seq = _attach_seq(title)
+    tail = body[start + 12 :]
+    for m in re.finditer(r"附件[（(]?[一二三四五六七八九十0-9]+", tail):
+        other = m.group(0)
+        if seq and _attach_seq(other) == seq:
+            continue
+        return start + 12 + m.start()
+    return len(body)
 
 
 def _core_doc_name(text: str) -> str:
@@ -388,17 +598,30 @@ def _attach_seq(text: str) -> str:
 
 
 def _is_body_heading(line: str, title: str) -> bool:
+    raw = (line or "").strip()
+    if raw.endswith("；") or raw.endswith(";"):
+        return False
+    if re.match(r"^[0-9]{1,2}、", raw) and "附件" in raw:
+        return False
     n = compact_title(line)
     t = compact_title(title)
     if not t or not n:
         return False
-    if len(n) > 36:
+    if len(n) > 48:
         return False
     if _SENTENCE.search(n) or _CLAUSE_START.search(n):
         return False
     rest = _ATTACH_HINT.sub("", n)
-    rest = re.sub(r"[（）()]", "", rest)
+    rest = re.sub(r"[.．…·]+[0-9]{1,4}$", "", rest)
+    rest = re.sub(r"[（）()：:、.．]", "", rest)
     if rest == t or n == t:
+        return True
+    if rest.startswith(t) and len(rest) - len(t) <= 16:
+        return True
+    if n.startswith(t) and len(n) - len(t) <= 16:
+        return True
+    stem = re.sub(r"[表书函]$", "", t)
+    if len(stem) >= 4 and (n.startswith(stem) or rest.startswith(stem)):
         return True
     if n.endswith(t) and 0 < len(n) - len(t) <= 8:
         prefix = n[: len(n) - len(t)]
@@ -428,14 +651,46 @@ def _is_skipped_form_prefix(line: str) -> bool:
     return bool(_FORMAT_IN_TITLE.search(n))
 
 
+def _is_ocr_junk_line(line: str) -> bool:
+    s = (line or "").strip()
+    if not s:
+        return False
+    if _PAGE_MARK.match(s):
+        return True
+    n = compact_title(s)
+    if _COMPANY_ONLY.match(n) and not re.search(r"(投标|承诺|授权|委托|法人)", n):
+        return True
+    return False
+
+
+def drop_ocr_junk_lines(lines: list[str]) -> list[str]:
+    return [ln for ln in lines if not _is_ocr_junk_line(ln)]
+
+
+def split_mashed_zhi_line(line: str) -> list[str]:
+    n = compact_title(line)
+    m = _MASHED_ZHI.match(n)
+    if not m:
+        return [line]
+    rest = m.group(2)
+    if rest in {"致", "致：", "致:"}:
+        extra = "致："
+    elif rest.startswith("致：") or rest.startswith("致:"):
+        extra = "致：" + rest[2:].lstrip("：:")
+    else:
+        extra = "致：" + rest[1:].lstrip("：:")
+    return [m.group(1), extra]
+
+
 def _clean_copied_body(chunk: str, title: str) -> str:
-    del title
     text = (chunk or "").strip()
     if not text:
         return ""
     lines = text.splitlines()
     while lines and _is_skipped_form_prefix(lines[0]):
         lines = lines[1:]
+    lines = _unmash_title_line(lines, title)
+    lines = drop_ocr_junk_lines(lines)
     text = "\n".join(lines).strip()
     text = re.sub(r"\n{3,}", "\n\n", text)
     if len(text) < 12:
@@ -446,20 +701,55 @@ def _clean_copied_body(chunk: str, title: str) -> str:
     return text[:_BODY_MAX]
 
 
+def _unmash_title_line(lines: list[str], title: str) -> list[str]:
+    if not lines:
+        return lines
+    out: list[str] = []
+    t = compact_title(title) if title else ""
+    for ln in lines:
+        split = split_mashed_zhi_line(ln)
+        if len(split) > 1:
+            head, extra = split[0], split[1]
+            out.append(title if t and compact_title(head) == t else head)
+            out.append(extra)
+            continue
+        n = compact_title(ln)
+        if t and n.startswith(t) and n != t:
+            extra = n[len(t) :].lstrip("：:、，,")
+            out.append(title)
+            if extra:
+                out.append(extra)
+            continue
+        out.append(ln)
+    return out
+
+
 def _format_section(text: str) -> tuple[str, str]:
     match = _FORMAT_HEAD.search(text)
     if not match:
         return "", ""
+    return _slice_format(text, match)
+
+
+def _template_region(text: str) -> str:
+    """目录里也会写「第X部分投标文件格式」，空白稿以最后一次为准。"""
+    matches = list(_FORMAT_HEAD.finditer(text or ""))
+    if not matches:
+        return ""
+    _title, body = _slice_format(text, matches[-1])
+    return body
+
+
+def _slice_format(text: str, match: re.Match) -> tuple[str, str]:
     title = re.sub(r"\s+", "", match.group("title") or "").strip()
-    start = match.end()
-    rest = text[start:]
-    stop = len(rest)
+    rest = text[match.end() :]
     start_num = ""
     head_line = _CHAPTER_LINE.match(title)
     if head_line:
         start_num = head_line.group("num") or ""
     if not start_num:
-        return title, rest[:8000]
+        return title, rest[:20000]
+    stop = len(rest)
     for line in rest.splitlines():
         stripped = line.strip()
         ch = _CHAPTER_LINE.match(stripped)
@@ -469,7 +759,7 @@ def _format_section(text: str) -> tuple[str, str]:
         rest_title = ch.group("rest") or ""
         if num == start_num:
             continue
-        if "格式" in rest_title or "组成" in rest_title:
+        if any(k in rest_title for k in ("格式", "组成", "邀请", "须知", "说明")):
             continue
         idx = rest.find(line)
         if idx >= 0:
@@ -478,8 +768,8 @@ def _format_section(text: str) -> tuple[str, str]:
     return title, rest[:stop]
 
 
-def _candidate_lines(body: str, *, whole_doc: bool) -> list[str]:
-    out: list[str] = []
+def _candidate_lines(body: str, *, whole_doc: bool) -> list[tuple[str, str]]:
+    out: list[tuple[str, str]] = []
     for raw in (body or "").splitlines():
         for piece in raw.split("|"):
             title = _clean_item(piece)
@@ -487,7 +777,7 @@ def _candidate_lines(body: str, *, whole_doc: bool) -> list[str]:
                 continue
             if not _is_catalog_item(piece, title, whole_doc=whole_doc):
                 continue
-            out.append(title)
+            out.append((title, piece.strip()))
     return out
 
 
@@ -558,6 +848,7 @@ def _is_mashed_form_title(title: str) -> bool:
 def _clean_item(raw: str) -> str:
     text = (raw or "").strip().strip("·•-—_ ")
     text = _PAGE_TAIL.sub("", text).strip()
+    text = re.sub(r"^\d+(?:\.\d+)+[、.．:：\s]*", "", text)
     text = _ITEM_PREFIX.sub("", text).strip(" :：.．、；;。")
     text = re.sub(r"\s+", "", text)
     text = re.sub(r"致$", "", text)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from api.services.tenders.outline import classify_kind, extract_outline, source_for_kind
+from api.services.tenders.outline import classify_kind, compact_title, extract_outline, source_for_kind
 
 
 def test_classify_kind_rules() -> None:
@@ -284,3 +284,108 @@ def test_outline_fields_on_default_brief() -> None:
     assert brief.layoutMode == "chapter5"
     assert brief.outlineItems == []
     assert brief.outlineChapter == ""
+
+
+def test_item_level_from_invitation_prefix() -> None:
+    from api.services.tenders.outline import item_level
+
+    assert item_level("一、响应函") == 1
+    assert item_level("1.1 响应函") == 2
+    assert item_level("1.2.1 分项报价表") == 3
+    assert item_level("第一章 技术方案总述") == 2
+
+
+def test_build_outline_toc_tree_groups_legal_and_qual() -> None:
+    from api.services.tenders.format_rules import flatten_toc_tree
+    from api.services.tenders.outline import build_outline_toc_tree
+    from api.services.tenders.schema import OutlineItem
+
+    items = [
+        OutlineItem(id="o01", title="响应函", kind="letter"),
+        OutlineItem(id="o02", title="响应函附录", kind="letter"),
+        OutlineItem(id="o03", title="分项报价表", kind="quote"),
+        OutlineItem(id="o04", title="法定代表人身份证明", kind="legal_id"),
+        OutlineItem(id="o05", title="授权委托书", kind="auth"),
+        OutlineItem(id="o06", title="营业执照", kind="scan"),
+        OutlineItem(id="o07", title="代理授权书", kind="scan"),
+        OutlineItem(id="o08", title="技术标（实施方案）", kind="tech_plan"),
+    ]
+    bms = [f"toc_{it.id}" for it in items]
+    rows = flatten_toc_tree(build_outline_toc_tree(items, bms))
+    labels = [f"{lab}{title}" for lab, title, _lv, _bm in rows]
+    assert labels[0] == "一、响应函及响应函附录"
+    assert "1.1 响应函" in labels
+    assert "1.2.1 分项报价表" in labels
+    assert "二、法定代表人身份证明及授权委托书" in labels
+    assert "三、资格审查资料" in labels
+    assert any(t.startswith("四、技术标") for t in labels)
+    assert any("文字描述" in t for t in labels)
+
+
+def test_nested_invitation_keeps_levels() -> None:
+    from api.services.tenders.outline import extract_outline
+
+    text = """
+第五章 响应文件格式
+一、响应函及响应函附录
+1.1 响应函
+1.2 响应函附录
+1.2.1 分项报价表
+二、法定代表人身份证明
+"""
+    _chapter, items = extract_outline(text)
+    by = {item.title: item.level for item in items}
+    assert by["响应函及响应函附录"] == 1
+    assert by["响应函"] == 2
+    assert by["响应函附录"] == 2
+    assert by["分项报价表"] == 3
+    assert by["法定代表人身份证明"] == 1
+
+
+def test_attach_bodies_from_last_format_chapter_not_toc() -> None:
+    text = """
+目录
+第四部分投标文件格式...................................................................7
+附件五投标承诺书：.................................................................11
+附件七：印鉴预留备案表.............................................................13
+[第3页]
+第一部分投标邀请
+二连浩特市联源热电有限公司现对项目招标。
+5、投标承诺书（附件五）；
+7、印件备案表（附件七）；
+[第8页]
+第四部分投标文件格式附件一：
+投标函有限公司：
+我方已全面阅读和研究了招标文件。
+[第12页]
+附件五：
+投标承诺书致：
+我公司现做出如下承诺：
+1、保证投标文件内容无任何虚假。若评标过程中发现虚假，同意作无效投标文件处理。
+10、保证在施工期间因甲方资金暂时不到位的情况下，不发生停工。
+投标人： （盖章）
+日期： 年月日
+[第13页]
+二连浩特市联源热电有限公司
+[第15页]
+附件八：印鉴预留备案公司证件、印章备案表日期：
+公司名称： 公司电话：
+公章财务章合同章
+备注：本表中三处备案印鉴为红色章。
+"""
+    chapter, items = extract_outline(text)
+    assert "投标文件格式" in chapter
+    by = {item.title: item for item in items}
+    commit = by["投标承诺书"]
+    assert "保证投标文件内容无任何虚假" in commit.body
+    assert "现对项目招标" not in commit.body
+    assert "印鉴预留备案" not in commit.body
+    blob = "\n".join(ln.strip() for ln in commit.body.splitlines() if ln.strip())
+    assert "投标承诺书" in blob
+    assert any(ln.strip().startswith("致") for ln in commit.body.splitlines())
+    assert not any("投标承诺书致" in compact_title(ln) for ln in commit.body.splitlines())
+    assert "[第13页]" not in commit.body
+    assert "[第15页]" not in commit.body
+    assert "二连浩特市联源热电有限公司" not in commit.body
+    seal = by["印鉴预留备案表"]
+    assert "三处备案印鉴为红色章" in seal.body or "印鉴备案" in seal.body or "公章" in seal.body
