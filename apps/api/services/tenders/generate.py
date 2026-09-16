@@ -8,7 +8,6 @@ from pathlib import Path
 from uuid import uuid4
 
 from api.services.tenders.assets import chapter5_template_status, find_qualification_pdf, tenders_output_dir
-from api.services.tenders.document import build_bid_docx
 from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
 from api.services.tenders.slots import list_slots_status
 from common.config import get_settings
@@ -31,63 +30,70 @@ def qualification_status() -> dict[str, object]:
     }
 
 
+def generate_volume(brief: BidBrief) -> str:
+    v = (getattr(brief, "generateVolume", None) or "").strip()
+    return v if v in {"business", "technical"} else "business"
+
+
 def generate_bid(
     brief: BidBrief,
     *,
     catalog_slots: list[PlaceholderItem] | None = None,
     catalog_media: dict[str, list[Path]] | None = None,
 ) -> dict[str, object]:
+    vol = generate_volume(brief)
     stem = uuid4().hex[:12]
     out_dir = tenders_output_dir()
-    docx_name = f"{stem}.docx"
-    dest = out_dir / docx_name
-    pdf_src = find_qualification_pdf() if brief.attachQualifications else None
-    use_outline = (brief.layoutMode or "").strip() == "outline" and any(
-        not item.skipped for item in (brief.outlineItems or [])
+    dest = out_dir / f"{stem}.docx"
+    pdf_src = find_qualification_pdf() if brief.attachQualifications and vol == "business" else None
+    try:
+        from api.services.tenders.assemble import assemble_bid_docx
+    except ImportError as exc:
+        from common.errors import AppError, ErrorCode
+
+        raise AppError(
+            ErrorCode.INTERNAL,
+            "组卷模块加载失败。Windows 下改后端代码不会自动重载，请重启 API 后再点「生成并预览」。",
+            status_code=500,
+        ) from exc
+
+    _, warnings = assemble_bid_docx(
+        brief,
+        dest,
+        qualification_pdf=pdf_src,
+        catalog_slots=catalog_slots,
+        catalog_media=catalog_media,
+        volume=vol,
     )
-    if use_outline:
-        try:
-            from api.services.tenders.assemble import assemble_bid_docx
-        except ImportError as exc:
-            from common.errors import AppError, ErrorCode
-
-            raise AppError(
-                ErrorCode.INTERNAL,
-                "组卷模块加载失败。Windows 下改后端代码不会自动重载，请重启 API 后再点「生成并预览」。",
-                status_code=500,
-            ) from exc
-
-        _, warnings = assemble_bid_docx(
-            brief,
-            dest,
-            qualification_pdf=pdf_src,
-            catalog_slots=catalog_slots,
-            catalog_media=catalog_media,
-        )
-    else:
-        _, warnings = build_bid_docx(
-            brief,
-            dest,
-            qualification_pdf=pdf_src,
-            catalog_slots=catalog_slots,
-            catalog_media=catalog_media,
-        )
+    warnings = list(warnings)
 
     pdf_name = ""
     if pdf_src is not None:
         pdf_name = f"{stem}.pdf"
         shutil.copy2(pdf_src, out_dir / pdf_name)
 
-    return {
-        "docxFile": docx_name,
-        "pdfFile": pdf_name or None,
-        "downloadName": safe_download_name(brief.projectName, suffix="投标文件.docx"),
-        "pdfDownloadName": safe_download_name(brief.projectName, suffix="资质文件.pdf")
-        if pdf_name
-        else None,
+    out: dict[str, object] = {
+        "docxFile": None,
+        "techDocxFile": None,
+        "pdfFile": None,
+        "downloadName": "",
+        "techDownloadName": None,
+        "pdfDownloadName": None,
         "warnings": warnings,
         "defaultsUsed": brief.bidderName,
+        "generateVolume": vol,
     }
+    if vol == "technical":
+        out["techDocxFile"] = dest.name
+        out["techDownloadName"] = safe_download_name(brief.projectName, suffix="技术标.docx")
+    else:
+        out["docxFile"] = dest.name
+        out["downloadName"] = safe_download_name(brief.projectName, suffix="商务标.docx")
+        out["pdfFile"] = pdf_name or None
+        out["pdfDownloadName"] = (
+            safe_download_name(brief.projectName, suffix="资质文件.pdf") if pdf_name else None
+        )
+    return out
 
 
 def resolve_output_file(file_name: str):

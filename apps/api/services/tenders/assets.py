@@ -12,6 +12,7 @@ _INVITE_ID_RE = re.compile(r"^[a-f0-9]{10,16}$", re.I)
 _INVITE_TEXT_MAX = 80_000
 
 _PDF_NAME = "weitai-qualifications.pdf"
+_PDF_ALIASES = (_PDF_NAME, "伟泰科技资质文件最终版.pdf")
 _CHAPTER5_NAME = "chapter5.docx"
 _QUOTE_NAME = "quote.xlsx"
 
@@ -125,12 +126,13 @@ def find_quote_xlsx() -> Path | None:
 def find_qualification_pdf() -> Path | None:
     """企业资质 PDF：优先 weitai-qualifications.pdf，否则取 tender-assets 里带「资质」的 PDF。"""
     folder = tender_assets_dir()
-    primary = folder / _PDF_NAME
-    if primary.is_file() and primary.stat().st_size > 1000:
-        return primary
+    for name in _PDF_ALIASES:
+        primary = folder / name
+        if primary.is_file() and primary.stat().st_size > 1000:
+            return primary
     candidates = [
         path
-        for path in folder.glob("*.pdf")
+        for path in folder.rglob("*.pdf")
         if path.is_file() and path.stat().st_size > 1000 and "资质" in path.stem
     ]
     if candidates:

@@ -25,12 +25,19 @@ _IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 
 # 证件类写入 Word；合同/财税等 PDF 仍占位，避免生成卡住。
 _EMBED_SCAN_KEYS = frozenset({"id_legal", "id_agent"})
+_EMBED_PDF_KEYS = frozenset({"id_legal", "id_agent", "credit"})
 _SLOT_PDF_MAX_PAGES = 1
+_CREDIT_PDF_MAX_PAGES = 4
 _SLOT_MAX_FILES = 2
+_CREDIT_MAX_FILES = 6
 _PLACEHOLDER_MAX_IMAGES = 8
 _RENDER_SCALE = 0.5
 _JPEG_QUALITY = 45
 _IMAGE_MAX_PX = 800
+# 信用中国等文字页按约 220dpi 出 PNG，不再走 JPEG 45/800px
+_CREDIT_DPI = 220
+_CREDIT_MAX_PX = 2800
+_CREDIT_MAX_H_CM = 18.5
 # 身份证正反面：按 96dpi 把像素缩到排版厘米，横版并排铺满版心
 _ID_PAIR_MAX_IMAGES = 2
 _ID_STRIP_WIDTH_CM = 16.6
@@ -146,6 +153,8 @@ def this_bid_keys(
             if key not in include:
                 include.append(key)
     include = [key for key in include if key in known]
+    if not has_agent:
+        include = [key for key in include if key != "id_agent"]
     return required, include
 
 
@@ -191,6 +200,54 @@ def collect_slots(
     return ordered
 
 
+def _is_credit_slot(slot: PlaceholderItem) -> bool:
+    if (slot.key or "").strip() == "credit":
+        return True
+    n = f"{slot.title or ''}{slot.hint or ''}"
+    if "信用" not in n:
+        return False
+    return any(k in n for k in ("截图", "查询", "公示", "信用中国", "失信"))
+
+
+def _is_embed_pdf_slot(slot: PlaceholderItem) -> bool:
+    key = (slot.key or "").strip()
+    if key in _EMBED_PDF_KEYS or "身份证" in (slot.title or ""):
+        return True
+    return _is_credit_slot(slot)
+
+
+def _merge_credit_slots(
+    slots: list[PlaceholderItem],
+    files_by_key: dict[str, list[Path]] | None,
+) -> tuple[list[PlaceholderItem], dict[str, list[Path]]]:
+    files_by_key = {k: list(v) for k, v in (files_by_key or {}).items()}
+    credit = [s for s in slots if _is_credit_slot(s)]
+    if len(credit) <= 1:
+        return slots, files_by_key
+    keep = next((s for s in credit if (s.key or "").strip() == "credit"), credit[0])
+    merged: list[Path] = []
+    seen: set[str] = set()
+    for s in credit:
+        for p in files_by_key.get(s.key) or []:
+            mark = str(p)
+            if mark in seen:
+                continue
+            seen.add(mark)
+            merged.append(p)
+    files_by_key[keep.key] = merged
+    out: list[PlaceholderItem] = []
+    used = False
+    for s in slots:
+        if not _is_credit_slot(s):
+            out.append(s)
+            continue
+        if used:
+            continue
+        out.append(keep)
+        used = True
+    return out, files_by_key
+
+
 def id_slot(key: str) -> PlaceholderItem:
     for item in DEFAULT_SLOTS:
         if item.key == key:
@@ -226,6 +283,7 @@ def append_placeholder_section(
     attachments: dict[str, list[Path]] | None = None,
     *,
     before: Paragraph | None = None,
+    heading: bool = True,
 ) -> tuple[int, int, list[str]]:
     """每个附件项：小标题 +（轻量扫描件 | 虚线框说明）。
     证件/图片写入 Word；财税/合同等 PDF 默认不渲进，避免生成卡住。
@@ -237,16 +295,18 @@ def append_placeholder_section(
     slots = [item for item in slots if (item.key or "").strip() != TECH_DRAWING_KEY]
     if not slots:
         return 0, 0, []
-    files_by_key = attachments or {}
+    slots, files_by_key = _merge_credit_slots(slots, attachments)
     last_before = _last_body_child(doc)
     if _used_on_page_cm(doc) > 1.2:
         doc.add_page_break()
-    title = doc.add_paragraph()
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    title.paragraph_format.space_before = Pt(8)
-    title.paragraph_format.space_after = Pt(12)
-    head = title.add_run("附件：资料库扫描件")
-    _font(head, 16, bold=True)
+    if heading:
+        title = doc.add_paragraph()
+        title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        title.paragraph_format.space_before = Pt(8)
+        title.paragraph_format.space_after = Pt(8)
+        title.paragraph_format.keep_with_next = True
+        head = title.add_run("附件：资料库扫描件")
+        _font(head, 16, bold=True)
     filled = 0
     boxes = 0
     notes: list[str] = []
@@ -257,13 +317,15 @@ def append_placeholder_section(
         media = files_by_key.get(key) or []
         images = [p for p in media if p.suffix.lower() in _IMAGE_EXT]
         is_id_scan = key in _EMBED_SCAN_KEYS or "身份证" in (slot.title or "")
-        embed_files = list(media) if is_id_scan else images
+        embed_pdf = _is_embed_pdf_slot(slot)
+        embed_files = list(media) if (is_id_scan or embed_pdf) else images
         if not media:
             need_cm = _HEADING_CM + _BOX_CM
         elif is_id_scan:
             need_cm = _HEADING_CM + 6.4
         elif embed_files:
-            need_cm = _HEADING_CM + _first_media_cm(embed_files) + 0.4
+            max_h = _CREDIT_MAX_H_CM if (embed_pdf and not is_id_scan) else _IMAGE_MAX_H_CM
+            need_cm = _HEADING_CM + _first_media_cm(embed_files, max_h=max_h) + 0.4
         else:
             need_cm = _HEADING_CM + _BOX_CM
         _break_before_slot(doc, need_cm)
@@ -273,17 +335,20 @@ def append_placeholder_section(
             boxes += 1
             continue
         if embed_files:
+            max_pages = _CREDIT_PDF_MAX_PAGES if embed_pdf and not is_id_scan else _SLOT_PDF_MAX_PAGES
             n = _insert_slot_media(
                 doc,
-                embed_files,
+                embed_files[: _CREDIT_MAX_FILES if embed_pdf else _SLOT_MAX_FILES],
                 budget=None if not is_id_scan else budget,
+                max_pages=max_pages,
                 compact_pair=is_id_scan,
                 force_landscape=is_id_scan,
+                sharp=embed_pdf and not is_id_scan,
             )
             if n > 0:
                 filled += 1
                 leftover_pdf = (
-                    [p for p in media if p.suffix.lower() == ".pdf"] if not is_id_scan else []
+                    [p for p in media if p.suffix.lower() == ".pdf"] if not (is_id_scan or embed_pdf) else []
                 )
                 if leftover_pdf:
                     skipped_heavy += 1
@@ -431,11 +496,12 @@ def _used_on_page_cm(doc: Document) -> float:
     return used
 
 
-def _first_media_cm(files: list[Path], *, width_cm: float = 15.5) -> float:
+def _first_media_cm(files: list[Path], *, width_cm: float = 15.5, max_h: float | None = None) -> float:
+    cap = _IMAGE_MAX_H_CM if max_h is None else max_h
     for path in files:
         suf = path.suffix.lower()
         if suf == ".pdf":
-            return min(_IMAGE_MAX_H_CM, width_cm * 297 / 210)
+            return min(cap, width_cm * 297 / 210)
         if suf in _IMAGE_EXT and path.is_file():
             try:
                 from PIL import Image
@@ -443,7 +509,7 @@ def _first_media_cm(files: list[Path], *, width_cm: float = 15.5) -> float:
                 with Image.open(path) as image:
                     w, h = image.size
                 if w > 0:
-                    return min(_IMAGE_MAX_H_CM, max(3.5, width_cm * h / float(w)))
+                    return min(cap, max(3.5, width_cm * h / float(w)))
             except Exception:
                 return 10.0
     return _BOX_CM
@@ -452,10 +518,10 @@ def _first_media_cm(files: list[Path], *, width_cm: float = 15.5) -> float:
 def _break_before_slot(doc: Document, need_cm: float) -> None:
     """标题和附件必须同页：剩余高度不够时，标题改到下一页开头。"""
     used = _used_on_page_cm(doc)
-    if used <= 1.2:
-        return
     remain = _page_body_cm(doc) - used
     if remain + 0.2 >= need_cm:
+        return
+    if used <= 0.6:
         return
     doc.add_page_break()
 
@@ -496,6 +562,7 @@ def _insert_slot_media(
     max_pages: int = _SLOT_PDF_MAX_PAGES,
     compact_pair: bool = False,
     force_landscape: bool = False,
+    sharp: bool = False,
 ) -> int:
     if compact_pair:
         prepared = _collect_scan_jpegs(
@@ -508,18 +575,18 @@ def _insert_slot_media(
         return _insert_id_cards(doc, prepared)
 
     inserted = 0
-    for path in files[:_SLOT_MAX_FILES]:
+    for path in files:
         if budget is not None and budget.get("left", 0) <= 0:
             break
         suf = path.suffix.lower()
         try:
             if suf == ".pdf":
-                n = _insert_pdf_pages(doc, path, max_pages=max_pages, budget=budget)
+                n = _insert_pdf_pages(doc, path, max_pages=max_pages, budget=budget, sharp=sharp)
                 inserted += n
             elif suf in _IMAGE_EXT:
                 if budget is not None and budget.get("left", 0) <= 0:
                     break
-                if _insert_image(doc, path):
+                if _insert_image(doc, path, sharp=sharp):
                     inserted += 1
                     if budget is not None:
                         budget["left"] = max(0, int(budget["left"]) - 1)
@@ -528,24 +595,34 @@ def _insert_slot_media(
     return inserted
 
 
-def _render_pdf_page_jpeg(page, *, scale: float = _RENDER_SCALE, quality: int = _JPEG_QUALITY) -> io.BytesIO:
+def _render_pdf_page_jpeg(
+    page,
+    *,
+    scale: float = _RENDER_SCALE,
+    quality: int = _JPEG_QUALITY,
+    max_px: int | None = None,
+) -> io.BytesIO:
     bitmap = page.render(scale=scale)
     image = bitmap.to_pil().convert("RGB")
-    image = _shrink_pil(image)
+    image = _shrink_pil(image, max_px=_IMAGE_MAX_PX if max_px is None else max_px)
     buf = io.BytesIO()
     image.save(buf, format="JPEG", quality=quality, optimize=False)
     buf.seek(0)
     return buf
 
 
-def _shrink_pil(image):
+def _shrink_pil(image, max_px: int | None = None):
     try:
+        cap = _IMAGE_MAX_PX if max_px is None else int(max_px)
         w, h = image.size
         longest = max(w, h)
-        if longest <= _IMAGE_MAX_PX:
+        if cap <= 0 or longest <= cap:
             return image
-        ratio = _IMAGE_MAX_PX / float(longest)
-        return image.resize((max(1, int(w * ratio)), max(1, int(h * ratio))))
+        from PIL import Image as PilImage
+
+        ratio = cap / float(longest)
+        resample = getattr(getattr(PilImage, "Resampling", PilImage), "LANCZOS", PilImage.BICUBIC)
+        return image.resize((max(1, int(w * ratio)), max(1, int(h * ratio))), resample)
     except Exception:
         return image
 
@@ -763,31 +840,64 @@ def _bake_id_jpeg(buf: io.BytesIO, *, width_cm: float, height_cm: float) -> io.B
         return out
 
 
-def _insert_image(doc: Document, path: Path, *, width_cm: float = 15.5) -> bool:
+def _insert_image(doc: Document, path: Path, *, width_cm: float = 15.5, sharp: bool = False) -> bool:
     if not path.is_file():
         return False
-    pic = doc.add_paragraph()
-    pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    pic.paragraph_format.space_before = Pt(4)
-    pic.paragraph_format.space_after = Pt(4)
     try:
         from PIL import Image
 
         with Image.open(path) as raw:
-            image = _shrink_pil(raw.convert("RGB"))
+            image = raw.convert("RGB")
+            if not sharp:
+                image = _shrink_pil(image)
             buf = io.BytesIO()
-            image.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=False)
+            if sharp:
+                image.save(buf, format="PNG")
+            else:
+                image.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=False)
             buf.seek(0)
-            disp_w, disp_h = _fit_cm(
-                image.size[0],
-                image.size[1],
-                max_w=width_cm,
-                max_h=_IMAGE_MAX_H_CM,
-            )
+            max_h = _CREDIT_MAX_H_CM if sharp else _IMAGE_MAX_H_CM
+            disp_w, disp_h = _fit_to_page(doc, image.size[0], image.size[1], max_w=width_cm, max_h=max_h)
+            pic = doc.add_paragraph()
+            pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pic.paragraph_format.space_before = Pt(4)
+            pic.paragraph_format.space_after = Pt(4)
             pic.add_run().add_picture(buf, width=Cm(disp_w), height=Cm(disp_h))
+        return True
     except Exception:
+        pic = doc.add_paragraph()
+        pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
         pic.add_run().add_picture(str(path), width=Cm(width_cm))
-    return True
+        return True
+
+
+def _fit_to_page(
+    doc: Document,
+    px_w: int,
+    px_h: int,
+    *,
+    max_w: float,
+    max_h: float,
+) -> tuple[float, float]:
+    remain = _page_body_cm(doc) - _used_on_page_cm(doc) - 0.4
+    if remain < 8.0 and _used_on_page_cm(doc) > 1.0:
+        doc.add_page_break()
+        remain = _page_body_cm(doc) - 0.8
+    cap = min(max_h, max(8.0, remain))
+    return _fit_cm(px_w, px_h, max_w=max_w, max_h=cap)
+
+
+def _render_pdf_page_bytes(page, *, sharp: bool) -> io.BytesIO:
+    if sharp:
+        scale = _CREDIT_DPI / 72.0
+        bitmap = page.render(scale=scale)
+        image = bitmap.to_pil().convert("RGB")
+        image = _shrink_pil(image, max_px=_CREDIT_MAX_PX)
+        buf = io.BytesIO()
+        image.save(buf, format="PNG", dpi=(_CREDIT_DPI, _CREDIT_DPI))
+        buf.seek(0)
+        return buf
+    return _render_pdf_page_jpeg(page)
 
 
 def _insert_pdf_pages(
@@ -796,6 +906,7 @@ def _insert_pdf_pages(
     *,
     max_pages: int = _SLOT_PDF_MAX_PAGES,
     budget: dict[str, int] | None = None,
+    sharp: bool = False,
 ) -> int:
     try:
         import pypdfium2 as pdfium
@@ -808,26 +919,45 @@ def _insert_pdf_pages(
         logger.exception("open slot pdf failed: %s", pdf_path)
         return 0
 
-    count = min(len(pdf), max_pages)
-    inserted = 0
-    for i in range(count):
-        if budget is not None and budget.get("left", 0) <= 0:
-            break
+    try:
+        count = min(len(pdf), max_pages)
+        inserted = 0
+        max_h = _CREDIT_MAX_H_CM if sharp else _IMAGE_MAX_H_CM
+        for i in range(count):
+            if budget is not None and budget.get("left", 0) <= 0:
+                break
+            try:
+                buf = _render_pdf_page_bytes(pdf[i], sharp=sharp)
+                px_w, px_h = 210, 297
+                try:
+                    from PIL import Image
+
+                    buf.seek(0)
+                    with Image.open(buf) as preview:
+                        px_w, px_h = preview.size
+                    buf.seek(0)
+                except Exception:
+                    pass
+                if inserted and _used_on_page_cm(doc) > 1.0:
+                    doc.add_page_break()
+                disp_w, disp_h = _fit_to_page(doc, px_w, px_h, max_w=15.5, max_h=max_h)
+                pic = doc.add_paragraph()
+                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pic.paragraph_format.space_before = Pt(2)
+                pic.paragraph_format.space_after = Pt(2)
+                buf.seek(0)
+                pic.add_run().add_picture(buf, width=Cm(disp_w), height=Cm(disp_h))
+                inserted += 1
+                if budget is not None:
+                    budget["left"] = max(0, int(budget["left"]) - 1)
+            except Exception:
+                logger.exception("render slot pdf page %s of %s failed", i + 1, pdf_path.name)
+        return inserted
+    finally:
         try:
-            page = pdf[i]
-            buf = _render_pdf_page_jpeg(page)
-            pic = doc.add_paragraph()
-            pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pic.paragraph_format.space_before = Pt(4)
-            pic.paragraph_format.space_after = Pt(4)
-            disp_w, disp_h = _fit_cm(210, 297, max_w=15.5, max_h=_IMAGE_MAX_H_CM)
-            pic.add_run().add_picture(buf, width=Cm(disp_w), height=Cm(disp_h))
-            inserted += 1
-            if budget is not None:
-                budget["left"] = max(0, int(budget["left"]) - 1)
+            pdf.close()
         except Exception:
-            logger.exception("render slot pdf page %s of %s failed", i + 1, pdf_path.name)
-    return inserted
+            pass
 
 
 def _write_plain(cell: _Cell, text: str) -> None:

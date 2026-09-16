@@ -24,7 +24,7 @@ from api.services.approval_flow import (
     user_can_act_on_step,
 )
 from api.services.tenders.assets import tenders_output_dir
-from api.services.tenders.generate import generate_bid
+from api.services.tenders.generate import generate_bid, generate_volume
 from api.services.tenders.schema import BidBrief, PlaceholderItem
 from common.errors import AppError, ErrorCode
 from common.times import to_epoch_ms
@@ -90,7 +90,9 @@ def _record_to_dict(
     include_brief: bool = False,
     extra: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    docx_ok = (tenders_output_dir() / row.docx_file).is_file()
+    docx_ok = bool((row.docx_file or "").strip()) and (tenders_output_dir() / row.docx_file).is_file()
+    tech_name = (getattr(row, "tech_docx_file", None) or "").strip()
+    tech_ok = bool(tech_name) and (tenders_output_dir() / tech_name).is_file()
     pdf_ok = bool(row.pdf_file) and (tenders_output_dir() / str(row.pdf_file)).is_file()
     status = (getattr(row, "status", None) or STATUS_PROCESSING).strip() or STATUS_PROCESSING
     submitted_at = getattr(row, "submitted_at", None)
@@ -105,13 +107,16 @@ def _record_to_dict(
         "bidPriceYuan": float(row.bid_price_yuan or 0),
         "legalPersonName": row.legal_person_name or "",
         "docxFile": row.docx_file,
+        "techDocxFile": tech_name or None,
         "pdfFile": row.pdf_file,
         "downloadName": row.download_name or "",
+        "techDownloadName": (getattr(row, "tech_download_name", None) or "") or None,
         "pdfDownloadName": row.pdf_download_name,
         "warnings": row.warnings if isinstance(row.warnings, list) else [],
         "username": row.username or "",
         "createdAt": to_epoch_ms(row.created_at),
         "docxAvailable": docx_ok,
+        "techDocxAvailable": tech_ok,
         "pdfAvailable": pdf_ok,
         "status": status,
         "deadline": getattr(row, "deadline", None) or "",
@@ -155,6 +160,8 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
         issues.append("法人身份证号")
     if (brief.agentName or "").strip() and not (brief.agentIdNo or "").strip():
         issues.append("代理人身份证号")
+    if (brief.authNeed or "").strip() == "required" and not (brief.agentName or "").strip():
+        issues.append("委托代理人（招标书要求授权委托）")
     if not any((ln.name or "").strip() for ln in (brief.quoteLines or [])):
         issues.append("报价清单")
     return issues
@@ -246,13 +253,24 @@ async def _prepare_and_generate(
         if not media["perf"]:
             media.pop("perf", None)
     missing = _missing_required_titles(required_keys, slots, media)
+    vol = generate_volume(brief)
+    if vol in {"business", "technical"}:
+        from api.services.tenders.categories import slot_volume
+
+        keep = []
+        titles = {item.title or item.key: item.key for item in slots}
+        for title in missing:
+            key = titles.get(title) or title
+            if slot_volume(key, title) == vol:
+                keep.append(title)
+        missing = keep
     t_prep = time.perf_counter()
     generated = generate_bid(brief, catalog_slots=slots, catalog_media=media)
     t_docx = time.perf_counter()
     from api.services.tenders.categories import technical_soft_issues
 
     warnings = list(generated.get("warnings") or [])
-    if pending_perf:
+    if pending_perf and vol != "technical":
         warnings.append(
             f"类似业绩有 {pending_perf} 个合同/发票尚未抽出摘要，本次未做 OCR（避免拖慢生成）。"
             "可在资料库重新上传或稍后补抽后再生成。"
@@ -263,6 +281,11 @@ async def _prepare_and_generate(
     for note in technical_soft_issues(
         brief, slots=slots, media=media, required_keys=required_keys
     ):
+        text = str(note)
+        if vol == "business" and text.startswith("技术标"):
+            continue
+        if vol == "technical" and text.startswith("商务标"):
+            continue
         if note not in warnings:
             warnings.append(note)
     library_items = [
@@ -299,10 +322,18 @@ def _apply_generated_files(row: TenderRecord, brief: BidBrief, generated: dict[s
     row.tenderer = (brief.tenderer or "").strip()[:256]
     row.bid_price_yuan = float(brief.bidPriceYuan or 0)
     row.legal_person_name = (brief.legalPersonName or "").strip()[:64]
-    row.docx_file = str(generated["docxFile"])
-    row.pdf_file = generated.get("pdfFile") or None
-    row.download_name = str(generated.get("downloadName") or "")
-    row.pdf_download_name = generated.get("pdfDownloadName") or None
+    vol = generate_volume(brief)
+    biz_file = generated.get("docxFile")
+    if biz_file:
+        row.docx_file = str(biz_file)
+        row.download_name = str(generated.get("downloadName") or "")
+    tech_file = generated.get("techDocxFile")
+    if tech_file:
+        row.tech_docx_file = str(tech_file)
+        row.tech_download_name = generated.get("techDownloadName") or None
+    if vol != "technical":
+        row.pdf_file = generated.get("pdfFile") or None
+        row.pdf_download_name = generated.get("pdfDownloadName") or None
     row.warnings = list(generated.get("warnings") or [])
     row.brief_json = brief.model_dump(mode="json")
     row.deadline = deadline_from_brief(brief)
@@ -343,7 +374,7 @@ async def create_record_from_generate(
         current_step="",
         project_type=infer_project_type((brief.projectName or "").strip()),
         deadline=deadline_from_brief(brief),
-        docx_file=str(generated["docxFile"]),
+        docx_file=str(generated.get("docxFile") or ""),
         download_name=str(generated.get("downloadName") or ""),
     )
     _apply_generated_files(row, brief, generated)
@@ -514,7 +545,7 @@ def _assert_owner_or_admin(row: TenderRecord, user: User, *, admin: bool) -> Non
 
 def _purge_record_files(row: TenderRecord) -> list[str]:
     removed: list[str] = []
-    for name in (row.docx_file, row.pdf_file):
+    for name in (row.docx_file, getattr(row, "tech_docx_file", None), row.pdf_file):
         if name:
             _unlink_output(str(name))
             removed.append(str(name))
@@ -599,14 +630,17 @@ async def regenerate_from_record(
             brief = BidBrief.model_validate(row.brief_json)
         except Exception as exc:
             raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
-    old_docx, old_pdf = row.docx_file, row.pdf_file
+    old_docx, old_tech, old_pdf = row.docx_file, getattr(row, "tech_docx_file", None), row.pdf_file
     generated, attachment_match = await _prepare_and_generate(db, brief)
     _apply_generated_files(row, brief, generated)
     await db.commit()
     await db.refresh(row)
-    if old_docx and old_docx != row.docx_file:
+    vol = generate_volume(brief)
+    if vol != "technical" and old_docx and old_docx != row.docx_file:
         _unlink_output(old_docx)
-    if old_pdf and old_pdf != row.pdf_file:
+    if vol != "business" and old_tech and old_tech != getattr(row, "tech_docx_file", None):
+        _unlink_output(str(old_tech))
+    if vol != "technical" and old_pdf and old_pdf != row.pdf_file:
         _unlink_output(str(old_pdf))
     from api.services.tenders.qa import unlink_qa_report
 
@@ -650,7 +684,10 @@ async def submit_for_approval(
     _assert_owner_or_admin(row, user, admin=admin)
     if (row.status or STATUS_PROCESSING) != STATUS_PROCESSING:
         raise AppError(ErrorCode.VALIDATION, "只有编制中的任务可以提交审批", status_code=422)
-    if not (tenders_output_dir() / row.docx_file).is_file():
+    biz_ok = bool((row.docx_file or "").strip()) and (tenders_output_dir() / row.docx_file).is_file()
+    tech_name = (getattr(row, "tech_docx_file", None) or "").strip()
+    tech_ok = bool(tech_name) and (tenders_output_dir() / tech_name).is_file()
+    if not biz_ok and not tech_ok:
         raise AppError(ErrorCode.VALIDATION, "Word 文件缺失，无法提交审批", status_code=422)
     flow = await get_tender_flow(db, can_edit=False)
     steps = flow.get("steps") if isinstance(flow, dict) else None
@@ -781,7 +818,10 @@ async def inspect_record_qa(db: AsyncSession, public_id: str) -> dict[str, objec
     from api.services.tenders.qa import inspect_bid
 
     row = await _get_row(db, public_id)
-    if not (row.docx_file or "").strip():
+    biz = (row.docx_file or "").strip()
+    tech = (getattr(row, "tech_docx_file", None) or "").strip()
+    target = biz or tech
+    if not target:
         raise AppError(ErrorCode.VALIDATION, "该记录没有 Word 文件，无法质检", status_code=422)
     if not isinstance(row.brief_json, dict) or not row.brief_json:
         raise AppError(ErrorCode.VALIDATION, "该记录没有保存表单，无法质检", status_code=422)
@@ -789,11 +829,16 @@ async def inspect_record_qa(db: AsyncSession, public_id: str) -> dict[str, objec
         brief = BidBrief.model_validate(row.brief_json)
     except Exception as exc:
         raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
+    vol = generate_volume(brief)
+    if vol == "technical" and tech:
+        target = tech
+    elif biz:
+        target = biz
     return await inspect_bid(
         db,
         public_id=row.public_id,
         brief=brief,
-        docx_file=str(row.docx_file),
+        docx_file=str(target),
     )
 
 

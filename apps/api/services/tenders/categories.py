@@ -23,6 +23,11 @@ TECH_CHAPTERS: tuple[tuple[str, str, str], ...] = (
 )
 
 _TECH_TITLE_MARK = ("方案", "布置", "配电", "运维", "图纸", "检测", "3C", "技术规格")
+_TECH_KINDS = frozenset({"tech_dev", "tech_plan"})
+_BIZ_KINDS = frozenset(
+    {"letter", "legal_id", "auth", "quote", "biz_dev", "commitment_copy", "performance", "factory", "company"}
+)
+_VOLUME_LABELS = frozenset({"商务标", "技术标", "商务部分", "技术部分", "商务标书", "技术标书"})
 
 
 def slot_volume(key: str, title: str = "") -> str:
@@ -34,6 +39,21 @@ def slot_volume(key: str, title: str = "") -> str:
     if any(mark in blob for mark in _TECH_TITLE_MARK):
         return "technical"
     return "business"
+
+
+def is_volume_label(title: str) -> bool:
+    n = "".join((title or "").split())
+    n = n.replace("投标文件", "").replace("响应文件", "")
+    return n in _VOLUME_LABELS
+
+
+def item_volume(*, kind: str = "", title: str = "", key: str = "") -> str:
+    kind = (kind or "").strip()
+    if kind in _TECH_KINDS:
+        return "technical"
+    if kind in _BIZ_KINDS:
+        return "business"
+    return slot_volume(key, title)
 
 
 def is_high_disqualify(key: str) -> bool:
@@ -53,11 +73,6 @@ def tech_plan_body(brief: BidBrief) -> str:
     text = tech_plan_text(brief)
     if text:
         return text
-    if int(brief.deliveryDays or 0) > 0:
-        return (
-            f"计划在投标承诺的供货期（{brief.deliveryDays}天）内完成设备到货、安装调试及验收。"
-            "具体节点按现场条件与招标文件工期条款执行。"
-        )
     return "【待响应】请按招标文件补充实施方案文字说明，并上传本项目图纸。"
 
 

@@ -9,6 +9,42 @@ from api.services.tenders.placeholders import normalize_slot_keys
 from api.services.tenders.schema import PlaceholderItem
 
 _COMPACT = re.compile(r"[\s/（）()【】\[\]:：·,，。、\-—_]+")
+# 邀请书常写全称，资料库是短名；同族才复用，避免拿身份证去顶信用截图。
+_KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "credit",
+        (
+            "信用中国",
+            "信用信息公示",
+            "企业信用查询",
+            "失信查询",
+            "信用截图",
+            "信用查询",
+            "无不良记录截图",
+        ),
+    ),
+    ("id_legal", ("法定代表人身份证", "法人身份证", "法人代表身份证")),
+    (
+        "id_agent",
+        (
+            "授权代理人身份证",
+            "委托代理人身份证",
+            "授权委托人身份证",
+            "委托人身份证",
+            "被授权人身份证",
+        ),
+    ),
+    ("license", ("营业执照",)),
+    ("iso", ("iso", "质量体系", "管理体系认证", "体系认证证书", "体系证书")),
+    ("safety", ("安全生产许可证", "安全生产许可")),
+    ("bond", ("投标保证金", "保证金缴存", "保证金回单")),
+    ("finance", ("财务审计", "审计报告", "完税证明", "财务报表", "财务报告")),
+    ("social", ("社保缴纳", "社保缴费")),
+    ("perf", ("类似业绩", "类似项目", "合同及发票", "业绩证明", "业绩合同")),
+    ("product", ("检测报告", "型式试验", "3c认证", "ccc认证", "3c", "桩型证明", "产品合格证")),
+    ("seal", ("签章页", "盖章页")),
+    ("commitment", ("承诺书", "承诺函")),
+)
 
 
 def compact_title(text: str) -> str:
@@ -31,21 +67,59 @@ def _titles_loosely_match(left: str, right: str) -> bool:
     return i == len(shorter)
 
 
+def _kind_hits(text: str) -> set[str]:
+    n = compact_title(text)
+    if len(n) < 4:
+        return set()
+    # 「身份证明」含「身份证」三字，不能当成证件扫描件。
+    n = n.replace("身份证明", "")
+    if len(n) < 4:
+        return set()
+    hits: set[str] = set()
+    for kind, phrases in _KIND_PHRASES:
+        for raw in phrases:
+            p = compact_title(raw)
+            if p and p in n:
+                hits.add(kind)
+                break
+    return hits
+
+
+def _same_material_kind(left: str, right: str) -> bool:
+    return bool(_kind_hits(left) & _kind_hits(right))
+
+
+def _item_blob(item: PlaceholderItem) -> str:
+    return f"{item.title or ''} {item.hint or ''}".strip()
+
+
 def find_catalog_item(
     catalog: list[PlaceholderItem],
     *,
     key: str = "",
     title: str = "",
+    hint: str = "",
 ) -> PlaceholderItem | None:
     want = (key or "").strip()
     if want:
         for item in catalog:
             if item.key == want:
                 return item
-    if not compact_title(title):
+    query = f"{title} {hint}".strip()
+    if not compact_title(query):
         return None
     for item in catalog:
         if _titles_loosely_match(title, item.title):
+            return item
+    for item in catalog:
+        blob = _item_blob(item)
+        if title and (
+            _titles_loosely_match(title, item.hint or "") or _titles_loosely_match(title, blob)
+        ):
+            return item
+        if hint and _titles_loosely_match(hint, item.title):
+            return item
+        if _same_material_kind(query, blob):
             return item
     return None
 
@@ -74,7 +148,7 @@ def split_invitation_materials(
             key = str(raw.get("key") or "").strip()
             title = str(raw.get("title") or "").strip()
             reason = str(raw.get("reason") or raw.get("hint") or "").strip()
-            found = find_catalog_item(catalog_items, key=key, title=title)
+            found = find_catalog_item(catalog_items, key=key, title=title, hint=reason)
             if found is not None:
                 add_mapped(
                     PlaceholderItem(key=found.key, title=found.title, hint=reason or found.hint)
@@ -94,7 +168,7 @@ def split_invitation_materials(
                 continue
             key = str(raw.get("key") or "").strip()
             reason = str(raw.get("reason") or raw.get("hint") or "").strip()
-            found = find_catalog_item(catalog_items, key=key, title=title)
+            found = find_catalog_item(catalog_items, key=key, title=title, hint=reason)
             if found is not None:
                 add_mapped(
                     PlaceholderItem(key=found.key, title=found.title, hint=reason or found.hint)

@@ -18,6 +18,7 @@ from api.services.tenders.document import (
     _add_bottom_sign_spacer,
     _apply_fixed_table_widths,
     _auth_text,
+    _commercial_dev_rows,
     _glue_sign_off,
     _deviation_rows,
     _distribute_twips,
@@ -54,8 +55,6 @@ MODULE_KINDS = frozenset(
     {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan", "company"}
 )
 COPY_KINDS = frozenset({"commitment_copy", "company"})
-
-_DEV_SHARED_NOTE = "商务/技术偏离表共用同一组偏离数据，表头已按招标书格式章抽取"
 
 
 def render_module(
@@ -260,12 +259,12 @@ def _quote(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
 
 def _biz_dev(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     _dev_table(doc, brief, item)
-    return [_DEV_SHARED_NOTE]
+    return []
 
 
 def _tech_dev(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     _dev_table(doc, brief, item)
-    return [_DEV_SHARED_NOTE]
+    return []
 
 
 def _performance(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
@@ -389,7 +388,7 @@ _HANDLERS = {
 
 
 def _dev_table(doc: Document, brief: BidBrief, item: OutlineItem) -> None:
-    rows = _deviation_rows(brief)
+    rows = _commercial_dev_rows(brief) if item.kind == "biz_dev" else _deviation_rows(brief)
     layout = resolve_dev_layout(brief, item)
     titles = list(layout.titles)
     roles = list(layout.roles)

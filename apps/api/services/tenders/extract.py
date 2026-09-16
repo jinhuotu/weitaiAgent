@@ -101,8 +101,8 @@ prepaidPct, arrivalPct, settlementPct, warrantyPct, extraNote,
 quoteTitle, quoteTaxRate,
 quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
 notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
-requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或台数当作本标附件）,
-missingMaterials（对象数组，每项 title/reason，资料库里还没有、邀请书额外要求的资料。不要填其他项目的文件名；程序会建空项等用户上传）,
+requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或台数当作本标附件。名称不同但同属一类的必须用已有 key，例如资料库「信用截图」对应邀请书「信用中国/政府采购网/国家企业信用信息公示查询截图」）,
+missingMaterials（对象数组，每项 title/reason，仅当资料库完全没有同类项、邀请书额外要求时才填。不要因标题更长就新建；不要填其他项目的文件名；程序会建空项等用户上传）,
 deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术要求，禁止写死 7kW/30kW 充电桩套话。无条款则 []）,
 performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
 performanceRequirement（对象或 null：邀请书对类似业绩的资格门槛。字段 similarScope, minAmountYuan 单份最低金额元, minCount 至少几个, requireCompleted 是否须已竣工, keywords 字符串数组, note 原文短摘。邀请书没写则 null，禁止套用充电桩 20 万默认值）,
@@ -479,7 +479,12 @@ async def parse_invitation(
         extract_tender_no,
         format_brief_notes,
     )
-    from api.services.tenders.outline import choose_layout_mode, extract_outline
+    from api.services.tenders.outline import (
+        apply_auth_outline,
+        choose_layout_mode,
+        extract_auth_need,
+        extract_outline,
+    )
     from api.services.tenders.performance import (
         extract_performance_requirement,
         format_requirement,
@@ -489,6 +494,12 @@ async def parse_invitation(
     )
 
     chapter, outline_items = extract_outline(invitation)
+    brief.authNeed = extract_auth_need(invitation, outline_items)
+    outline_items = apply_auth_outline(
+        outline_items,
+        has_agent=has_agent,
+        auth_need=brief.authNeed,
+    )
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
     brief.outlineChapter = chapter
     brief.outlineItems = outline_items
@@ -589,6 +600,13 @@ async def parse_invitation(
             )
     else:
         notes.append("未从招标书抽出「投标/响应文件格式」章节，生成仍用公司固定模板")
+    if brief.authNeed == "required":
+        notes.append("招标书要求提供授权委托书，请填写委托代理人并上传身份证")
+    elif brief.authNeed == "optional":
+        if has_agent:
+            notes.append("已填委托代理人，授权委托书将写入并贴身份证")
+        else:
+            notes.append("招标书有授权委托书格式；未填委托人则默认跳过，法人自签即可")
     notes.extend(format_brief_notes(brief.documentFormat))
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")

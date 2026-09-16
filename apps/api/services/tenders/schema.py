@@ -191,6 +191,8 @@ class BidBrief(BaseModel):
     agentName: str = Field(default="")
     agentIdNo: str = Field(default="")
     agentAuthUntil: str = Field(default="")
+    # required=招标书强制委托；optional=有格式页但法人可自签；空=未抽出
+    authNeed: str = Field(default="")
 
     trafficFeeNote: str = Field(default="质保期外流量年收费标准：7元/年")
     extraNote: str = Field(default="")
@@ -224,6 +226,8 @@ class BidBrief(BaseModel):
 
     # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标招标书大纲组卷。
     layoutMode: str = Field(default="chapter5")
+    # business=只出商务标；technical=只出技术标
+    generateVolume: str = Field(default="business")
     outlineChapter: str = Field(default="")
     outlineItems: list[OutlineItem] = Field(default_factory=list)
     documentFormat: DocumentFormat = Field(default_factory=DocumentFormat)

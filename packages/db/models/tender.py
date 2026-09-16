@@ -42,13 +42,19 @@ class TenderRecord(Base):
         String(64), nullable=False, default="", comment="法定代表人"
     )
     docx_file: Mapped[str] = mapped_column(
-        String(64), nullable=False, comment="storage/tenders 下 docx 文件名"
+        String(64), nullable=False, comment="storage/tenders 下商务标 docx 文件名"
+    )
+    tech_docx_file: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, comment="storage/tenders 下技术标 docx 文件名"
     )
     pdf_file: Mapped[str | None] = mapped_column(
         String(64), nullable=True, comment="资质 PDF 副本文件名"
     )
     download_name: Mapped[str] = mapped_column(
-        String(256), nullable=False, default="", comment="下载显示名"
+        String(256), nullable=False, default="", comment="商务标下载显示名"
+    )
+    tech_download_name: Mapped[str | None] = mapped_column(
+        String(256), nullable=True, comment="技术标下载显示名"
     )
     pdf_download_name: Mapped[str | None] = mapped_column(
         String(256), nullable=True, comment="资质 PDF 下载名"

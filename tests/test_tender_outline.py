@@ -2,7 +2,17 @@
 
 from __future__ import annotations
 
-from api.services.tenders.outline import classify_kind, compact_title, extract_outline, source_for_kind
+from api.services.tenders.categories import is_volume_label, item_volume
+from api.services.tenders.outline import (
+    classify_kind,
+    compact_title,
+    dedupe_outline_items,
+    extract_outline,
+    is_seal_register,
+    items_for_volume,
+    source_for_kind,
+)
+from api.services.tenders.schema import BidBrief, OutlineItem
 
 
 def test_classify_kind_rules() -> None:
@@ -17,6 +27,9 @@ def test_classify_kind_rules() -> None:
     assert classify_kind("资质证明资料") == "scan"
     assert classify_kind("业绩证明资料") == "performance"
     assert classify_kind("印鉴预留备案表") == "company"
+    assert classify_kind("印件备案表（附件七）") == "company"
+    assert is_seal_register(title="印鉴预留备案表")
+    assert is_seal_register(title="印件备案表（附件七）")
     assert classify_kind("商务条款偏离表") == "biz_dev"
     assert classify_kind("技术规范书偏离表") == "tech_dev"
     assert classify_kind("知识产权不侵权承诺函") == "commitment_copy"
@@ -24,12 +37,45 @@ def test_classify_kind_rules() -> None:
     assert classify_kind("企业业绩") == "performance"
     assert classify_kind("原厂生产承诺") == "factory"
     assert classify_kind("技术标（实施方案）") == "tech_plan"
+    assert classify_kind("商务标") == "unknown"
+    assert is_volume_label("商务标")
+    assert is_volume_label("技术标")
+    assert item_volume(kind="quote", title="分项报价表") == "business"
+    assert item_volume(kind="tech_plan", title="实施方案") == "technical"
     assert classify_kind("营业执照") == "scan"
+    assert classify_kind("企业资质") == "scan"
+    assert classify_kind("企业资质文件") == "scan"
     assert classify_kind("直接采购文件税务信息表") == "company"
     assert classify_kind("无意义标题甲乙丙") == "unknown"
     assert source_for_kind("letter") == "generate"
     assert source_for_kind("commitment_copy") == "copy"
     assert source_for_kind("letter", skipped=True) == "skip"
+
+
+def test_extract_auth_need_and_default_skip() -> None:
+    from api.services.tenders.outline import apply_auth_outline, extract_auth_need, extract_outline
+
+    optional = """
+第四部分 投标文件格式
+法定代表人身份证明
+法定代表人授权委托书
+投标承诺书
+"""
+    _ch, items = extract_outline(optional)
+    assert extract_auth_need(optional, items) == "optional"
+    skipped = apply_auth_outline(items, has_agent=False, auth_need="optional")
+    auth = next(item for item in skipped if item.kind == "auth")
+    assert auth.skipped
+    kept = apply_auth_outline(items, has_agent=True, auth_need="optional")
+    assert not next(item for item in kept if item.kind == "auth").skipped
+
+    required_text = "投标人必须提供法定代表人授权委托书，未提供按废标处理。"
+    assert extract_auth_need(required_text, items) == "required"
+    forced = apply_auth_outline(items, has_agent=False, auth_need="required")
+    assert not next(item for item in forced if item.kind == "auth").skipped
+
+    personally = "法定代表人亲自投标的，可不提供授权委托书。"
+    assert extract_auth_need(personally, items) == "optional"
 
 
 def test_extract_outline_drops_unknown_titles() -> None:
@@ -134,6 +180,7 @@ def test_drops_template_fields_and_eligibility_clauses() -> None:
 附件五：投标承诺书
 附件六：投标保证金
 附件七：印鉴预留备案表
+印件备案表（附件七）
 附件八：投标报价单
 附件九：商务偏离表
 1.招标编号：ELHT-CL-2026-03-
@@ -161,6 +208,49 @@ def test_drops_template_fields_and_eligibility_clauses() -> None:
     assert "资格要求" not in joined
     assert "民事责任" not in joined
     assert "经营场所" not in joined
+    assert "印件备案表" not in titles
+
+
+def test_dedupe_keeps_one_seal_register() -> None:
+    from api.services.tenders.schema import OutlineItem
+
+    items = [
+        OutlineItem(id="o01", title="印件备案表（附件七）", kind="company", source="copy"),
+        OutlineItem(id="o02", title="印鉴预留备案表", kind="company", source="copy"),
+        OutlineItem(id="o03", title="投标函", kind="letter", source="generate"),
+    ]
+    out = dedupe_outline_items(items)
+    titles = [item.title for item in out]
+    assert titles.count("印鉴预留备案表") == 1
+    assert "印件备案表（附件七）" not in titles
+    assert "投标函" in titles
+    joined = " ".join(titles)
+    assert "招标编号" not in joined
+    assert "招标单位" not in joined
+    assert "资格要求" not in joined
+    assert "民事责任" not in joined
+    assert "经营场所" not in joined
+
+
+def test_extract_drops_mashed_biz_dev_form_header() -> None:
+    text = """
+第四部分 投标文件格式
+附件八：投标报价单
+附件九：商务偏离表
+1、商务偏离表招标项目：
+序号 招标文件条目号
+2、技术规格偏离表及建议招标项目：
+序号 货物名称
+"""
+    _chapter, items = extract_outline(text)
+    titles = [item.title for item in items]
+    assert titles.count("商务偏离表") == 1
+    assert "商务偏离表招标项目" not in titles
+    assert "技术规格偏离表及建议" in titles
+    assert "技术规格偏离表及建议招标项目" not in titles
+    kinds = [item.kind for item in items]
+    assert kinds.count("biz_dev") == 1
+    assert kinds.count("tech_dev") == 1
 
 
 def test_drops_contact_and_binding_instructions() -> None:
@@ -389,3 +479,30 @@ def test_attach_bodies_from_last_format_chapter_not_toc() -> None:
     assert "二连浩特市联源热电有限公司" not in commit.body
     seal = by["印鉴预留备案表"]
     assert "三处备案印鉴为红色章" in seal.body or "印鉴备案" in seal.body or "公章" in seal.body
+
+
+def test_items_for_volume_splits_and_drops_labels() -> None:
+    brief = BidBrief(
+        layoutMode="outline",
+        outlineItems=[
+            OutlineItem(id="a", title="商务标", kind="unknown"),
+            OutlineItem(id="b", title="投标函", kind="letter"),
+            OutlineItem(id="c", title="分项报价表", kind="quote"),
+            OutlineItem(id="d", title="技术标", kind="tech_plan"),
+            OutlineItem(id="e", title="技术偏差表", kind="tech_dev"),
+            OutlineItem(id="f", title="实施方案", kind="tech_plan"),
+        ],
+    )
+    biz = items_for_volume(brief, "business")
+    tech = items_for_volume(brief, "technical")
+    biz_kinds = [item.kind for item in biz]
+    tech_kinds = [item.kind for item in tech]
+    assert "letter" in biz_kinds
+    assert "quote" in biz_kinds
+    assert "tech_plan" not in biz_kinds
+    assert "tech_dev" not in biz_kinds
+    assert "quote" not in tech_kinds
+    assert "letter" not in tech_kinds
+    assert "tech_dev" in tech_kinds
+    assert "tech_plan" in tech_kinds
+    assert not any(is_volume_label(item.title) for item in biz + tech)

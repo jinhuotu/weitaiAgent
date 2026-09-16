@@ -34,6 +34,7 @@ from api.services.tenders.outline import tech_chapter_titles
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
 from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
+    _set_row_height,
     append_placeholder_section,
     collect_slots,
     draw_placeholder_box,
@@ -1010,6 +1011,13 @@ def _no_underline(run) -> None:
     rpr.append(uel)
 
 
+def _keep_one_para(cell: _Cell) -> None:
+    tc = cell._tc
+    paras = [child for child in list(tc) if child.tag == qn("w:p")]
+    for extra in paras[1:]:
+        tc.remove(extra)
+
+
 def _write_cell(
     cell: _Cell,
     text: str,
@@ -1019,14 +1027,16 @@ def _write_cell(
     underline: bool = True,
     center: bool = False,
     bottom_line: bool = False,
+    tight: bool = False,
 ) -> None:
     """单元格填空：默认下划线、不加粗；表头等需加粗时显式传 bold=True。"""
     cell.text = ""
     cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
     para = cell.paragraphs[0]
     _strip_para_bottom(para)
-    para.paragraph_format.space_before = Pt(2)
-    para.paragraph_format.space_after = Pt(2)
+    pad = Pt(0) if tight else Pt(2)
+    para.paragraph_format.space_before = pad
+    para.paragraph_format.space_after = pad
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER if center else WD_ALIGN_PARAGRAPH.LEFT
     lines = (text or "").split("\n")
     for i, line in enumerate(lines):
@@ -1495,6 +1505,39 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
             )
         )
     return rows or [("1", "按招标文件要求供货", "按招标文件要求供货", "无偏差")]
+
+
+def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
+    """商务偏离只写交货/质保/付款等条款，不用报价单技术参数顶。"""
+    rows: list[tuple[str, str, str, str]] = []
+
+    def add(title: str, req: str, resp: str) -> None:
+        req = (req or "").strip()
+        if not req:
+            return
+        rows.append((str(len(rows) + 1), f"{title}：{req}", (resp or req).strip(), "无偏差"))
+
+    if brief.deliveryDays:
+        add("交货期", f"{brief.deliveryDays}天内交货", f"响应：中标通知后{brief.deliveryDays}天内交货")
+    if brief.warrantyYears:
+        add("质保期", f"{brief.warrantyYears}年", f"响应：质保期{brief.warrantyYears}年")
+    if brief.bidValidityDays:
+        add("投标有效期", f"{brief.bidValidityDays}日历天", f"响应：投标有效期{brief.bidValidityDays}日历天")
+    quality = (brief.quality or "").strip()
+    if quality:
+        add("质量要求", quality, f"响应：{quality}")
+    pay = []
+    if brief.prepaidPct:
+        pay.append(f"预付款{brief.prepaidPct}%")
+    if brief.arrivalPct:
+        pay.append(f"到货款{brief.arrivalPct}%")
+    if brief.settlementPct:
+        pay.append(f"验收款{brief.settlementPct}%")
+    if brief.warrantyPct:
+        pay.append(f"质保金{brief.warrantyPct}%")
+    if pay:
+        add("付款条件", "、".join(pay), "响应：" + "、".join(pay))
+    return rows or [("1", "按招标文件商务条款执行", "完全响应招标文件商务条款，无偏差", "无偏差")]
 
 
 def infer_factory_role(brief: BidBrief) -> str:
@@ -2307,7 +2350,16 @@ def _fill_quote_section(
     table.autofit = False
     col_twips = _distribute_twips(_usable_width_twips(doc), ratios)
     for i, title in enumerate(titles):
-        _write_cell(table.rows[0].cells[i], title, size=9, bold=True, underline=False, center=True, bottom_line=False)
+        _write_cell(
+            table.rows[0].cells[i],
+            title,
+            size=9,
+            bold=True,
+            underline=False,
+            center=True,
+            bottom_line=False,
+            tight=True,
+        )
     for i, line in enumerate(filled.lines, start=1):
         values = _quote_row_values(line, roles, traffic_note=brief.trafficFeeNote)
         for j, val in enumerate(values):
@@ -2322,6 +2374,7 @@ def _fill_quote_section(
                 underline=False,
                 center=center,
                 bottom_line=False,
+                tight=True,
             )
     summaries = (
         ("不含税合计", money_text(filled.total_ex_tax)),
@@ -2337,14 +2390,41 @@ def _fill_quote_section(
         name_i = 1 if cols > 1 else 0
     for offset, (label, value) in enumerate(summaries):
         row = table.rows[base + offset]
-        for j in range(cols):
-            _write_cell(row.cells[j], "", size=9, bold=False, underline=False, bottom_line=False)
-        if "seq" in roles:
-            _write_cell(row.cells[0], str(start_seq + offset), size=9, bold=True, underline=False, center=True, bottom_line=False)
-        _write_cell(row.cells[name_i], label, size=9, bold=True, underline=False, center=False, bottom_line=False)
-        _write_cell(row.cells[amount_i], value, size=9, bold=True, underline=False, center=True, bottom_line=False)
         if amount_i > name_i + 1:
             row.cells[name_i].merge(row.cells[amount_i - 1])
+            _keep_one_para(row.cells[name_i])
+        if "seq" in roles:
+            _write_cell(
+                row.cells[0],
+                str(start_seq + offset),
+                size=9,
+                bold=True,
+                underline=False,
+                center=True,
+                bottom_line=False,
+                tight=True,
+            )
+        _write_cell(
+            row.cells[name_i],
+            label,
+            size=9,
+            bold=True,
+            underline=False,
+            center=False,
+            bottom_line=False,
+            tight=True,
+        )
+        _write_cell(
+            row.cells[amount_i],
+            value,
+            size=9,
+            bold=True,
+            underline=False,
+            center=True,
+            bottom_line=False,
+            tight=True,
+        )
+        _set_row_height(row, 0.62)
     _apply_fixed_table_widths(table, col_twips)
     return notes
 
@@ -2592,7 +2672,14 @@ def _fill_perf_table(table: Table, line: PerformanceLine | None) -> None:
             _write_cell(row.cells[-1], value, size=10.5, bold=False, underline=False)
 
 
-def _append_pdf_pages(doc: Document, pdf_path: Path, *, max_pages: int = 6) -> int:
+def _append_pdf_pages(
+    doc: Document,
+    pdf_path: Path,
+    *,
+    max_pages: int = 6,
+    title: bool = True,
+    leading_break: bool = True,
+) -> int:
     try:
         import pypdfium2 as pdfium
     except ImportError:
@@ -2605,34 +2692,65 @@ def _append_pdf_pages(doc: Document, pdf_path: Path, *, max_pages: int = 6) -> i
         logger.exception("open qualification pdf failed")
         return 0
 
-    count = min(len(pdf), max_pages)
-    if count <= 0:
-        return 0
-    from api.services.tenders.placeholders import _render_pdf_page_jpeg
+    try:
+        count = min(len(pdf), max_pages)
+        if count <= 0:
+            return 0
+        from api.services.tenders.placeholders import _render_pdf_page_jpeg
 
-    doc.add_page_break()
-    para = doc.add_paragraph()
-    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = para.add_run("附件：企业资质文件扫描件")
-    _font(run, 16, bold=True)
-    inserted = 0
-    for i in range(count):
+        if leading_break:
+            doc.add_page_break()
+        if title:
+            para = doc.add_paragraph()
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = para.add_run("附件：企业资质文件扫描件")
+            _font(run, 16, bold=True)
+        inserted = 0
+        for i in range(count):
+            try:
+                page = pdf[i]
+                buf = _render_pdf_page_jpeg(page)
+                if i > 0:
+                    doc.add_page_break()
+                cap = doc.add_paragraph()
+                cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                cap_run = cap.add_run(f"资质文件 第 {i + 1} 页")
+                _font(cap_run, 10.5)
+                pic = doc.add_paragraph()
+                pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pic.add_run().add_picture(buf, width=Cm(15.5))
+                inserted += 1
+            except Exception:
+                logger.exception("render qualification page %s failed", i + 1)
+        return inserted
+    finally:
         try:
-            page = pdf[i]
-            buf = _render_pdf_page_jpeg(page)
-            if i > 0:
-                doc.add_page_break()
-            cap = doc.add_paragraph()
-            cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            cap_run = cap.add_run(f"资质文件 第 {i + 1} 页")
-            _font(cap_run, 10.5)
-            pic = doc.add_paragraph()
-            pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            pic.add_run().add_picture(buf, width=Cm(15.5))
-            inserted += 1
+            pdf.close()
         except Exception:
-            logger.exception("render qualification page %s failed", i + 1)
-    return inserted
+            pass
+
+
+def qualification_attach_notes(
+    doc: Document,
+    pdf_path: Path | None,
+    *,
+    title: bool = True,
+    leading_break: bool = True,
+) -> list[str]:
+    if pdf_path and pdf_path.is_file():
+        pages = _append_pdf_pages(
+            doc, pdf_path, title=title, leading_break=leading_break
+        )
+        if pages:
+            return [
+                f"已插入资质文件 {pages} 页扫描件",
+                "资质彩页/扫描件未单独编页，装订时请按招标书对图纸、彩页的约定处理",
+            ]
+        return ["资质 PDF 未能渲染为图片，Word 中未插入扫描件"]
+    return [
+        "未找到资质 PDF。可将《伟泰科技资质文件最终版.pdf》复制到 "
+        "storage/tender-assets/weitai-qualifications.pdf 后重新生成"
+    ]
 
 
 _PAGE_BODY_CM = 22.0
@@ -3215,25 +3333,14 @@ def build_bid_docx(
             if note not in warnings:
                 warnings.append(note)
 
-    pages = 0
     if brief.attachQualifications:
-        if qualification_pdf and qualification_pdf.is_file():
-            pages = _append_pdf_pages(doc, qualification_pdf)
-            if pages == 0:
-                warnings.append("资质 PDF 未能渲染为图片，Word 中未插入扫描件")
-        else:
-            warnings.append(
-                "未找到资质 PDF。可将《伟泰科技资质文件最终版.pdf》复制到 "
-                "storage/tender-assets/weitai-qualifications.pdf 后重新生成"
-            )
+        warnings.extend(qualification_attach_notes(doc, qualification_pdf))
 
     _finalize_pagination(doc, brief.documentFormat)
     for i, section in enumerate(doc.sections):
         _ensure_header(section, brief.projectName, cover=(i == 0))
     warnings.extend(_apply_template_format(doc, brief))
     doc.save(str(dest))
-    if pages:
-        warnings.append(f"已插入资质文件 {pages} 页扫描件")
     tail = "封面与目录不编页码，从正文首页起编。目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
     if brief.documentFormat.tocNeedPageNos:
         tail = (

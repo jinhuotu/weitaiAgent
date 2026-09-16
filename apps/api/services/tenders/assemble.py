@@ -39,10 +39,13 @@ from api.services.tenders.modules import COPY_KINDS, MODULE_KINDS, is_seal_regis
 from api.services.tenders.outline import (
     build_outline_toc_tree,
     compact_title,
+    dedupe_outline_items,
     drop_ocr_junk_lines,
     fill_copy_blanks,
+    items_for_volume,
     looks_like_form_template,
     split_mashed_zhi_line,
+    unfold_form_sign_lines,
 )
 from api.services.tenders.placeholders import (
     append_placeholder_section,
@@ -60,9 +63,10 @@ _SONG = "宋体"
 # 函/授权/承诺书沿用招标书空白稿版式；报价/偏离/业绩仍走结构化模块。
 _FORM_LAYOUT_KINDS = frozenset({"letter", "auth", "factory", "commitment_copy"})
 _SIGN_LABEL = re.compile(
-    r"^(投标人名称|供应商名称|投标人|供应商|法定代表人或其委托代理人|"
-    r"法定代表人或委托代理人|法定代表人|委托代理人|授权代表|"
-    r"联系人|联系电话|电话|地址|住址)[：:]?(.*)$"
+    r"^(投标人名称|供应商名称|投标人|供应商|法定代表人或授权代表|"
+    r"法定代表人或其委托代理人|法定代表人或委托代理人|法定代表人|"
+    r"委托代理人|授权代表|联系人|联系电话|电话|地址|住址)"
+    r"(?:[（(]([^)）]*)[)）])?[：:]*(.*)$"
 )
 _SIGN_TOKEN = re.compile(
     r"(投标人|供应商|法定代表人|授权代表|委托代理人|联系人|联系电话|电话|地址|日期|（章）|\(章\)|签字)"
@@ -70,6 +74,7 @@ _SIGN_TOKEN = re.compile(
 _ATTACH_LINE = re.compile(
     r"^(附件[（(]?[一二三四五六七八九十0-9]+[)）]?[：:]?)(.*)$"
 )
+_QUAL_PACK_MARKS = ("企业资质", "资质证明", "资质文件", "资格审查资料", "资格证明资料")
 _INLINE_FORMAT_HEAD = re.compile(
     r"第[一二三四五六七八九十0-9]+[章节部分][^。\n]{0,24}(?:投标文件格式|响应文件格式)"
 )
@@ -82,14 +87,20 @@ def assemble_bid_docx(
     qualification_pdf: Path | None = None,
     catalog_slots: list | None = None,
     catalog_media: dict | None = None,
+    volume: str | None = None,
 ) -> tuple[Path, list[str]]:
     warnings: list[str] = []
-    # 目录与正文都按 outlineItems 当前顺序；跳过项不入卷。前端可重排该数组。
-    items = [
-        item
-        for item in (brief.outlineItems or [])
-        if not item.skipped and (item.kind or "").strip() not in {"", "unknown"}
-    ]
+    vol = (volume or "").strip()
+    if vol in {"business", "technical"}:
+        items = items_for_volume(brief, vol)
+    else:
+        # 目录与正文都按 outlineItems 当前顺序；跳过项不入卷。前端可重排该数组。
+        items = [
+            item
+            for item in (brief.outlineItems or [])
+            if not item.skipped and (item.kind or "").strip() not in {"", "unknown"}
+        ]
+        items = dedupe_outline_items(items)
     if not items:
         warnings.append("组卷大纲为空或已全部跳过，未按大纲生成")
         from api.services.tenders.document import build_bid_docx
@@ -107,7 +118,7 @@ def assemble_bid_docx(
     doc = Document()
     apply_section_page(doc.sections[0], fmt)
     _pin_cjk_fonts(doc)
-    _write_cover(doc, brief, fmt)
+    _write_cover(doc, brief, fmt, volume=vol)
     _add_next_section(doc, fmt)
     bookmarks = [f"toc_{(item.id or f'o{i + 1:02d}')}" for i, item in enumerate(items)]
     _write_toc(doc, items, brief, fmt, bookmarks)
@@ -121,12 +132,30 @@ def assemble_bid_docx(
     slots = catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
     media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
     inlined_ids: set[str] = set()
+    qual_tried = False
     for i, item in enumerate(items):
         if not (i == 0 and fmt.pageNumberStart == "body"):
             _chapter_break(doc)
         kind = (item.kind or "unknown").strip() or "unknown"
         source = (item.source or "").strip() or "copy"
         raw_body = (item.body or "").strip()
+        if brief.attachQualifications and not qual_tried and _is_qual_pack_item(item) and vol != "technical":
+            from api.services.tenders.document import qualification_attach_notes
+
+            _write_heading(doc, item.title, fmt, bookmarks[i])
+            notes = qualification_attach_notes(
+                doc, qualification_pdf, title=False, leading_break=False
+            )
+            for note in notes:
+                if note not in warnings:
+                    warnings.append(note)
+            if not any("已插入资质文件" in n for n in notes):
+                draw_placeholder_box(
+                    doc,
+                    PlaceholderItem(key=item.id or "scan", title=item.title, hint="装订时附原件"),
+                )
+            qual_tried = True
+            continue
         keep_form = kind in _FORM_LAYOUT_KINDS and looks_like_form_template(raw_body)
         # 身份证明从 PDF 抽出来会拆成「成立时 / 间 / 年 / 月 / 日」，用模块排版
         # 印鉴预留表是格子，OCR 粘成一行，不能当正文复制
@@ -223,9 +252,20 @@ def assemble_bid_docx(
         warnings.append("招标书要求封面加盖公章，请在打印后于封面预留处盖章")
 
     if brief.includePlaceholders:
-        attach = [s for s in slots if (s.key or "").strip() not in inlined_ids]
+        from api.services.tenders.categories import slot_volume
+
+        attach = []
+        for s in slots:
+            key = (s.key or "").strip()
+            if key in inlined_ids:
+                continue
+            if vol in {"business", "technical"} and slot_volume(key, s.title) != vol:
+                continue
+            attach.append(s)
         if attach:
-            n_filled, n_boxes, insert_notes = append_placeholder_section(doc, attach, media)
+            n_filled, n_boxes, insert_notes = append_placeholder_section(
+                doc, attach, media, heading=vol != "technical"
+            )
         else:
             n_filled, n_boxes, insert_notes = 0, 0, []
         if n_boxes:
@@ -234,19 +274,19 @@ def assemble_bid_docx(
             if note not in warnings:
                 warnings.append(note)
 
-    if qualification_pdf and qualification_pdf.is_file() and brief.attachQualifications:
-        from api.services.tenders.document import _append_pdf_pages
+    if brief.attachQualifications and not qual_tried and vol != "technical":
+        from api.services.tenders.document import qualification_attach_notes
 
-        pages = _append_pdf_pages(doc, qualification_pdf)
-        if pages:
-            warnings.append(f"已插入资质文件 {pages} 页扫描件")
-            warnings.append("资质彩页/扫描件未单独编页，装订时请按招标书对图纸、彩页的约定处理")
+        for note in qualification_attach_notes(doc, qualification_pdf):
+            if note not in warnings:
+                warnings.append(note)
 
     for si, section in enumerate(doc.sections):
         numbered, restart = section_page_flags(si, fmt, body_section=body_section_index)
         _ensure_header(section, brief.projectName, cover=(si == 0))
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
 
+    _collapse_extra_page_breaks(doc)
     _fill_toc_pages(doc, fmt)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +298,14 @@ def _add_next_section(doc: Document, fmt: DocumentFormat):
     section = doc.add_section(WD_SECTION.NEW_PAGE)
     apply_section_page(section, fmt)
     return section
+
+
+def _clear_keep_next(p_el) -> None:
+    p_pr = p_el.find(qn("w:pPr"))
+    if p_pr is None:
+        return
+    for el in p_pr.findall(qn("w:keepNext")):
+        p_pr.remove(el)
 
 
 def _chapter_break(doc: Document) -> None:
@@ -275,10 +323,118 @@ def _chapter_break(doc: Document) -> None:
         sect = _p_sectpr(child)
         if sect is not None and _sect_starts_new_page(sect):
             return
-        text = "".join(node.text or "" for node in child.iter(qn("w:t"))).strip()
-        if text:
+        text = "".join(node.text or "" for node in child.iter(qn("w:t"))).replace("\u200b", "").strip()
+        if text or _p_has_drawing(child):
+            # 末段 keep_with_next 会把分页符粘走，整页只剩页眉
+            _clear_keep_next(child)
             break
+        _clear_keep_next(child)
     doc.add_page_break()
+
+
+def _p_has_drawing(el) -> bool:
+    return next(el.iter(qn("w:drawing")), None) is not None
+
+
+def _is_qual_pack_item(item: OutlineItem) -> bool:
+    kind = (item.kind or "").strip()
+    if kind not in {"scan", "company"}:
+        return False
+    n = compact_title(item.title)
+    return any(k in n for k in _QUAL_PACK_MARKS)
+
+
+def _p_plain(el) -> str:
+    return "".join(node.text or "" for node in el.iter(qn("w:t"))).replace("\u200b", "").strip()
+
+
+def _is_blank_para(el) -> bool:
+    return el.tag == qn("w:p") and not _p_plain(el) and not _p_has_drawing(el)
+
+
+def _is_empty_break_para(el) -> bool:
+    return _is_blank_para(el) and _paragraph_has_page_break(el)
+
+
+def _strip_page_br(el) -> None:
+    for run in list(el.iter(qn("w:r"))):
+        for br in list(run.findall(qn("w:br"))):
+            if br.get(qn("w:type")) == "page":
+                run.remove(br)
+
+
+def _set_el_page_break_before(el, on: bool = True) -> None:
+    p_pr = el.find(qn("w:pPr"))
+    if p_pr is None:
+        p_pr = OxmlElement("w:pPr")
+        el.insert(0, p_pr)
+    for old in list(p_pr.findall(qn("w:pageBreakBefore"))):
+        p_pr.remove(old)
+    if on:
+        node = OxmlElement("w:pageBreakBefore")
+        node.set(qn("w:val"), "true")
+        p_pr.append(node)
+
+
+def _collapse_extra_page_breaks(doc: Document) -> None:
+    """空段里的 w:br page 在预览里会单独占一页只剩页眉；改挂到下一节有内容的段落上。"""
+    body = doc.element.body
+    guard = 0
+    while guard < 80:
+        guard += 1
+        target = None
+        for child in list(body):
+            if child.tag == qn("w:sectPr"):
+                continue
+            if _is_empty_break_para(child):
+                target = child
+                break
+        if target is None:
+            break
+        nxt = target.getnext()
+        while nxt is not None and nxt.tag == qn("w:p") and _is_blank_para(nxt):
+            dead = nxt
+            nxt = nxt.getnext()
+            try:
+                body.remove(dead)
+            except ValueError:
+                break
+        if nxt is not None and nxt.tag == qn("w:p") and not _is_blank_para(nxt):
+            _set_el_page_break_before(nxt, True)
+            try:
+                body.remove(target)
+            except ValueError:
+                break
+            continue
+        if nxt is not None and nxt.tag == qn("w:tbl"):
+            _strip_page_br(target)
+            _set_el_page_break_before(target, True)
+            continue
+        try:
+            body.remove(target)
+        except ValueError:
+            break
+
+    prev_new_page = False
+    for child in list(body):
+        if child.tag == qn("w:sectPr"):
+            prev_new_page = False
+            continue
+        if child.tag == qn("w:tbl"):
+            prev_new_page = False
+            continue
+        if child.tag != qn("w:p"):
+            continue
+        p_pr = child.find(qn("w:pPr"))
+        has_before = p_pr is not None and p_pr.find(qn("w:pageBreakBefore")) is not None
+        sect = _p_sectpr(child)
+        if has_before and prev_new_page:
+            _set_el_page_break_before(child, False)
+            has_before = False
+        if _p_plain(child) or _p_has_drawing(child):
+            prev_new_page = bool(has_before or (sect is not None and _sect_starts_new_page(sect)))
+        elif _paragraph_has_page_break(child) or has_before:
+            prev_new_page = True
 
 
 def _fill_toc_pages(doc: Document, fmt: DocumentFormat) -> None:
@@ -302,7 +458,7 @@ def _bookmark_first_new(doc: Document, start: int, name: str) -> None:
             return
 
 
-def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat) -> None:
+def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume: str = "") -> None:
     font = fmt.fontName
     for _ in range(4):
         doc.add_paragraph()
@@ -318,7 +474,13 @@ def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat) -> None:
         )
     sub = doc.add_paragraph()
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _run(sub, "投 标 文 件", size=fmt.coverDocSizePt, bold=True, font=font)
+    if volume == "technical":
+        doc_title = "技 术 标 投 标 文 件"
+    elif volume == "business":
+        doc_title = "商 务 标 投 标 文 件"
+    else:
+        doc_title = "投 标 文 件"
+    _run(sub, doc_title, size=fmt.coverDocSizePt, bold=True, font=font)
     if fmt.coverShowCopyMark:
         mark = doc.add_paragraph()
         mark.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -480,11 +642,22 @@ def _write_copied_sign_line(doc: Document, block: str) -> None:
         _form_para(doc, block, size=12, align="left", space_after=2, line_spacing=1.15)
         return
     label = matched.group(1) + "："
-    rest = matched.group(2) or ""
-    suf_m = re.search(r"([（(][^)）]*[)）])\s*$", rest)
-    suffix = suf_m.group(1) if suf_m else ""
-    value = rest[: suf_m.start()] if suf_m else rest
-    value = re.sub(r"[＿_—\-－\s]+", "", value)
+    rest = (matched.group(3) or "").lstrip("：:")
+    suffix = f"（{matched.group(2)}）" if matched.group(2) else ""
+    if not suffix:
+        lead = re.match(r"^[（(]([^)）]*)[)）][：:]*(.*)$", rest)
+        if lead:
+            suffix = f"（{lead.group(1)}）"
+            rest = lead.group(2) or ""
+        else:
+            suf_m = re.search(r"([（(][^)）]*[)）])\s*$", rest)
+            suffix = suf_m.group(1) if suf_m else ""
+            rest = rest[: suf_m.start()] if suf_m else rest
+    else:
+        suf_m = re.search(r"([（(][^)）]*[)）])\s*$", rest)
+        if suf_m:
+            rest = rest[: suf_m.start()]
+    value = re.sub(r"[＿_—\-－\s：:]+", "", rest)
     if "签字" in f"{label}{suffix}":
         value = ""
     para = doc.add_paragraph()
@@ -545,7 +718,8 @@ def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat) -> None:
             _write_copied_salute(doc, block)
             continue
         if role == "sign_row":
-            _write_sign_columns(doc, _split_sign_columns(block) or [block], fmt)
+            for col in _split_sign_columns(block) or [block]:
+                _write_copied_sign_line(doc, col)
             continue
         if role == "sign":
             _write_copied_sign_line(doc, block)
@@ -732,7 +906,12 @@ def _paragraphs_from_body(text: str) -> list[str]:
     spread: list[str] = []
     for ln in lines:
         spread.extend(split_mashed_zhi_line(ln))
-    return _coalesce_broken_form_lines(drop_ocr_junk_lines(spread))
+    merged = _coalesce_broken_form_lines(drop_ocr_junk_lines(spread))
+    out: list[str] = []
+    for ln in merged:
+        parts = unfold_form_sign_lines(ln).splitlines()
+        out.extend(p.strip() for p in parts if p.strip())
+    return out or merged
 
 
 _UNDER_ONLY = re.compile(r"^[-—–_＿\s]{2,}$")

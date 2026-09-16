@@ -41,6 +41,8 @@ def test_record_to_dict_marks_missing_docx(tmp_path, monkeypatch):
     (out / "aabbccddee01.docx").write_bytes(b"PK")
     data2 = _record_to_dict(row, include_brief=True)
     assert data2["docxAvailable"] is True
+    assert data2["techDocxAvailable"] is False
+    assert data2["techDocxFile"] is None
     assert data2["brief"]["projectName"] == "测试项目"
     assert data2["status"] == "processing"
     assert data2["workflowLocked"] is False

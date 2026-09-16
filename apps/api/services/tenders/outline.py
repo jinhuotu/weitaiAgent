@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from api.services.tenders.schema import OUTLINE_KINDS, OutlineItem
+from api.services.tenders.schema import BidBrief, OUTLINE_KINDS, OutlineItem
 
 _FORMAT_HEAD = re.compile(
     r"(?P<title>(?:第[一二三四五六七八九十0-9]+[章节部分][^\n]{0,24})?"
@@ -46,6 +46,12 @@ _MASHED_ZHI = re.compile(
     r"^((?:投标|响应)?承诺书|承诺函|投标函|响应函)(致[：:]?.*)$",
     re.M,
 )
+_ZHI_BODY = re.compile(r"(我公司|我方现|如下承诺|现做出如下|保证投标)")
+_SIGN_HEAD = re.compile(
+    r"(投标人名称|供应商名称|法定代表人或授权代表|法定代表人或其委托代理人|"
+    r"法定代表人或委托代理人|法定代表人|委托代理人|授权代表|"
+    r"投标人|供应商|联系人|联系电话|日期)"
+)
 _PHONE = re.compile(r"\d{7,}")
 _FIELD_LABEL = re.compile(
     r"^(招标编号|项目编号|采购编号|招标单位|采购人|项目名称|投标人名称|"
@@ -77,6 +83,21 @@ _SENTENCE = re.compile(
 
 _ORG_TAIL = re.compile(r"(有限公司|股份有限公司|集团有限公司|集团公司)$")
 _FORMAT_IN_TITLE = re.compile(r"(投标文件格式|响应文件格式|投标文件组成|响应文件组成)")
+# 空白稿表头常把「商务偏离表」和「招标项目：」粘成一行
+_FORM_TITLE_TAIL = re.compile(r"(招标项目|采购项目|投标项目|项目名称|货物名称)$")
+_ONCE_KINDS = frozenset({"biz_dev", "tech_dev"})
+_SEAL_KIND = "seal_reg"
+
+_AUTH_OPTIONAL = re.compile(
+    r"法定代表人亲自.{0,24}(可不提供|不必提供|无需提供|可以不提供).{0,12}授权"
+    r"|不(另行)?委托.{0,16}(可不提供|无需提供).{0,12}授权"
+    r"|授权委托书.{0,16}(可不提供|非必须|不是必须)"
+)
+_AUTH_REQUIRED = re.compile(
+    r"(必须|须|应当)(提供|出具|提交).{0,12}授权委托"
+    r"|授权委托书.{0,24}(必须提供|未提供.{0,10}废标|否则.{0,8}废标)"
+    r"|不得由法定代表人亲自"
+)
 
 _GENERATE_KINDS = frozenset(
     {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan"}
@@ -95,8 +116,19 @@ def compact_title(text: str) -> str:
     return re.sub(r"[\s/／|｜]+", "", text or "")
 
 
-def _outline_key(title: str) -> str:
+def _peel_form_suffix(title: str) -> str:
     n = compact_title(title)
+    m = _FORM_TITLE_TAIL.search(n)
+    if not m:
+        return title
+    head = n[: m.start()]
+    if classify_kind(head) == "unknown":
+        return title
+    return head
+
+
+def _outline_key(title: str) -> str:
+    n = compact_title(_peel_form_suffix(title))
     n = _ATTACH_HINT.sub("", n)
     n = re.sub(r"^附件", "", n)
     n = re.sub(r"[（）()：:、.．]", "", n)
@@ -131,7 +163,21 @@ def classify_kind(title: str) -> str:
         return "factory"
     if any(k in n for k in ("实施方案", "技术标")):
         return "tech_plan"
-    if any(k in n for k in ("营业执照", "资质证书", "资质证明", "扫描件", "资格证明", "保证金", "保函")):
+    if any(
+        k in n
+        for k in (
+            "营业执照",
+            "资质证书",
+            "资质证明",
+            "企业资质",
+            "资质文件",
+            "扫描件",
+            "资格证明",
+            "资格审查资料",
+            "保证金",
+            "保函",
+        )
+    ):
         return "scan"
     if any(k in n for k in ("税务信息", "关联关系", "企业基本情况", "供应商基本情况", "印鉴", "备案表")):
         return "company"
@@ -141,9 +187,16 @@ def classify_kind(title: str) -> str:
 def is_seal_register(item: OutlineItem | None = None, title: str = "") -> bool:
     t = title or (item.title if item is not None else "") or ""
     n = compact_title(t)
-    if "印鉴" in n:
+    if any(k in n for k in ("印鉴", "印件")):
         return True
     return "备案表" in n and any(k in n for k in ("章", "证件", "印章"))
+
+
+def _prefer_seal_title(left: str, right: str) -> str:
+    a, b = (left or "").strip(), (right or "").strip()
+    if "印鉴" in compact_title(a) or "印鉴" in compact_title(b):
+        return "印鉴预留备案表"
+    return a or b
 
 
 def source_for_kind(kind: str, *, skipped: bool = False) -> str:
@@ -152,6 +205,140 @@ def source_for_kind(kind: str, *, skipped: bool = False) -> str:
     if kind in _GENERATE_KINDS:
         return "generate"
     return "copy"
+
+
+def extract_auth_need(text: str, items: list[OutlineItem] | None = None) -> str:
+    blob = re.sub(r"\s+", "", text or "")
+    if _AUTH_OPTIONAL.search(blob):
+        return "optional"
+    if _AUTH_REQUIRED.search(blob):
+        return "required"
+    if any((item.kind or "").strip() == "auth" for item in (items or [])):
+        return "optional"
+    if "授权委托" in blob:
+        return "optional"
+    return ""
+
+
+def apply_auth_outline(
+    items: list[OutlineItem],
+    *,
+    has_agent: bool,
+    auth_need: str = "",
+) -> list[OutlineItem]:
+    """未填委托人且招标书未强制委托时，默认跳过授权委托书。"""
+    out: list[OutlineItem] = []
+    for item in items:
+        if (item.kind or "").strip() != "auth":
+            out.append(item)
+            continue
+        skip = not has_agent and (auth_need or "").strip() != "required"
+        out.append(
+            item.model_copy(update={"skipped": skip, "source": source_for_kind("auth", skipped=skip)})
+        )
+    return out
+
+
+def _default_volume_pool(brief: BidBrief) -> list[OutlineItem]:
+    items = [
+        OutlineItem(id="d01", title="投标函", kind="letter", source="generate"),
+        OutlineItem(id="d02", title="法定代表人身份证明", kind="legal_id", source="generate"),
+        OutlineItem(id="d03", title="授权委托书", kind="auth", source="generate"),
+        OutlineItem(id="d04", title="分项报价表", kind="quote", source="generate"),
+        OutlineItem(id="d05", title="商务偏离表", kind="biz_dev", source="generate"),
+        OutlineItem(id="d06", title="企业业绩", kind="performance", source="generate"),
+        OutlineItem(id="d07", title="原厂生产承诺", kind="factory", source="generate"),
+        OutlineItem(id="d08", title="技术偏差表", kind="tech_dev", source="generate"),
+        OutlineItem(id="d09", title="技术标（实施方案）", kind="tech_plan", source="generate"),
+    ]
+    if brief.includeCommitment:
+        items.append(OutlineItem(id="d10", title="投标承诺书", kind="commitment_copy", source="generate"))
+    return items
+
+
+def _ensure_kind(items: list[OutlineItem], kind: str, title: str) -> list[OutlineItem]:
+    if any((item.kind or "").strip() == kind and not item.skipped for item in items):
+        return items
+    items.append(OutlineItem(id=f"v-{kind}", title=title, kind=kind, source="generate", required=True))
+    return items
+
+
+def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
+    """商务标 / 技术标分卷。卷名标题不当正文；技术标至少保留偏差表和实施方案。"""
+    from api.services.tenders.categories import is_volume_label, item_volume
+
+    raw = [item for item in (brief.outlineItems or []) if not item.skipped]
+    use_outline = (brief.layoutMode or "").strip() == "outline" and any(
+        (item.kind or "").strip() not in {"", "unknown"} for item in raw
+    )
+    pool = list(raw if use_outline else _default_volume_pool(brief))
+    pool = apply_auth_outline(
+        pool,
+        has_agent=bool((brief.agentName or "").strip()),
+        auth_need=(brief.authNeed or "").strip(),
+    )
+    out: list[OutlineItem] = []
+    for item in pool:
+        if item.skipped:
+            continue
+        if is_volume_label(item.title):
+            continue
+        kind = (item.kind or "").strip()
+        if kind in {"", "unknown"}:
+            continue
+        if item_volume(kind=kind, title=item.title, key=item.id) == volume:
+            out.append(item)
+    out = dedupe_outline_items(out)
+    if volume == "technical":
+        out = _ensure_kind(out, "tech_dev", "技术偏差表")
+        out = _ensure_kind(out, "tech_plan", "技术标（实施方案）")
+    elif volume == "business":
+        if not out:
+            out = [
+                item
+                for item in apply_auth_outline(
+                    _default_volume_pool(brief),
+                    has_agent=bool((brief.agentName or "").strip()),
+                    auth_need=(brief.authNeed or "").strip(),
+                )
+                if not item.skipped
+                and item_volume(kind=item.kind, title=item.title, key=item.id) == "business"
+            ]
+        if not any((item.kind or "").strip() == "biz_dev" for item in out):
+            out = _ensure_kind(out, "biz_dev", "商务偏离表")
+    return out
+
+
+def dedupe_outline_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    """同一张偏离/报价表只留一条；表头粘了「招标项目」的跟目录条目合并。"""
+    seen_key: set[str] = set()
+    seen_kind: set[str] = set()
+    out: list[OutlineItem] = []
+    for item in items:
+        peeled = _peel_form_suffix((item.title or "").strip())
+        key = _outline_key(peeled)
+        kind = (item.kind or "").strip()
+        if peeled and peeled != item.title:
+            item = item.model_copy(update={"title": peeled})
+        if key in seen_key:
+            continue
+        if is_seal_register(item):
+            prev_i = next((i for i, x in enumerate(out) if is_seal_register(x)), None)
+            if prev_i is not None:
+                better = _prefer_seal_title(item.title, out[prev_i].title)
+                if better and better != out[prev_i].title:
+                    out[prev_i] = out[prev_i].model_copy(update={"title": better})
+                continue
+            if "印鉴" in compact_title(item.title) and compact_title(item.title) != "印鉴预留备案表":
+                item = item.model_copy(update={"title": "印鉴预留备案表"})
+            seen_kind.add(_SEAL_KIND)
+        if kind in _ONCE_KINDS and kind in seen_kind:
+            continue
+        seen_key.add(key)
+        if kind in _ONCE_KINDS:
+            seen_kind.add(kind)
+        out.append(item)
+    return out
 
 
 def item_level(raw: str) -> int:
@@ -360,6 +547,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
         )
         if len(items) >= 40:
             break
+    items = dedupe_outline_items(items)
     templates = _template_region(raw) or body
     _attach_item_bodies(items, templates)
     return chapter, items
@@ -428,7 +616,7 @@ def fill_copy_blanks(
     quality: str = "",
 ) -> str:
     """只填单位/项目/日期/联系空位，不改承诺条款。"""
-    out = text or ""
+    out = unfold_form_sign_lines(text or "")
     bidder = (bidder or "").strip()
     project = (project or "").strip()
     tenderer = (tenderer or "").strip()
@@ -459,16 +647,27 @@ def fill_copy_blanks(
             out,
             flags=re.M,
         )
+        out = re.sub(
+            r"^(?:[＿_—\-\s]{2,})?(有限公司|股份有限公司)[：:]\s*$",
+            f"{tenderer}：",
+            out,
+            flags=re.M,
+        )
 
         def _fill_zhi(m: re.Match[str]) -> str:
-            rest = re.sub(r"[＿_—\-－\s　]+", "", m.group(1) or "")
+            raw_rest = (m.group(1) or "").strip()
+            rest = re.sub(r"[＿_—\-－\s　]+", "", raw_rest)
+            if rest and _ZHI_BODY.search(rest):
+                return f"致：{tenderer}\n{raw_rest}"
             return f"致：{rest or tenderer}"
 
         out = re.sub(r"^致[：:]\s*(.*)$", _fill_zhi, out, flags=re.M)
 
         def _split_mashed_zhi(m: re.Match[str]) -> str:
-            rest = re.sub(r"[＿_—\-－\s　]+", "", m.group(2)[1:] if m.group(2) else "")
-            rest = rest.lstrip("：:")
+            rest = (m.group(2) or "")[1:].lstrip("：:")
+            rest = re.sub(r"[＿_—\-－\s　]+", "", rest)
+            if rest and _ZHI_BODY.search(rest):
+                return f"{m.group(1)}\n致：{tenderer}\n{rest}"
             return f"{m.group(1)}\n致：{rest or tenderer}"
 
         out = _MASHED_ZHI.sub(_split_mashed_zhi, out)
@@ -495,6 +694,12 @@ def fill_copy_blanks(
             return f"{m.group(1)}：{val or bidder}{suf}"
 
         out = re.sub(
+            r"^(投标人|供应商)\s*[（(](章|公章|盖章|盖单位公章)[)）][：:]?\s*$",
+            rf"\1：{bidder}（\2）",
+            out,
+            flags=re.M,
+        )
+        out = re.sub(
             r"^(投标人|供应商)[：:]\s*([^（(\n]{0,40}?)(\s*[（(][^)）]*[)）])?\s*$",
             _fill_bidder,
             out,
@@ -503,8 +708,10 @@ def fill_copy_blanks(
     # 「签字」栏留给本人手签，不填姓名。
     if contact:
         out = re.sub(r"(联系人)[：:]\s*[＿_—\-\s]{2,}", rf"\1：{contact}", out)
+        out = re.sub(r"^(联系人)[：:]*\s*$", rf"\1：{contact}", out, flags=re.M)
     if phone:
         out = re.sub(r"(联系电话|电\s*话)[：:]\s*[＿_—\-\s]{2,}", rf"\1：{phone}", out)
+        out = re.sub(r"^(联系电话|电话)[：:]*\s*$", rf"\1：{phone}", out, flags=re.M)
     if address:
         out = re.sub(r"(地址|住址)[：:]\s*[＿_—\-\s]{2,}", rf"\1：{address}", out)
     if quality:
@@ -671,6 +878,10 @@ def split_mashed_zhi_line(line: str) -> list[str]:
     n = compact_title(line)
     m = _MASHED_ZHI.match(n)
     if not m:
+        extra = compact_title(line)
+        if extra.startswith("致") and _ZHI_BODY.search(extra):
+            rest = extra[1:].lstrip("：:")
+            return ["致：", rest]
         return [line]
     rest = m.group(2)
     if rest in {"致", "致：", "致:"}:
@@ -679,7 +890,66 @@ def split_mashed_zhi_line(line: str) -> list[str]:
         extra = "致：" + rest[2:].lstrip("：:")
     else:
         extra = "致：" + rest[1:].lstrip("：:")
+    if extra != "致：" and _ZHI_BODY.search(extra):
+        body = extra[2:].lstrip("：:")
+        return [m.group(1), "致：", body]
     return [m.group(1), extra]
+
+
+def _peel_trailing_date(chunk: str) -> list[str]:
+    s = (chunk or "").strip()
+    if not s or s.startswith("日期"):
+        return [s] if s else []
+    m = re.search(r"(\d{4}年\d{1,2}月\d{1,2}日)$", s)
+    if m and re.match(r"(联系人|联系电话|电话)", s):
+        head = s[: m.start()].rstrip("：:") + "："
+        return [head, f"日期：{m.group(1)}"]
+    return [s]
+
+
+def unfold_form_sign_lines(text: str) -> str:
+    """OCR 常把落款挤在一行，按标签拆开再填空。"""
+    out: list[str] = []
+    for ln in (text or "").splitlines():
+        raw = ln.strip()
+        if not raw:
+            continue
+        hits = list(_SIGN_HEAD.finditer(raw))
+        if len(hits) < 2:
+            out.extend(_peel_trailing_date(raw))
+            continue
+        prefix = raw[: hits[0].start()].strip()
+        if prefix:
+            out.append(prefix)
+        for i, h in enumerate(hits):
+            end = hits[i + 1].start() if i + 1 < len(hits) else len(raw)
+            chunk = raw[h.start() : end].strip()
+            if chunk:
+                out.extend(_peel_trailing_date(chunk))
+    return "\n".join(out)
+
+
+def _unmash_title_line(lines: list[str], title: str) -> list[str]:
+    if not lines:
+        return lines
+    out: list[str] = []
+    t = compact_title(title) if title else ""
+    for ln in lines:
+        split = split_mashed_zhi_line(ln)
+        if len(split) > 1:
+            head = split[0]
+            out.append(title if t and compact_title(head) == t else head)
+            out.extend(split[1:])
+            continue
+        n = compact_title(ln)
+        if t and n.startswith(t) and n != t:
+            extra = n[len(t) :].lstrip("：:、，,")
+            out.append(title)
+            if extra:
+                out.append(extra)
+            continue
+        out.append(ln)
+    return out
 
 
 def _clean_copied_body(chunk: str, title: str) -> str:
@@ -699,29 +969,6 @@ def _clean_copied_body(chunk: str, title: str) -> str:
     if "\n" not in text and len(compact) <= 28 and classify_kind(text) != "unknown":
         return ""
     return text[:_BODY_MAX]
-
-
-def _unmash_title_line(lines: list[str], title: str) -> list[str]:
-    if not lines:
-        return lines
-    out: list[str] = []
-    t = compact_title(title) if title else ""
-    for ln in lines:
-        split = split_mashed_zhi_line(ln)
-        if len(split) > 1:
-            head, extra = split[0], split[1]
-            out.append(title if t and compact_title(head) == t else head)
-            out.append(extra)
-            continue
-        n = compact_title(ln)
-        if t and n.startswith(t) and n != t:
-            extra = n[len(t) :].lstrip("：:、，,")
-            out.append(title)
-            if extra:
-                out.append(extra)
-            continue
-        out.append(ln)
-    return out
 
 
 def _format_section(text: str) -> tuple[str, str]:
@@ -842,6 +1089,8 @@ def _is_mashed_form_title(title: str) -> bool:
         return True
     if "投标人名称" in n:
         return True
+    if _FORM_TITLE_TAIL.search(n) and classify_kind(_FORM_TITLE_TAIL.sub("", n)) != "unknown":
+        return True
     return False
 
 
@@ -852,6 +1101,7 @@ def _clean_item(raw: str) -> str:
     text = _ITEM_PREFIX.sub("", text).strip(" :：.．、；;。")
     text = re.sub(r"\s+", "", text)
     text = re.sub(r"致$", "", text)
+    text = _peel_form_suffix(text)
     if not text or _SKIP_SUB.search(text):
         return ""
     if len(text) > 32 or len(text) < 2:

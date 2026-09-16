@@ -861,6 +861,74 @@ def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) 
     assert has_break
 
 
+def test_placeholder_embeds_credit_pdf_and_merges_slots(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.placeholders import append_placeholder_section
+    from api.services.tenders.schema import PlaceholderItem
+
+    pdf = tmp_path / "信用中国.pdf"
+    Image.new("RGB", (320, 450), (240, 240, 240)).save(pdf, "PDF")
+    skip_pdf = tmp_path / "skip.pdf"
+    skip_pdf.write_bytes(b"%PDF-1.4\n")
+
+    doc = Document()
+    doc.add_paragraph("技术标实施方案")
+    filled, boxes, notes = append_placeholder_section(
+        doc,
+        [
+            PlaceholderItem(
+                key="credit",
+                title="信用中国查询页及国家企业信用信息公示（股东）",
+            ),
+            PlaceholderItem(key="m_credit_shot", title="信用截图"),
+            PlaceholderItem(key="finance", title="近三年财务审计报告"),
+        ],
+        {"m_credit_shot": [pdf], "finance": [skip_pdf]},
+    )
+    assert filled >= 1
+    assert boxes == 1
+    blob = "\n".join(p.text or "" for p in doc.paragraphs)
+    assert "信用中国查询页" in blob
+    assert "信用截图" not in blob
+    xml = doc.element.body.xml
+    assert "a:blip" in xml or "pic:blipFill" in xml
+    table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
+    assert table_text.count("（在此粘贴扫描件）") == 1
+    assert not any("信用" in (n or "") and "未嵌入" in (n or "") for n in notes)
+
+
+def test_credit_pdf_embed_keeps_readable_pixels(tmp_path) -> None:
+    import zipfile
+
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.placeholders import append_placeholder_section
+    from api.services.tenders.schema import PlaceholderItem
+
+    pdf = tmp_path / "信用中国.pdf"
+    Image.new("RGB", (1240, 1754), (255, 255, 255)).save(pdf, "PDF")
+    dest = tmp_path / "credit.docx"
+    doc = Document()
+    filled, boxes, _notes = append_placeholder_section(
+        doc,
+        [PlaceholderItem(key="credit", title="信用中国查询页及国家企业信用信息公示（股东）")],
+        {"credit": [pdf]},
+    )
+    assert filled == 1
+    assert boxes == 0
+    doc.save(str(dest))
+    with zipfile.ZipFile(dest) as zf:
+        names = [n for n in zf.namelist() if n.startswith("word/media/")]
+        assert names
+        with zf.open(names[0]) as fh:
+            im = Image.open(fh)
+            assert im.format in {"PNG", "JPEG"}
+            assert max(im.size) >= 1600
+
+
 def test_collect_slots_status_keys() -> None:
     from api.services.tenders.slots import library_payload, list_slots_status
 
@@ -1164,10 +1232,24 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     assert required_agent == ["id_legal", "iso_cert", "id_agent"]
     assert include_agent == ["iso_cert", "finance", "id_legal", "id_agent"]
 
+    required_no, include_no = this_bid_keys(
+        extra=extra,
+        catalog=[*catalog, PlaceholderItem(key="id_agent", title="授权代理人身份证")],
+        required_keys=["iso_cert", "id_agent"],
+        include_keys=["iso_cert", "id_agent", "finance"],
+        has_agent=False,
+    )
+    assert "id_agent" not in required_no
+    assert "id_agent" not in include_no
+
     issues = _brief_generate_issues(BidBrief(projectName="x"))
     assert "招标人" in issues
     assert "投标总价" in issues
     assert "报价清单" in issues
+    assert "委托代理人（招标书要求授权委托）" not in issues
+    assert "委托代理人（招标书要求授权委托）" in _brief_generate_issues(
+        BidBrief(projectName="x", authNeed="required")
+    )
     missing = _missing_required_titles(["id_legal"], slots, {})
     assert missing == ["法定代表人身份证正反面"]
     notes = _missing_slot_warnings(missing)
@@ -1294,6 +1376,86 @@ def test_find_catalog_item_does_not_borrow_other_slot() -> None:
     assert hit is not None and hit.key == "id_legal"
     borrowed = find_catalog_item(catalog, key="id_legal", title="类似项目合同")
     assert borrowed is not None and borrowed.key == "id_legal"
+
+
+def test_find_catalog_item_maps_credit_screenshot_aliases() -> None:
+    from api.services.tenders.match import find_catalog_item, split_invitation_materials
+    from api.services.tenders.schema import PlaceholderItem
+
+    catalog = [
+        PlaceholderItem(
+            key="credit",
+            title="信用截图",
+            hint="信用中国、政府采购网失信查询截图",
+        ),
+        PlaceholderItem(key="id_legal", title="法定代表人身份证正反面"),
+        PlaceholderItem(key="bond", title="投标保证金缴存回单"),
+    ]
+    hit = find_catalog_item(
+        catalog,
+        title="信用中国、政府采购网、国家企业信用信息公示系统查询截图",
+        hint="资格要求第（3）条强制要求提供三网站无不良记录截图",
+    )
+    assert hit is not None and hit.key == "credit"
+    assert find_catalog_item(catalog, title="安全生产许可证") is None
+    assert find_catalog_item(catalog, title="各类承诺书") is None
+    mapped, missing = split_invitation_materials(
+        {
+            "missingMaterials": [
+                {
+                    "title": "信用中国、政府采购网、国家企业信用信息公示系统查询截图",
+                    "reason": "资格要求第（3）条强制要求提供三网站无不良记录截图",
+                }
+            ],
+        },
+        catalog,
+    )
+    assert [item.key for item in mapped] == ["credit"]
+    assert missing == []
+
+
+def test_find_catalog_item_maps_default_slot_aliases() -> None:
+    from api.services.tenders.match import find_catalog_item, split_invitation_materials
+    from api.services.tenders.placeholders import DEFAULT_SLOTS
+    from api.services.tenders.schema import PlaceholderItem
+
+    catalog = [
+        *DEFAULT_SLOTS,
+        PlaceholderItem(key="commit", title="各类承诺书"),
+        PlaceholderItem(key="iso_cert", title="ISO体系证书"),
+        PlaceholderItem(key="safety", title="安全生产许可证"),
+        PlaceholderItem(key="license", title="营业执照"),
+    ]
+
+    def key_of(title: str) -> str:
+        hit = find_catalog_item(catalog, title=title)
+        return hit.key if hit is not None else ""
+
+    assert key_of("法人代表身份证复印件") == "id_legal"
+    assert key_of("委托代理人身份证正反面") == "id_agent"
+    assert key_of("近三年类似业绩合同") == "perf"
+    assert key_of("财务报表") == "finance"
+    assert key_of("近半年社保缴费证明") in {"finance", "id_agent"}
+    assert key_of("型式试验报告") == "product"
+    assert key_of("3C认证证书") == "product"
+    assert key_of("投标承诺书") == "commit"
+    assert key_of("ISO9001质量管理体系认证证书") == "iso_cert"
+    assert key_of("企业法人营业执照副本") == "license"
+    assert key_of("法定代表人身份证明") == ""
+    assert key_of("基本账户开户许可证") == ""
+    mapped, missing = split_invitation_materials(
+        {
+            "missingMaterials": [
+                {"title": "近三年类似业绩合同及发票", "reason": "资格要求"},
+                {"title": "型式试验报告", "reason": "产品检测"},
+            ]
+        },
+        list(DEFAULT_SLOTS),
+    )
+    keys = [item.key for item in mapped]
+    assert "perf" in keys
+    assert "product" in keys
+    assert missing == []
 
 
 def test_library_slug_and_prompt_lines() -> None:
