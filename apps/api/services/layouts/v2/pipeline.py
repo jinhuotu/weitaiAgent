@@ -34,6 +34,7 @@ from api.services.layouts.v2.constraints import (
     check_constraints,
     constraints_to_brief,
     merge_gate_along_from_context,
+    overlay_user_text_on_constraints,
     seed_plan_payload,
 )
 
@@ -94,6 +95,7 @@ def prepare_v2_plan(
     constraints: LayoutConstraints,
     prior: Any = None,
     revise: bool = False,
+    draft: Any = None,
 ) -> tuple[EvChargingStationPlan, list[CheckIssue]]:
     prior_plan: EvChargingStationPlan | None = None
     if isinstance(prior, EvChargingStationPlan):
@@ -119,10 +121,36 @@ def prepare_v2_plan(
             constraints = constraints.model_copy(deep=True)
             constraints.chargers.dcType = asked_dc  # type: ignore[assignment]
 
+    constraints = overlay_user_text_on_constraints(
+        constraints, query, vision, overwrite_counts=prior_plan is None
+    )
+    from api.services.layouts.draft import (
+        fill_fleet_from_draft,
+        overlay_draft_on_plan,
+        parse_parking_rows_from_text,
+        should_trace_draft,
+    )
+
+    draft_plan: EvChargingStationPlan | None = None
+    if isinstance(draft, EvChargingStationPlan):
+        draft_plan = draft
+    elif isinstance(draft, dict) and draft.get("kind") == "ev_charging_station_plan":
+        try:
+            draft_plan = parse_plan(draft)
+        except Exception:  # noqa: BLE001
+            draft_plan = None
+    vis_rows = parse_parking_rows_from_text(vision)
+    constraints = fill_fleet_from_draft(constraints, draft_plan, vis_rows)
     constraints = merge_gate_along_from_context(
         constraints, query=query, vision=vision, prior=prior_plan
     )
-    lock_env = constraints.site.shapeFrom == "user_rect"
+    from api.services.layouts.brief import parse_site_polygon
+
+    poly = parse_site_polygon(query, vision)
+    if len(poly) >= 5:
+        constraints = constraints.model_copy(deep=True)
+        constraints.site.shapeFrom = "vision"
+    lock_env = constraints.site.shapeFrom in {"user_rect", "vision"}
 
     if revise and prior_plan is not None:
         llm_plan = None
@@ -193,7 +221,14 @@ def prepare_v2_plan(
         return plan, issues
 
     plan = _parse_or_seed_plan(payload, constraints, query=query)
+    trace = should_trace_draft(query, bool((draft_plan and draft_plan.parkingRows) or vis_rows))
+    if trace:
+        plan = overlay_draft_on_plan(plan, draft_plan, vis_rows)
     plan = attach_site_polygon(plan, query, vision)
+    if draft_plan is not None and len(draft_plan.site.polygon or []) >= 3 and trace:
+        plan = overlay_draft_on_plan(plan, draft_plan, vis_rows)
+    if len(plan.site.polygon or []) >= 3:
+        lock_env = True
     plan = prune_unmentioned_site_context(plan, query, vision)
     if prior_plan is not None:
         user_brief = parse_layout_brief(query)
@@ -208,11 +243,17 @@ def prepare_v2_plan(
     from api.services.layouts.revise import apply_query_charger_to_plan
 
     apply_query_charger_to_plan(plan, query)
-    plan = prepare_plan(plan, lock_envelope=lock_env, query=query)
-    plan = pin_rows_against_walls(
-        plan, preferred_side=constraints.layout.wallSide, lock_envelope=lock_env
+    plan = prepare_plan(
+        plan, lock_envelope=lock_env, query=query, gentle=trace, preserve_rows=trace
     )
-    plan = touch_up_plan(plan, lock_envelope=lock_env)
+    plan = pin_rows_against_walls(
+        plan,
+        preferred_side=constraints.layout.wallSide,
+        lock_envelope=lock_env,
+        gentle=trace,
+        preserve_rows=trace,
+    )
+    plan = touch_up_plan(plan, lock_envelope=lock_env, gentle=trace, preserve_rows=trace)
     apply_query_charger_to_plan(plan, query)
     from api.services.layouts.pack import sync_charger_annotations
 
@@ -225,17 +266,25 @@ def prepare_v2_plan(
         prune_unasked_transformers(plan, query)
         plan = apply_constraint_hints(plan, constraints, query=query)
         plan = attach_site_polygon(plan, query, vision)
+        if draft_plan is not None and len(draft_plan.site.polygon or []) >= 3 and trace:
+            plan = overlay_draft_on_plan(plan, draft_plan, vis_rows)
         plan = apply_gate_from_texts(plan, query, vision)
         if prior_plan is not None:
             user_brief = parse_layout_brief(query)
             plan = lock_site_geometry(plan, prior_plan, keep_gate=user_asked_to_move_gate(query))
             plan = preserve_parking_layout(plan, prior_plan)
         apply_query_charger_to_plan(plan, query)
-        plan = prepare_plan(plan, lock_envelope=lock_env, query=query)
-        plan = pin_rows_against_walls(
-            plan, preferred_side=constraints.layout.wallSide, lock_envelope=lock_env
+        plan = prepare_plan(
+            plan, lock_envelope=lock_env, query=query, gentle=trace, preserve_rows=trace
         )
-        plan = touch_up_plan(plan, lock_envelope=lock_env)
+        plan = pin_rows_against_walls(
+            plan,
+            preferred_side=constraints.layout.wallSide,
+            lock_envelope=lock_env,
+            gentle=trace,
+            preserve_rows=trace,
+        )
+        plan = touch_up_plan(plan, lock_envelope=lock_env, gentle=trace, preserve_rows=trace)
         apply_query_charger_to_plan(plan, query)
         sync_charger_annotations(plan)
         issues = check_constraints(plan, constraints)

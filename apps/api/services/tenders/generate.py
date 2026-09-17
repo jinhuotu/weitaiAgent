@@ -127,8 +127,9 @@ async def defaults_payload_kb(
 ) -> dict[str, object]:
     from api.services.tenders.library_kb import library_payload_kb, list_slots_status_kb
 
+    del created_by
     data = defaults_payload(extra)
     data["slots"] = await list_slots_status_kb(db, extra)
-    lib = await library_payload_kb(db, created_by=created_by)
+    lib = await library_payload_kb(db)
     data["libraryBaseId"] = lib.get("baseId")
     return data

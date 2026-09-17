@@ -1021,6 +1021,8 @@ async def search_chunks(
         extract_lookup_needles,
         filter_weak_hits,
         hybrid_rerank,
+        restrict_slot_hits,
+        restrict_topic_hits,
     )
 
     q = compact_search_query(query)
@@ -1068,6 +1070,9 @@ async def search_chunks(
         floor=float(settings.kb_score_floor),
         keep_ratio=float(settings.kb_keep_ratio),
     )
+    ranked = await _fill_chunk_names(db, ranked)
+    ranked = restrict_topic_hits(q, ranked)
+    ranked = restrict_slot_hits(q, ranked)
     window = int(settings.kb_neighbor_window or 0)
     if window > 0 and ranked:
         try:
@@ -1281,6 +1286,20 @@ async def delete_document(
     return {"items": items, "deleted": deleted}
 
 
+_PREVIEW_IMAGE = frozenset({"png", "jpg", "jpeg", "webp", "gif", "bmp"})
+
+
+def _chunk_preview_kind(file_type: str | None, *, has_file: bool) -> str:
+    if not has_file:
+        return ""
+    ext = (file_type or "").lower().lstrip(".")
+    if ext == "pdf":
+        return "pdf"
+    if ext in _PREVIEW_IMAGE:
+        return "image"
+    return "file"
+
+
 async def _fill_chunk_names(
     db: AsyncSession, hits: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
@@ -1290,18 +1309,37 @@ async def _fill_chunk_names(
     if not ids:
         return hits
     result = await db.execute(
-        select(KnowledgeDocument.public_id, KnowledgeDocument.name).where(
-            KnowledgeDocument.public_id.in_(ids)
-        )
+        select(
+            KnowledgeDocument.public_id,
+            KnowledgeDocument.name,
+            KnowledgeDocument.file_type,
+            KnowledgeDocument.file_key,
+            KnowledgeDocument.storage_path,
+            KnowledgeDocument.tags,
+        ).where(KnowledgeDocument.public_id.in_(ids))
     )
-    names = {str(pid): name for pid, name in result.all()}
+    rows = {
+        str(pid): (
+            name,
+            (ft or "").strip().lower(),
+            bool((file_key or storage_path or "").strip()),
+            tags if isinstance(tags, list) else [],
+        )
+        for pid, name, ft, file_key, storage_path, tags in result.all()
+    }
     out: list[dict[str, Any]] = []
     for h in hits:
         item = dict(h)
         pid = str(item.get("doc_id") or "").strip()
-        if pid in names and names[pid]:
-            item["name"] = names[pid]
+        name, ft, has_file, tags = rows.get(pid, ("", "", False, []))
+        if name:
+            item["name"] = name
         elif not str(item.get("name") or "").strip():
             item["name"] = "未命名资料"
+        item["file_type"] = ft or str(item.get("file_type") or "")
+        item["has_file"] = has_file
+        item["preview_kind"] = _chunk_preview_kind(item["file_type"], has_file=has_file)
+        if not item.get("tags") and tags:
+            item["tags"] = tags
         out.append(item)
     return out

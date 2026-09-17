@@ -1620,10 +1620,10 @@ def pin_rows_against_walls(
     out = plan.model_copy(deep=True)
     if not out.parkingRows:
         return out
-    _ensure_opposing_car_rows(out)
-    n_rows = len(out.parkingRows)
     if preserve_rows:
         return out
+    _ensure_opposing_car_rows(out)
+    n_rows = len(out.parkingRows)
     if (
         gentle
         and not (len(out.site.polygon or []) >= 5)
@@ -3050,15 +3050,32 @@ def _ensure_aisles(plan: EvChargingStationPlan) -> None:
                 hi = x1 - need * 0.45
                 if hi > lo:
                     cx = min(max(gx, lo), hi)
+            if not _compact_yard(plan) and gate is not None:
+                if str(gate.side) == "south" and not grouped["north"]:
+                    y_hi = max(y_hi, h - 1.2)
+                elif str(gate.side) == "north" and not grouped["south"]:
+                    y_lo = min(y_lo, 1.2)
             line = [PointM(x=cx, y=y_lo), PointM(x=cx, y=y_hi)]
+            drive_label = f"{'重卡' if truck else '轿车'}回转车道≥{need:g}m"
+            if not _compact_yard(plan) and gate is not None:
+                drive_label = f"进场/{drive_label}"
             aisles.append(
                 AisleSpec(
                     id="aisle_drive",
                     centerline=line,
                     widthM=max(3.5, width),
                     kind="drive",
-                    label=f"{'重卡' if truck else '轿车'}回转车道≥{need:g}m",
+                    label=drive_label,
                 )
+            )
+            _append_far_turnaround(
+                plan,
+                aisles,
+                gate=gate,
+                grouped=grouped,
+                west_box=west_box,
+                east_box=east_box,
+                need=need,
             )
             if gx is not None and abs(gx - cx) > 1.6 and not _circulation_first(plan):
                 if str(gate.side) == "south":
@@ -3152,6 +3169,41 @@ def _ensure_aisles(plan: EvChargingStationPlan) -> None:
     _append_gate_spine(plan, aisles, grouped, gate)
     plan.aisles = aisles[:40]
     _keep_aisles_off_stalls(plan)
+
+
+def _append_far_turnaround(
+    plan: EvChargingStationPlan,
+    aisles: list[AisleSpec],
+    *,
+    gate: GateSpec | None,
+    grouped: dict[str, list[tuple[ParkingRowSpec, Aabb, bool]]],
+    west_box: Aabb,
+    east_box: Aabb,
+    need: float,
+) -> None:
+    """大场地东西对贴时，在远离大门的一端横连一条回车，不要只剩场心一条虚线。"""
+    if gate is None or _compact_yard(plan):
+        return
+    h = float(plan.site.heightM)
+    side = str(gate.side)
+    if side == "south" and not grouped.get("north"):
+        y_turn = min(h - 1.2, max(west_box[3], east_box[3], h * 0.82))
+    elif side == "north" and not grouped.get("south"):
+        y_turn = max(1.2, min(west_box[1], east_box[1], h * 0.18))
+    else:
+        return
+    x0, x1 = west_box[2] + 0.3, east_box[0] - 0.3
+    if x1 - x0 < 3.5:
+        return
+    aisles.append(
+        AisleSpec(
+            id="aisle_turn",
+            centerline=[PointM(x=x0, y=y_turn), PointM(x=x1, y=y_turn)],
+            widthM=need,
+            kind="drive",
+            label="回车通道",
+        )
+    )
 
 
 def _merge_boxes(boxes: list[Aabb]) -> Aabb:
@@ -3521,6 +3573,7 @@ def prepare_plan(
     gentle: bool = False,
     lock_envelope: bool = False,
     query: str = "",
+    preserve_rows: bool = False,
 ) -> EvChargingStationPlan:
     """出图前校正。gentle=True 用于修订：少整场重装，尽量保留已有排位。
 
@@ -3533,17 +3586,19 @@ def prepare_plan(
     saved_gates = _snapshot_gates(out)
     _drop_copied_yard_roads(out)
     out.parkingRows = [_normalize_row(row) for row in out.parkingRows]
-    pack_parking(out, gentle=gentle)
     keep_types = False
     if query:
         from api.services.layouts.revise import _parse_stall_range
 
         keep_types = _parse_stall_range(query) is not None
+    keep = preserve_rows or keep_types
+    if not keep:
+        pack_parking(out, gentle=gentle)
     out = pin_rows_against_walls(
         out,
         lock_envelope=lock_envelope,
-        gentle=gentle,
-        preserve_rows=keep_types,
+        gentle=gentle or keep,
+        preserve_rows=keep,
     )
     _finalize_plan_annotations(out)
     _restore_gates(out, saved_gates)

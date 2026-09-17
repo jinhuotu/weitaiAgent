@@ -22,7 +22,6 @@ from api.services.ai.chat_images import (
     blobs_to_state_images,
     llm_image_parts,
     read_local_image,
-    state_images_from_input,
 )
 from api.services.knowledge.chunking import summarize_layout_case_for_prompt
 from api.services.knowledge.ingest import search_knowledge_docs
@@ -301,7 +300,12 @@ async def _exec_start(state: dict[str, Any]) -> dict[str, Any]:
         if raw.get("systemHint"):
             vars_map["systemHint"] = raw.get("systemHint")
         if not state.get("images") and raw.get("images"):
-            state["images"] = state_images_from_input(raw.get("images"))
+            from api.services.ai.chat_images import ingest_input_images
+
+            imgs, draft = ingest_input_images(raw.get("images"))
+            state["images"] = imgs
+            if draft:
+                state["draftPlan"] = draft
     else:
         query = _as_text(raw)
     state["query"] = query
@@ -565,6 +569,7 @@ def _save_llm_output(data: dict[str, Any], state: dict[str, Any], text: str) -> 
     if save_as == "constraints":
         from api.services.layouts.v2.constraints import (
             constraints_from_user_text,
+            overlay_user_text_on_constraints,
             parse_constraints_text,
         )
 
@@ -591,6 +596,8 @@ def _save_llm_output(data: dict[str, Any], state: dict[str, Any], text: str) -> 
             cons.chargers.dcType = asked_dc  # type: ignore[assignment]
         elif rng is not None:
             cons.chargers.dcType = None
+        has_prior = isinstance(state.get("priorLayout"), dict)
+        cons = overlay_user_text_on_constraints(cons, q, overwrite_counts=not has_prior)
         state["constraints"] = cons.model_dump(mode="json")
         return
     state[save_as] = text
@@ -625,10 +632,9 @@ async def _exec_llm(
     system_parts = _collect_system_parts(
         data, state, prompt_content, lock_prompt=lock_prompt
     )
-    layout_prompt = (not lock_prompt) and _is_layout_prompt(system_parts)
-    # 布置链路：读图文字不能替代草图。出 JSON 的 LLM 必须再看用户上传的草稿图，
-    # 否则只能猜轮廓，T 型/梯形会被画成别的形状。
-    # 已发布工作流里 attachImages=false 也强制带上本轮草稿（不含案例附图）。
+    layout_prompt = _is_layout_prompt(system_parts)
+    # 出 JSON 必须能看本轮草稿。lockPrompt 只锁提示词，不能因此丢掉附图。
+    # 仍用 deep 文本模型出 JSON，不因为附图去切视觉模型。
     if layout_prompt and state.get("images"):
         attach = True
         include_refs = False
@@ -636,7 +642,11 @@ async def _exec_llm(
         has_vision = bool(_as_text(state.get("visionText")).strip())
         attach = _bool_flag(data, "attachImages", "attach_images", default=True) and not has_vision
         include_refs = True
-    need_vision = attach and bool(state.get("images") or (state.get("refImages") if include_refs else []))
+    need_vision = (
+        attach
+        and not layout_prompt
+        and bool(state.get("images") or (state.get("refImages") if include_refs else []))
+    )
     client, mode, model_id = await _resolve_model_client(
         db, data, state=state, require_vision=need_vision
     )
@@ -943,6 +953,10 @@ async def _exec_vision(
         "外形是 T 型/梯形时禁止只概括成长×宽矩形。"
         "出入口若画在场地某一角，必须写 corner=southeast/southwest/northeast/northwest"
         "（西南角原点、X东Y北），并写 along=east 或 west；禁止把角上的门写成南墙正中。"
+        "若图上已画出充电车位/停车位，必须输出 parkingRows: "
+        "[{\"id\":\"r1\",\"stalls\":8,\"stallWidthM\":3,\"stallLengthM\":6,\"angleDeg\":0,"
+        "\"origin\":{\"x\":..,\"y\":..},\"along\":\"x\",\"charger\":{\"type\":\"none\",\"side\":\"head\"}}]；"
+        "没有车位则 parkingRows: []。origin 为该排第一台西南角。"
     )
     messages: list[dict[str, Any]] = [
         {
@@ -1098,6 +1112,7 @@ async def _exec_layout_out(*, data: dict[str, Any], state: dict[str, Any]) -> di
             constraints=constraints,
             prior=prior_raw if isinstance(prior_raw, dict) else None,
             revise=revise,
+            draft=state.get("draftPlan"),
         )
     else:
         prior_raw = state.get("priorLayout")

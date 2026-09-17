@@ -19,6 +19,7 @@ from api.services.tenders.document import (
     _apply_fixed_table_widths,
     _auth_text,
     _commercial_dev_rows,
+    _embed_tech_drawings,
     _glue_sign_off,
     _deviation_rows,
     _distribute_twips,
@@ -40,9 +41,7 @@ from api.services.tenders.document import (
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
 from api.services.tenders.outline import is_seal_register
 from api.services.tenders.placeholders import (
-    TECH_DRAWING_SLOT,
     _set_row_height,
-    draw_placeholder_box,
     id_slot,
     inline_id_scans,
 )
@@ -70,6 +69,8 @@ def render_module(
         return [f"「{item.title}」无对应填空模块"]
     if kind in {"legal_id", "auth"}:
         return handler(doc, brief, item, media=media, inlined=inlined)
+    if kind == "tech_plan":
+        return handler(doc, brief, item, media=media)
     return handler(doc, brief, item)
 
 
@@ -359,17 +360,17 @@ def _merge(table, row: int, c1: int, c2: int) -> None:
     table.cell(row, c1).merge(table.cell(row, c2))
 
 
-def _tech_plan(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+def _tech_plan(
+    doc: Document, brief: BidBrief, item: OutlineItem, media: dict | None = None
+) -> list[str]:
     del item
     body = tech_plan_body(brief)
     for block in _split_blocks(body):
         _para(doc, block, indent=True)
-    _para(doc, "图纸", bold=True)
-    draw_placeholder_box(doc, TECH_DRAWING_SLOT)
-    notes: list[str] = []
+    title = _para(doc, "图纸", bold=True)
+    notes = _embed_tech_drawings(doc, title, media)
     if "【待响应】" in body:
-        notes.append("实施方案文字未写，已插入待响应说明")
-    notes.append("实施方案图纸用虚线框占位，装订时另附原件")
+        notes.insert(0, "实施方案文字未写，已插入待响应说明")
     return notes
 
 

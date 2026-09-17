@@ -34,6 +34,7 @@ from api.services.tenders.outline import tech_chapter_titles
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
 from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
+    TECH_DRAWING_SLOT,
     _set_row_height,
     append_placeholder_section,
     collect_slots,
@@ -53,7 +54,7 @@ from api.services.tenders.quote import (
     scale_quote,
 )
 from api.services.tenders.schema import BidBrief, DeviationLine, PerformanceLine
-from api.services.tenders.slots import attachments_for_slots, list_slot_files
+from api.services.tenders.slots import attachments_for_slots
 from api.services.tenders.tables import (
     CHARGER_QUOTE_HEADERS,
     classify_quote_headers,
@@ -847,10 +848,9 @@ def _write_plain(para: Paragraph, text: str, *, size: float = 12, bold: bool = F
 
 
 def _tech_drawing_files(catalog_media: dict | None) -> list[Path]:
-    """catalog_media 已传入时不再回落到磁盘槽位，避免测试/生成混入旧上传图纸。"""
     if isinstance(catalog_media, dict):
         return list(catalog_media.get(TECH_DRAWING_KEY) or [])
-    return list_slot_files(TECH_DRAWING_KEY)
+    return []
 
 
 def _insert_picture_after(para: Paragraph, source, *, width_cm: float = 15.5) -> Paragraph:
@@ -862,15 +862,20 @@ def _insert_picture_after(para: Paragraph, source, *, width_cm: float = 15.5) ->
     return pic
 
 
-def _insert_drawings_after(cursor: Paragraph, files: list[Path], *, max_pages: int = 2) -> tuple[Paragraph, int]:
-    """插入技术标图纸。大图压缩后嵌入，PDF 最多 2 页，避免拖慢生成与预览。"""
+_DRAWING_MAX_FILES = 12
+_DRAWING_PDF_PAGES = 4
+
+
+def _insert_drawings_after(
+    cursor: Paragraph, files: list[Path], *, max_pages: int = _DRAWING_PDF_PAGES
+) -> tuple[Paragraph, int]:
+    """压缩后嵌入实施方案图纸。"""
     import io
 
     from api.services.tenders.placeholders import _JPEG_QUALITY, _render_pdf_page_jpeg, _shrink_pil
 
     inserted = 0
-    max_files = 2
-    for path in files[:max_files]:
+    for path in files[:_DRAWING_MAX_FILES]:
         suf = path.suffix.lower()
         try:
             if suf in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"} and path.is_file():
@@ -906,6 +911,23 @@ def _insert_drawings_after(cursor: Paragraph, files: list[Path], *, max_pages: i
         except Exception:
             logger.exception("insert tech drawing failed: %s", path)
     return cursor, inserted
+
+
+def _embed_tech_drawings(doc: Document, after: Paragraph, catalog_media: dict | None) -> list[str]:
+    files = [p for p in _tech_drawing_files(catalog_media) if p.is_file()]
+    n = 0
+    if files:
+        _, n = _insert_drawings_after(after, files)
+    if n > 0:
+        notes = [f"已将 {n} 张实施方案图纸写入技术标"]
+        skipped = max(0, len(files) - _DRAWING_MAX_FILES)
+        if skipped:
+            notes.append(f"另有 {skipped} 个图纸文件未写入，装订时可另附")
+        return notes
+    draw_placeholder_box(doc, TECH_DRAWING_SLOT, after=after)
+    if files:
+        return ["实施方案图纸未能写入 Word，已用虚线框占位"]
+    return ["技术标实施方案尚未上传图纸，已用虚线框占位"]
 
 
 def _is_toc_list_line(para: Paragraph) -> bool:
@@ -964,22 +986,7 @@ def _fill_technical_section(doc: Document, brief: BidBrief, catalog_media: dict 
     _write_plain(draw_title, "二、图纸", size=14, bold=True)
     _bookmark_paragraph(draw_title, "toc_other_draw")
     cursor = draw_title
-    files = _tech_drawing_files(catalog_media)
-    warnings: list[str] = []
-    # 生成路径不嵌大图/PDF：图纸槽位用虚线框，避免数 MB 图片拖慢生成与预览
-    from api.services.tenders.schema import PlaceholderItem as _Slot
-
-    draw_placeholder_box(
-        doc,
-        _Slot(key=TECH_DRAWING_KEY, title="实施方案图纸"),
-        after=draw_title,
-    )
-    if files:
-        warnings.append(
-            f"技术标图纸已有 {len(files)} 个文件，为加快生成未写入扫描页，装订时请附原件。"
-        )
-    else:
-        warnings.append("技术标实施方案尚未上传图纸，已用虚线框占位")
+    warnings = _embed_tech_drawings(doc, draw_title, catalog_media)
     if not tech_plan_text(brief):
         warnings.append("技术标实施方案文字说明待补，已在 Word 中标注或按供货期写入工期")
     return warnings

@@ -30,7 +30,8 @@ from api.services.layouts.schema import (
     PointM,
 )
 
-_PAD_L, _PAD_R, _PAD_T, _PAD_B = 90, 110, 168, 250
+_PAD_L, _PAD_R, _PAD_T, _PAD_B = 90, 110, 168, 280
+_BELOW_M = 3.2
 _MAX_PX = 1800
 _DIM = (0, 140, 0)
 _LEGEND_LABELS = {
@@ -106,10 +107,10 @@ def render_plan_png(
     site_w, site_h = plan.site.widthM, plan.site.heightM
     inner_w = max_px - _PAD_L - _PAD_R
     inner_h = max_px - _PAD_T - _PAD_B
-    scale = min(inner_w / site_w, inner_h / site_h)
+    scale = min(inner_w / site_w, inner_h / max(site_h, 1.0))
     scale = max(4.0, min(scale, 28.0))
     img_w = int(_PAD_L + site_w * scale + _PAD_R)
-    img_h = int(_PAD_T + site_h * scale + _PAD_B)
+    img_h = int(_PAD_T + site_h * scale + _BELOW_M * scale + _PAD_B)
     image = Image.new("RGB", (img_w, img_h), (255, 255, 255))
     draw = ImageDraw.Draw(image)
     mp = _Map(plan, scale)
@@ -170,8 +171,7 @@ def render_plan_png(
     _draw_site_and_gate(draw, mp, plan, font_s)
     _draw_dimensions(draw, mp, plan, font_s)
     _draw_north(draw, img_w, font_m)
-    _, fh = _text_size(font_chrome, "m")
-    band_top = max(mp.xy(0, 0)[1], mp.xy(0, -1.2)[1]) + fh + 28
+    band_top = img_h - _PAD_B + 8
     title_x0 = _draw_title_block(draw, plan, img_w, img_h, font_chrome, band_top)
     _draw_notes(draw, plan, img_w, img_h, font_chrome, title_x0, band_top)
 

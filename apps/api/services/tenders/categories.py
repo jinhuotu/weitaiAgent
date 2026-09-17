@@ -89,13 +89,7 @@ def technical_soft_issues(
         issues.append("技术标：尚未填写技术偏差表，未响应招标技术要求会大量扣分")
     if not tech_plan_text(brief):
         issues.append("技术标：实施方案文字描述未写（请按邀请书概括，不要编造桩数）")
-    drawing_files = None
-    if isinstance(media, dict):
-        drawing_files = media.get(TECH_DRAWING_KEY) or []
-    else:
-        from api.services.tenders.slots import list_slot_files
-
-        drawing_files = list_slot_files(TECH_DRAWING_KEY)
+    drawing_files = media.get(TECH_DRAWING_KEY) or [] if isinstance(media, dict) else []
     if not drawing_files:
         issues.append("技术标：尚未上传实施方案图纸")
     from api.services.tenders.performance import bid_performance_lines, performance_match_issues

@@ -135,10 +135,6 @@ async def ensure_library_base(
             public_id=TENDER_LIB_PUBLIC_ID,
         )
         base = await get_base_by_public_id(db, TENDER_LIB_PUBLIC_ID)
-    if base.created_by is None and created_by is not None:
-        base.created_by = created_by
-        await db.commit()
-        await db.refresh(base)
     await _seed_defaults_if_empty(db, base)
     await _dedupe_duplicate_children(db, base)
     await _migrate_legacy_files(db, base)
@@ -746,6 +742,7 @@ async def list_slots_status_kb(
     extra: list[PlaceholderItem] | None = None,
     *,
     include_keys: list[str] | None = None,
+    invitation_id: str = "",
 ) -> list[dict[str, object]]:
     catalog = await catalog_placeholders(db)
     merged = collect_slots(extra, catalog=catalog, include_keys=include_keys)
@@ -759,7 +756,7 @@ async def list_slots_status_kb(
             current["hint"] = item.hint or current.get("hint")
             out.append(current)
         elif item.key == TECH_DRAWING_KEY:
-            row = drawing_slot_status()
+            row = drawing_slot_status(invitation_id)
             row["title"] = item.title or row.get("title")
             row["hint"] = item.hint or row.get("hint")
             out.append(row)
@@ -792,7 +789,7 @@ async def resolve_attachments(
     out: dict[str, list[Path]] = {}
     for item in slots:
         key = (item.key or "").strip()
-        if not key:
+        if not key or key == TECH_DRAWING_KEY:
             continue
         parent = parents.get(key)
         paths: list[Path] = []

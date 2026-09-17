@@ -21,6 +21,14 @@ def test_quote_role_reads_module_columns() -> None:
     assert quote_role("单价（元）") == "price"
     assert quote_role("合价（元）") == "amount"
     assert quote_role("设备") == "name"
+    assert quote_role("设备型号") == "name"
+    assert quote_role("产品名称") == "name"
+    assert quote_role("参考单价(元)") == "price"
+    assert quote_role("市场均价(元/台)") == "price"
+    assert quote_role("市场价区间(元)") is None
+    assert quote_role("技术规格明细") == "spec"
+    assert quote_role("适用场景") == "scene"
+    assert quote_role("类别") == "group"
     assert quote_role("技术参数要求") == "spec"
 
 

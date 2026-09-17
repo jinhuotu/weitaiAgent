@@ -17,14 +17,14 @@ from api.services.layouts.cad_export.units import choose_paper_and_scale
 from api.services.layouts.cad_export.writer import plan_to_dxf_doc
 
 
-def test_golden_keeps_preferred_scale_on_a3() -> None:
+def test_golden_keeps_preferred_scale_with_sheet_chrome() -> None:
     plan = golden_plan()
     paper, scale = choose_paper_and_scale(
         plan.sheetStyle.paper,
         plan.sheetStyle.scale,
         (0.0, 0.0, plan.site.widthM, plan.site.heightM),
     )
-    assert paper == "A3"
+    assert paper in {"A2", "A1"}
     assert scale == 200
 
 
@@ -104,3 +104,36 @@ def test_write_plan_dxf_uses_readable_default_name(tmp_path, monkeypatch) -> Non
     assert dest.is_file()
     png = rasterize_doc(plan_to_dxf_doc(plan))
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_viewport_stays_above_notes_and_title() -> None:
+    from api.services.layouts.cad_export.layers import LAYOUT_NAME
+
+    plan = golden_plan()
+    doc = plan_to_dxf_doc(plan)
+    psp = next(lay for lay in doc.layouts if lay.name == LAYOUT_NAME)
+    vp = next(
+        e for e in psp if e.dxftype() == "VIEWPORT" and int(e.dxf.status or 0) >= 2
+    )
+    bottom = float(vp.dxf.center.y) - float(vp.dxf.height) / 2.0
+    assert bottom >= 70.0
+
+
+def test_rect_site_only_gets_overall_width_height_dims() -> None:
+    from api.services.layouts.cad_export.dimensions import build_sheet_dimensions
+    from api.services.layouts.parse import parse_plan
+    from api.services.layouts.schema import EXAMPLE_PLAN
+    import json
+
+    payload = json.loads(json.dumps(EXAMPLE_PLAN))
+    payload["site"]["polygon"] = []
+    plan = parse_plan(payload)
+    w, h = float(plan.site.widthM), float(plan.site.heightM)
+    site_box = []
+    for d in build_sheet_dimensions(plan):
+        xs, ys = {round(d.p1[0], 2), round(d.p2[0], 2)}, {round(d.p1[1], 2), round(d.p2[1], 2)}
+        if xs <= {0.0, round(w, 2)} and ys <= {0.0, round(h, 2)} and (
+            abs(abs(d.p2[0] - d.p1[0]) - w) < 0.2 or abs(abs(d.p2[1] - d.p1[1]) - h) < 0.2
+        ):
+            site_box.append(d)
+    assert len(site_box) == 2

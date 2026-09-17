@@ -70,15 +70,14 @@ def lock_catalog_sizes(plan: EvChargingStationPlan) -> EvChargingStationPlan:
 def enforce_brief(plan: EvChargingStationPlan, brief: LayoutBrief) -> EvChargingStationPlan:
     """用用户 brief 覆盖桩数/箱变/场地面积；尺寸走目录锁。"""
     out = lock_catalog_sizes(plan)
-    if brief.site_area_m2 is not None and not (brief.site_w and brief.site_h):
+    if brief.site_w and brief.site_h:
+        from api.services.layouts.brief import scale_site_polygon_to_box
+
+        scale_site_polygon_to_box(out, float(brief.site_w), float(brief.site_h))
+    elif brief.site_area_m2 is not None:
         from api.services.layouts.brief import scale_site_to_area_m2
 
         scale_site_to_area_m2(out, brief.site_area_m2)
-    if brief.site_w and brief.site_h:
-        out.site.widthM = float(brief.site_w)
-        out.site.heightM = float(brief.site_h)
-        if len(out.site.polygon or []) < 3:
-            out.site.polygon = []
     if brief.trucks is not None or brief.cars is not None:
         _replace_stall_mix(out, trucks=brief.trucks, cars=brief.cars)
         out = lock_catalog_sizes(out)

@@ -11,7 +11,9 @@ from api.services.layouts.schema import EXAMPLE_PLAN
 from api.services.layouts.v2.constraints import (
     LayoutConstraints,
     check_constraints,
+    overlay_user_text_on_constraints,
     parse_constraints_text,
+    seed_plan_payload,
     wanted_stalls,
 )
 from api.services.layouts.v2.graph import (
@@ -106,7 +108,7 @@ def test_lock_prompt_skips_old_layout_rewrite() -> None:
     )
     blob = "\n".join(parts)
     assert "强制条件表" in blob
-    assert "禁止抄这里的 8 车位" in blob
+    assert "禁止抄这里的桩数" in blob
     unlocked = _collect_system_parts(
         {"systemPrompt": PLAN_SYSTEM},
         {},
@@ -132,6 +134,45 @@ def test_constraints_template_and_save_as() -> None:
     assert state["constraints"]["fleet"]["piles"] == 12
     text = _replace_templates("条件={{constraints}}", state)
     assert "12" in text
+
+
+def test_save_constraints_overlays_user_text_when_json_empty() -> None:
+    state = {"query": "场地约5000㎡，布置50台160kW充电桩，两台箱变"}
+    _save_llm_output(
+        {"saveAs": "constraints"},
+        state,
+        json.dumps(
+            {
+                "kind": "ev_charging_station_constraints",
+                "fleet": {"cars": None, "trucks": None, "piles": None},
+                "chargers": {"dcType": None},
+                "transformers": [],
+                "site": {"areaM2": None},
+            }
+        ),
+    )
+    cons = state["constraints"]
+    assert cons["fleet"]["cars"] == 50
+    assert cons["chargers"]["dcType"] == "dc_160kw"
+    assert cons["transformers"][0]["count"] == 2
+    assert cons["site"]["areaM2"] == 5000
+
+
+def test_save_constraints_overwrites_copied_eight_stalls() -> None:
+    state = {"query": "50台160kW充电桩"}
+    _save_llm_output(
+        {"saveAs": "constraints"},
+        state,
+        json.dumps(
+            {
+                "kind": "ev_charging_station_constraints",
+                "fleet": {"cars": 8, "trucks": 0, "piles": 8},
+                "chargers": {"dcType": "dc_160kw"},
+            }
+        ),
+    )
+    assert state["constraints"]["fleet"]["cars"] == 50
+    assert state["constraints"]["fleet"]["piles"] == 50
 
 
 def test_prepare_v2_plan_enforces_catalog_and_count() -> None:
@@ -1410,4 +1451,82 @@ def test_revise_adds_electrical_room_and_group_hosts_on_blank() -> None:
     for ab in aisle_boxes:
         assert not _overlap(rb, ab, pad=-0.1), "配电室不得压过道"
     assert not any(i.code == "aisle_clear" and i.blocking for i in issues)
+
+
+def test_null_constraints_follow_5000m2_50_piles() -> None:
+    q = "场地约5000㎡，布置50台160kW充电桩，两台箱变"
+    empty = LayoutConstraints.model_validate(
+        {
+            "fleet": {"cars": None, "trucks": None, "piles": None},
+            "chargers": {"dcType": None},
+            "transformers": [],
+            "site": {"areaM2": None, "widthM": None, "heightM": None, "gates": []},
+        }
+    )
+    filled = overlay_user_text_on_constraints(empty, q, overwrite_counts=True)
+    assert filled.fleet.cars == 50
+    assert filled.chargers.dcType == "dc_160kw"
+    assert filled.transformers[0].count == 2
+    assert filled.site.areaM2 == 5000
+
+    seeded = seed_plan_payload(empty, query=q)
+    assert sum(int(r["stalls"]) for r in seeded["parkingRows"]) == 50
+    assert "dc_160kw" in seeded["legend"]
+    assert sum(1 for e in seeded["equipment"] if e["type"] == "box_transformer") == 2
+
+    copied = LayoutConstraints.model_validate(
+        {"fleet": {"cars": 8, "trucks": 0, "piles": 8}}
+    )
+    plan, _issues = prepare_v2_plan(
+        {"kind": "ev_charging_station_plan"},
+        query=q,
+        vision="",
+        constraints=copied,
+        prior=None,
+        revise=False,
+    )
+    assert sum(int(r.stalls) for r in plan.parkingRows) == 50
+    assert sum(1 for e in plan.equipment if e.type == "box_transformer") == 2
+    area = float(plan.site.widthM) * float(plan.site.heightM)
+    assert abs(area - 5000) / 5000 < 0.25
+    aisle_ids = {str(a.id) for a in plan.aisles}
+    assert "aisle_drive" in aisle_ids
+    assert "aisle_turn" in aisle_ids or any("进场" in (a.label or "") for a in plan.aisles)
+
+
+def test_seed_without_count_does_not_invent_eight() -> None:
+    cons = LayoutConstraints.model_validate({"fleet": {}})
+    seeded = seed_plan_payload(cons, query="")
+    assert sum(int(r["stalls"]) for r in seeded["parkingRows"]) == 0
+
+
+def test_prepare_traces_draft_parking_origins() -> None:
+    from api.services.layouts.draft import parse_parking_rows_from_text
+
+    vision = """外形：矩形
+polygon: [{"x":0,"y":0},{"x":40,"y":0},{"x":40,"y":30},{"x":0,"y":30}]
+parkingRows: [{"id":"cars","stalls":6,"stallWidthM":3,"stallLengthM":6,"angleDeg":0,"origin":{"x":2.4,"y":8.1},"along":"y","charger":{"type":"none","side":"left"}}]
+"""
+    rows = parse_parking_rows_from_text(vision)
+    assert len(rows) == 1
+    assert rows[0].stalls == 6
+    cons = LayoutConstraints.model_validate({"fleet": {}, "site": {"widthM": 40, "heightM": 30}})
+    payload = json.loads(json.dumps(EXAMPLE_PLAN))
+    payload["parkingRows"] = [
+        {
+            "id": "moved",
+            "stalls": 8,
+            "stallWidthM": 3,
+            "stallLengthM": 6,
+            "angleDeg": 0,
+            "origin": {"x": 30, "y": 1},
+            "along": "x",
+            "charger": {"type": "dc_160kw", "startNo": 1, "side": "head"},
+        }
+    ]
+    plan, _ = prepare_v2_plan(payload, query="按草稿出布置图", vision=vision, constraints=cons)
+    assert sum(int(r.stalls) for r in plan.parkingRows) == 6
+    assert abs(float(plan.parkingRows[0].origin.x) - 2.4) < 0.35
+    assert abs(float(plan.parkingRows[0].origin.y) - 8.1) < 0.35
+    assert plan.parkingRows[0].along == "y"
 

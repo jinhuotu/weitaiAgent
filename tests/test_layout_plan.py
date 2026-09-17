@@ -1489,6 +1489,32 @@ def test_irregular_t_site_is_drawn_as_polygon_not_rectangle() -> None:
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
+def test_draft_polygon_scales_to_user_length_width() -> None:
+    """读图 polygon 是估的米，用户说了东西×南北后，外形跟着草稿、包络用实尺。"""
+    from api.services.layouts.brief import attach_site_polygon, parse_layout_brief
+    from api.services.layouts.check import enforce_brief
+    from api.services.layouts.schema import site_is_irregular
+
+    vision = (
+        '外形：T型\n'
+        'polygon: [{"x":0,"y":10},{"x":12,"y":10},{"x":12,"y":0},'
+        '{"x":24,"y":0},{"x":24,"y":28},{"x":0,"y":28}]'
+    )
+    plan = attach_site_polygon(parse_plan(json.loads(json.dumps(EXAMPLE_PLAN))), "", vision)
+    brief = parse_layout_brief("东西长100米，南北宽50米，16台充电桩")
+    plan = enforce_brief(plan, brief)
+    assert site_is_irregular(plan.site)
+    assert abs(float(plan.site.widthM) - 100) < 0.2
+    assert abs(float(plan.site.heightM) - 50) < 0.2
+    xs = [p.x for p in plan.site.polygon]
+    ys = [p.y for p in plan.site.polygon]
+    assert min(xs) == pytest.approx(0, abs=0.05)
+    assert min(ys) == pytest.approx(0, abs=0.05)
+    assert max(xs) == pytest.approx(100, abs=0.2)
+    assert max(ys) == pytest.approx(50, abs=0.2)
+
+
+
 def test_layout_revise_keeps_prior_site_when_changing_charger() -> None:
     from api.services.layouts.revise import (
         is_layout_revise_query,
@@ -2346,17 +2372,21 @@ def test_scheme_a_locks_sizes_generates_aisles_and_svg() -> None:
 def test_layout_llm_keeps_draft_images_even_when_vision_exists() -> None:
     """布置提示词场景下，有 visionText 也不能因为 attachImages=false 丢掉草稿图。"""
     from api.services.layouts.prompt import LAYOUT_LLM_SYSTEM_PROMPT
+    from api.services.layouts.v2.prompts import PLAN_SYSTEM
     from api.services.workflows.nodes import _bool_flag, _is_layout_prompt
 
     assert _is_layout_prompt([LAYOUT_LLM_SYSTEM_PROMPT])
+    assert _is_layout_prompt([PLAN_SYSTEM])
     assert _bool_flag({"attachImages": False}, "attachImages", default=True) is False
-    layout_prompt = True
+    layout_prompt = _is_layout_prompt([PLAN_SYSTEM])
     has_images = True
     has_vision = True
     attach_cfg = False
     attach = True if layout_prompt and has_images else (attach_cfg and not has_vision)
     assert attach is True
-    assert has_vision  # 明示：即使已有读图文字，仍应附图
+    assert has_vision
+    need_vision = attach and not layout_prompt and has_images
+    assert need_vision is False
 
 
 

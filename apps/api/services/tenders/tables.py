@@ -82,15 +82,21 @@ def quote_role(cell: object) -> str | None:
         )
     ):
         return "spec"
-    if n in {"规格", "参数", "明细"} or n.endswith("明细"):
+    if n in {"规格", "参数", "明细", "功率"} or n.endswith("明细"):
+        return "spec"
+    if n.startswith("额定功率"):
         return "spec"
     if "参数" in n and "单价" not in n and "合价" not in n:
         return "spec"
+    if any(k in n for k in ("适用场景", "应用场景", "使用场景")):
+        return "scene"
     if n in {"单位", "计量单位"} or (n.endswith("单位") and "招标" not in n and "采购" not in n):
         return "unit"
     if any(k in n for k in ("工程量", "数量")):
         return "qty"
-    if any(k in n for k in ("综合单价", "不含税单价", "单价")):
+    if any(k in n for k in ("综合单价", "不含税单价", "参考单价", "市场均价", "均价")) and "区间" not in n:
+        return "price"
+    if "单价" in n and "区间" not in n:
         return "price"
     if "合价" in n or (n in {"金额"} or n.endswith("金额")):
         return "amount"
@@ -98,9 +104,24 @@ def quote_role(cell: object) -> str | None:
         return "name"
     if "子系统" in n:
         return "group"
-    if n in {"系统"} or n.endswith("系统名称") or (n.endswith("系统") and "系数" not in n and "配置" not in n):
+    if n in {"系统", "类别", "分类"} or n.endswith("系统名称") or n.endswith("类别"):
         return "group"
-    if any(k in n for k in ("设备名称", "项目名称", "货物名称", "物料名称", "品名", "服务内容")):
+    if n.endswith("系统") and "系数" not in n and "配置" not in n:
+        return "group"
+    if any(
+        k in n
+        for k in (
+            "设备名称",
+            "设备型号",
+            "产品名称",
+            "产品型号",
+            "项目名称",
+            "货物名称",
+            "物料名称",
+            "品名",
+            "服务内容",
+        )
+    ):
         return "name"
     if n in {"设备", "名称", "项目", "货物", "物料"}:
         return "name"

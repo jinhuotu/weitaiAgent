@@ -24,6 +24,7 @@ from api.services.ai.chat_images import (
     multimodal_user_content,
     persist_chat_images,
 )
+from api.services.ai.kb_originals import load_tender_original_blobs
 from api.services.ai.prompts import build_system_prompt
 from api.services.knowledge import access as kb_access
 from api.services.knowledge.ingest import search_chunks
@@ -49,8 +50,9 @@ class ChatMessage(BaseModel):
 
 
 class ChatImageIn(BaseModel):
-    mimeType: str = Field(default="image/jpeg", max_length=64)
+    mimeType: str = Field(default="image/jpeg", max_length=128)
     data: str = Field(min_length=8)
+    fileName: str | None = Field(default=None, max_length=200)
 
 
 class ChatRequest(BaseModel):
@@ -361,12 +363,20 @@ async def ai_chat(
                             logger.warning("rag search failed: %s", exc)
                             chunks = []
 
+                    kb_blobs: list[tuple[str, bytes]] = []
+                    if chunks:
+                        try:
+                            kb_blobs = await load_tender_original_blobs(db, chunks)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("tender originals load failed: %s", exc)
+                            kb_blobs = []
+
                     refs_payload: dict[str, Any] = {
                         "mode": chat_mode,
                         "chunks": chunks,
                         "useKnowledge": do_rag,
                         "knowledgeBaseIds": kb_ids,
-                        "hasImages": bool(saved_images),
+                        "hasImages": bool(saved_images or kb_blobs),
                     }
                     if agent_id:
                         refs_payload["agentId"] = agent_id
@@ -389,7 +399,8 @@ async def ai_chat(
                         chunks,
                         base_prompt=base_prompt,
                         use_knowledge=do_rag,
-                        has_images=bool(saved_images),
+                        has_images=bool(saved_images or kb_blobs),
+                        kb_ids=kb_ids,
                     )
                     llm_messages: list[dict[str, Any]] = []
                     if system_prompt:
@@ -397,8 +408,9 @@ async def ai_chat(
                             {"role": "system", "content": system_prompt}
                         )
                     llm_messages.extend(memory_svc.hot_messages_for_llm(hot_msgs))
-                    if image_blobs:
-                        vision_content = multimodal_user_content(caption, image_blobs)
+                    vision_blobs = [*image_blobs, *kb_blobs]
+                    if vision_blobs:
+                        vision_content = multimodal_user_content(caption, vision_blobs)
                         replaced = False
                         for i in range(len(llm_messages) - 1, -1, -1):
                             if llm_messages[i].get("role") == "user":
@@ -413,9 +425,10 @@ async def ai_chat(
                                 {"role": "user", "content": vision_content}
                             )
                         logger.info(
-                            "chat vision attached images=%s bytes=%s parts=%s",
+                            "chat vision attached images=%s kb_originals=%s bytes=%s parts=%s",
                             len(image_blobs),
-                            sum(len(b) for _, b in image_blobs),
+                            len(kb_blobs),
+                            sum(len(b) for _, b in vision_blobs),
                             [p.get("type") for p in vision_content],
                         )
 

@@ -159,10 +159,15 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
         row["unitPrice"] = hit.unit_price
         row["amount"] = money(_qty(row.get("qty")), hit.unit_price)
         row["matchName"] = hit.name
-        if not str(row.get("spec") or "").strip() and hit.spec:
+        if hit.spec:
             row["spec"] = hit.spec
-        if not str(row.get("unit") or "").strip():
-            row["unit"] = hit.unit
+        if not str(row.get("unit") or "").strip() or str(row.get("unit") or "") == "项":
+            if hit.unit:
+                row["unit"] = hit.unit
+        extra = "；".join(x for x in (hit.category, hit.scene) if x)
+        if extra:
+            old = str(row.get("note") or "").strip()
+            row["note"] = f"{old}；{extra}" if old else extra
         row["source"] = "catalog" if row.get("source") in {"vision", "rule", ""} else row.get("source")
         if score < 0.7:
             notes.append(f"「{row['name']}」按「{hit.name}」估价，请确认")

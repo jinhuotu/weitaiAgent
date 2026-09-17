@@ -129,6 +129,9 @@ def _record_to_dict(
         "workflowLocked": workflow_locked(status),
         "userId": int(row.user_id or 0),
     }
+    from api.services.tenders.qa import qa_summary
+
+    data.update(qa_summary(row.public_id))
     if include_brief and isinstance(row.brief_json, dict):
         data["brief"] = row.brief_json
     if extra:
@@ -237,13 +240,9 @@ async def _prepare_and_generate(
     brief.includeSlotKeys = include_keys
     slots = collect_slots(brief.extraPlaceholders, catalog=catalog, include_keys=include_keys)
     media = await resolve_attachments(db, slots)
-    from api.services.tenders.placeholders import TECH_DRAWING_KEY
-    from api.services.tenders.slots import list_slot_files
+    from api.services.tenders.slots import attach_invitation_drawings
 
-    if TECH_DRAWING_KEY not in media:
-        drawing_files = list_slot_files(TECH_DRAWING_KEY)
-        if drawing_files:
-            media[TECH_DRAWING_KEY] = drawing_files
+    media = attach_invitation_drawings(media, brief.invitationId)
     from api.services.tenders.performance import bid_performance_lines
 
     if "perf" in media:
@@ -644,7 +643,7 @@ async def regenerate_from_record(
         _unlink_output(str(old_pdf))
     from api.services.tenders.qa import unlink_qa_report
 
-    unlink_qa_report(row.public_id)
+    unlink_qa_report(row.public_id, volume=vol)
     out = _record_to_dict(row)
     out["warnings"] = generated.get("warnings") or []
     out["defaultsUsed"] = generated.get("defaultsUsed")
@@ -813,48 +812,131 @@ async def record_ids_for_actor(
     return [int(r[0]) for r in rows]
 
 
-async def inspect_record_qa(db: AsyncSession, public_id: str) -> dict[str, object]:
+def _qa_brief(row: TenderRecord) -> BidBrief:
+    if not isinstance(row.brief_json, dict) or not row.brief_json:
+        raise AppError(ErrorCode.VALIDATION, "该记录没有保存表单，无法质检", status_code=422)
+    try:
+        return BidBrief.model_validate(row.brief_json)
+    except Exception as exc:
+        raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
+
+
+def _qa_generated_file(
+    row: TenderRecord,
+    brief: BidBrief,
+    volume: str | None = None,
+) -> str:
+    biz = (row.docx_file or "").strip()
+    tech = (getattr(row, "tech_docx_file", None) or "").strip()
+    want = (volume or "").strip().lower()
+    if want == "technical":
+        if tech:
+            return tech
+        raise AppError(ErrorCode.VALIDATION, "该记录没有技术标 Word，无法质检", status_code=422)
+    if want == "business":
+        if biz:
+            return biz
+        raise AppError(ErrorCode.VALIDATION, "该记录没有商务标 Word，无法质检", status_code=422)
+    vol = generate_volume(brief)
+    if vol == "technical" and tech:
+        return tech
+    if biz:
+        return biz
+    if tech:
+        return tech
+    raise AppError(ErrorCode.VALIDATION, "该记录没有 Word 文件，无法质检", status_code=422)
+
+
+async def inspect_record_qa(
+    db: AsyncSession,
+    public_id: str,
+    *,
+    volume: str | None = None,
+) -> dict[str, object]:
     """对照邀请书对已生成 Word 做 AI 质检。"""
     from api.services.tenders.qa import inspect_bid
 
     row = await _get_row(db, public_id)
-    biz = (row.docx_file or "").strip()
-    tech = (getattr(row, "tech_docx_file", None) or "").strip()
-    target = biz or tech
-    if not target:
-        raise AppError(ErrorCode.VALIDATION, "该记录没有 Word 文件，无法质检", status_code=422)
-    if not isinstance(row.brief_json, dict) or not row.brief_json:
-        raise AppError(ErrorCode.VALIDATION, "该记录没有保存表单，无法质检", status_code=422)
-    try:
-        brief = BidBrief.model_validate(row.brief_json)
-    except Exception as exc:
-        raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
-    vol = generate_volume(brief)
-    if vol == "technical" and tech:
-        target = tech
-    elif biz:
-        target = biz
+    brief = _qa_brief(row)
+    target = _qa_generated_file(row, brief, volume)
+    want = (volume or "").strip().lower()
+    vol = want if want in {"business", "technical"} else generate_volume(brief)
     return await inspect_bid(
         db,
         public_id=row.public_id,
         brief=brief,
         docx_file=str(target),
+        source="generated",
+        volume=vol,
     )
 
 
-def get_saved_qa(public_id: str, *, docx_file: str | None = None) -> dict[str, object]:
-    from api.services.tenders.qa import load_qa_report
+async def inspect_record_qa_upload(
+    db: AsyncSession,
+    public_id: str,
+    *,
+    data: bytes,
+    filename: str,
+    volume: str | None = None,
+) -> dict[str, object]:
+    """对照邀请书对用户上传的终稿 Word 做复检。"""
+    from api.services.tenders.qa import inspect_bid, normalize_qa_volume, save_qa_upload
 
-    report = load_qa_report(public_id)
+    row = await _get_row(db, public_id)
+    brief = _qa_brief(row)
+    path = save_qa_upload(row.public_id, data)
+    want = (volume or "").strip().lower()
+    vol = want if want in {"business", "technical"} else generate_volume(brief)
+    vol = normalize_qa_volume(vol)
+    biz = (row.docx_file or "").strip()
+    tech = (getattr(row, "tech_docx_file", None) or "").strip()
+    label = (tech if vol == "technical" else biz) or path.name
+    return await inspect_bid(
+        db,
+        public_id=row.public_id,
+        brief=brief,
+        docx_file=str(label),
+        bid_path=path,
+        source="upload",
+        upload_name=filename,
+        volume=vol,
+    )
+
+
+def get_saved_qa(
+    public_id: str,
+    *,
+    volume: str | None = None,
+    docx_file: str | None = None,
+) -> dict[str, object]:
+    from api.services.tenders.qa import load_qa_report, normalize_qa_volume
+
+    vol = normalize_qa_volume(volume) if volume else None
+    report = load_qa_report(public_id, volume=vol)
     if not report:
         return {"report": None}
-    stale = bool(
-        docx_file and report.get("docxFile") and str(report.get("docxFile")) != str(docx_file)
-    )
-    report["stale"] = stale
+    source = str(report.get("source") or "generated")
+    if source == "upload":
+        report["stale"] = False
+    else:
+        report["stale"] = bool(
+            docx_file and report.get("docxFile") and str(report.get("docxFile")) != str(docx_file)
+        )
     return {"report": report}
 
 
-async def get_record_qa(db: AsyncSession, public_id: str) -> dict[str, object]:
+async def get_record_qa(
+    db: AsyncSession, public_id: str, *, volume: str | None = None
+) -> dict[str, object]:
+    from api.services.tenders.qa import load_qa_report, normalize_qa_volume
+
     row = await _get_row(db, public_id)
-    return get_saved_qa(row.public_id, docx_file=row.docx_file)
+    want = (volume or "").strip().lower()
+    vol = normalize_qa_volume(want) if want else None
+    if not vol:
+        latest = load_qa_report(row.public_id)
+        vol = normalize_qa_volume(str((latest or {}).get("volume") or ""))
+    tech = (getattr(row, "tech_docx_file", None) or "").strip()
+    biz = (row.docx_file or "").strip()
+    docx = tech if vol == "technical" else biz
+    return get_saved_qa(row.public_id, volume=vol, docx_file=docx)

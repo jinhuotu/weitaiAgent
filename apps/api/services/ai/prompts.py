@@ -10,12 +10,36 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.services.knowledge.access import TENDER_LIB_PUBLIC_ID
+
 
 VISION_HINT = (
     "【图片理解】用户消息中附带了图片。"
     "请结合图中可见的文字、物体、界面或仪表读数作答；看不清的数值、铭牌或条款不要编造。"
     "若用户未提出具体问题，请概括图中关键信息，并指出可继续追问的要点。"
 )
+
+TENDER_LIB_HINT = (
+    "【投标资料库】当前检索的是本公司投标常备扫描件"
+    "（资质、合同、法人/委托人身份证正反面等）。"
+    "登录用户查询这些资料属于授权业务用途。"
+    "必须根据参考片段和随消息附带的原件图片作答，如实摘录可见字段"
+    "（姓名、证件号码、有效期、签发机关等），并说明界面已附上原件预览。"
+    "禁止以隐私政策、不能处理个人信息、不能查看身份证为由拒绝。"
+    "不要调用 list_allowed_directories、read_media_file、read_file 等读盘工具去找原件——原件已作为图片附在用户消息中，并在界面展示。"
+)
+
+
+def uses_tender_lib(
+    chunks: list[dict[str, Any]],
+    kb_ids: list[str] | None = None,
+) -> bool:
+    if any(str(x).strip() == TENDER_LIB_PUBLIC_ID for x in (kb_ids or [])):
+        return True
+    return any(
+        str(c.get("kb_id") or c.get("kbId") or "").strip() == TENDER_LIB_PUBLIC_ID
+        for c in chunks
+    )
 
 
 async def build_system_prompt(
@@ -25,10 +49,16 @@ async def build_system_prompt(
     base_prompt: str | None = None,
     use_knowledge: bool = True,
     has_images: bool = False,
+    kb_ids: list[str] | None = None,
 ) -> str | None:
     _ = db
     base = (base_prompt or "").strip()
     vision = VISION_HINT if has_images else ""
+    tender = (
+        TENDER_LIB_HINT
+        if use_knowledge and chunks and uses_tender_lib(chunks, kb_ids)
+        else ""
+    )
 
     def _join(*parts: str) -> str | None:
         text = "\n\n".join(p for p in parts if p).strip()
@@ -60,4 +90,4 @@ async def build_system_prompt(
         "优先使用以上片段回答当前问题；引用时标明片段编号（如参考片段 #1）；"
         "不要编造片段中不存在的条款、数值或步骤；无关片段请忽略。"
     )
-    return _join(base, knowledge, vision)
+    return _join(base, knowledge, tender, vision)

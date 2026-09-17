@@ -21,6 +21,7 @@ sys.path.insert(0, str(ROOT / "apps"))
 
 from sqlalchemy import select
 
+from api.services.menus import SEED_ROLE_MENUS
 from common.security import hash_password
 from db.models.role import Role, UserRole
 from db.models.user import User
@@ -34,7 +35,7 @@ SEED_ROLE_CODE = "admin"
 SEED_ROLES: list[tuple[str, str, str]] = [
     ("admin", "超级管理员", "全部权限"),
     ("operator", "操作员", "对话等业务功能"),
-    ("auditor", "审计员", "只读 + 日志"),
+    ("auditor", "审计员", "投标任务与审批"),
 ]
 
 
@@ -45,13 +46,16 @@ async def seed() -> None:
             role_result = await db.execute(select(Role).where(Role.code == code))
             role = role_result.scalar_one_or_none()
             if role is None:
-                role = Role(code=code, name=name, description=description)
+                menus = list(SEED_ROLE_MENUS[code]) if code in SEED_ROLE_MENUS else None
+                role = Role(code=code, name=name, description=description, menus=menus)
                 db.add(role)
                 await db.flush()
                 print(f"[ok] created role: {code}")
             else:
                 role.name = name
                 role.description = description
+                if code in SEED_ROLE_MENUS and not getattr(role, "menus", None):
+                    role.menus = list(SEED_ROLE_MENUS[code])
                 print(f"[ok] updated role: {code}")
             role_by_code[code] = role
 

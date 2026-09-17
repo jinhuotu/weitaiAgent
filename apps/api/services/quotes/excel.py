@@ -15,7 +15,7 @@ from common.errors import AppError, ErrorCode
 _TWO = Decimal("0.01")
 _FILE_RE = re.compile(r"^[a-f0-9]{12}\.xlsx$", re.I)
 _UNSAFE = re.compile(r'[\\/:*?"<>|\s]+')
-_HEADERS = ("序号", "名称", "规格型号", "单位", "数量", "单价（元）", "合价", "备注", "来源")
+_HEADERS = ("序号", "名称", "规格型号", "单位", "数量", "不含税单价（元）", "合价", "备注", "来源")
 
 
 def safe_download_name(project_name: str) -> str:
@@ -80,8 +80,9 @@ def write_quote_xlsx(
         cell = ws.cell(3, i, h)
         cell.fill = head_fill
         cell.font = head_font
-        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = thin
+    ws.row_dimensions[3].height = 32
 
     total = Decimal("0")
     for i, ln in enumerate(rows, start=1):
@@ -110,6 +111,11 @@ def write_quote_xlsx(
                 cell.number_format = money_fmt
             if c == 5:
                 cell.number_format = "0.####"
+        spec = str(ln.spec or "")
+        lines_n = spec.count("\n") + 1
+        if lines_n < 4 and len(spec) > 36:
+            lines_n = max(lines_n, min(10, (len(spec) + 17) // 18))
+        ws.row_dimensions[r].height = min(160, max(22, 14 * min(lines_n, 10)))
 
     tax = (total * tax_rate).quantize(_TWO, rounding=ROUND_HALF_UP)
     inc = (total + tax).quantize(_TWO, rounding=ROUND_HALF_UP)
@@ -130,7 +136,7 @@ def write_quote_xlsx(
         ws.cell(r, 1).border = thin
         ws.cell(r, 7).border = thin
 
-    widths = [8, 28, 36, 8, 10, 14, 14, 28, 18]
+    widths = [8, 22, 48, 8, 10, 16, 14, 22, 18]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[chr(64 + i)].width = w
     ws.page_setup.orientation = "landscape"

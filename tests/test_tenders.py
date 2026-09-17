@@ -1861,6 +1861,39 @@ def test_technical_section_writes_construction_plan(tmp_path) -> None:
     )
 
 
+def test_technical_section_embeds_uploaded_drawings(tmp_path) -> None:
+    from PIL import Image
+
+    from api.services.tenders.placeholders import TECH_DRAWING_KEY
+
+    png = tmp_path / "site.png"
+    Image.new("RGB", (160, 90), (40, 120, 200)).save(png, "PNG")
+    brief = BidBrief(
+        projectName="充电站采购安装",
+        tenderer="招标人",
+        bidPriceYuan=100000,
+        legalPersonName="张三",
+        attachQualifications=False,
+        includePlaceholders=False,
+        includeCommitment=False,
+        constructionPlan="先做基础，再安装直流桩。",
+        quoteLines=_sample_quote_lines(),
+    )
+    path, warnings = build_bid_docx(
+        brief,
+        tmp_path / "tech.docx",
+        qualification_pdf=None,
+        catalog_media={TECH_DRAWING_KEY: [png]},
+    )
+    from docx import Document
+
+    doc = Document(str(path))
+    blob = doc.element.xml
+    assert "a:blip" in blob
+    assert any("图纸写入" in w for w in warnings)
+    assert not any("为加快生成未写入" in w for w in warnings)
+
+
 def test_toc_owns_own_page_and_pageref_matches_chapters(tmp_path) -> None:
     """目录独占一页；封面/目录不编页码，正文页脚从 1 起。"""
     from docx import Document

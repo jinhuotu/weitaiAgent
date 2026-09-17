@@ -30,9 +30,15 @@ def build_sheet_dimensions(plan: EvChargingStationPlan) -> list[DimSpec]:
 
 
 def _site_edge_dims(plan: EvChargingStationPlan) -> list[DimSpec]:
+    """矩形只标总长总宽，避免红线外再套一圈四边框。异形场地仍沿各边标注。"""
+    w, h = float(plan.site.widthM), float(plan.site.heightM)
+    if not site_is_irregular(plan.site):
+        return [
+            DimSpec((0.0, 0.0), (w, 0.0), -2.8),
+            DimSpec((0.0, 0.0), (0.0, h), 2.8),
+        ]
     poly = site_boundary_m(plan.site)
     if len(poly) < 2:
-        w, h = float(plan.site.widthM), float(plan.site.heightM)
         poly = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h), (0.0, 0.0)]
     if poly[0] == poly[-1] and len(poly) > 1:
         ring = poly[:-1]
@@ -42,14 +48,13 @@ def _site_edge_dims(plan: EvChargingStationPlan) -> list[DimSpec]:
         return []
     cx = sum(p[0] for p in ring) / len(ring)
     cy = sum(p[1] for p in ring) / len(ring)
-    offset = 3.6 if site_is_irregular(plan.site) else 2.8
     out: list[DimSpec] = []
     n = len(ring)
     for i in range(n):
         a, b = ring[i], ring[(i + 1) % n]
         if math.hypot(b[0] - a[0], b[1] - a[1]) < 1.0:
             continue
-        out.append(DimSpec(a, b, _outward_offset(a, b, (cx, cy), offset)))
+        out.append(DimSpec(a, b, _outward_offset(a, b, (cx, cy), 3.6)))
     return out
 
 

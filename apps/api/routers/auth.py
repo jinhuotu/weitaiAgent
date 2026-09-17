@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, Request
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from api.deps import CurrentUser, DbSession
 from api.schemas.auth import LoginRequest, RefreshRequest, TokenPair, UserInfo
@@ -21,7 +22,7 @@ from db.models.user import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _user_info(user: User) -> UserInfo:
+async def _user_info(db, user: User) -> UserInfo:
     return UserInfo(
         id=user.id,
         username=user.username,
@@ -29,7 +30,7 @@ def _user_info(user: User) -> UserInfo:
         email=user.email,
         is_superuser=user.is_superuser,
         roles=[r.code for r in user.roles],
-        menus=menus_svc.resolve_menus(user),
+        menus=await menus_svc.resolve_menus_with_acl(db, user),
     )
 
 
@@ -37,7 +38,9 @@ def _user_info(user: User) -> UserInfo:
 async def login(body: LoginRequest, request: Request, db: DbSession) -> dict:
     ip = audit_svc.client_ip(request)
     ua = audit_svc.user_agent(request)
-    result = await db.execute(select(User).where(User.username == body.username))
+    result = await db.execute(
+        select(User).options(selectinload(User.roles)).where(User.username == body.username)
+    )
     user = result.scalar_one_or_none()
     if user is None or not verify_password(body.password, user.hashed_password):
         await audit_svc.record_login(
@@ -74,7 +77,7 @@ async def login(body: LoginRequest, request: Request, db: DbSession) -> dict:
         access_token=create_access_token(user.username),
         refresh_token=create_refresh_token(user.username),
     )
-    return ok({**tokens.model_dump(), "user": _user_info(user).model_dump()})
+    return ok({**tokens.model_dump(), "user": (await _user_info(db, user)).model_dump()})
 
 
 @router.post("/refresh")
@@ -96,5 +99,5 @@ async def refresh(body: RefreshRequest) -> dict:
 
 
 @router.get("/me")
-async def me(user: CurrentUser) -> dict:
-    return ok(_user_info(user).model_dump())
+async def me(user: CurrentUser, db: DbSession) -> dict:
+    return ok((await _user_info(db, user)).model_dump())

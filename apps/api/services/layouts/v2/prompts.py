@@ -7,7 +7,7 @@ EXTRACT_SYSTEM = """你是充电站布置的条件书记员。只输出一个 JS
 【优先级】
 1. 用户当前这句话里的数字、靠墙、斜列、出入口
 2. 平台目录（车位尺寸、最小车道）——你不得改，也不得输出覆盖目录的字段
-3. 【读图】只用来判断有几处门、门在哪一侧；读图里的尺寸数字一律忽略
+3. 【读图】只用来判断有几处门、门在哪一侧；图上车位由程序描，禁止把图上桩数填进 fleet（用户本句没点名则 null）。读图里的尺寸数字一律忽略
 4. 【知识库案例】只允许借鉴 layout.mode（如 dual_row_angle）；禁止抄桩数、kVA、场地长宽、角度数字
 
 【输出契约】
@@ -55,12 +55,17 @@ VISION_PROMPT = """你在读充电站场地草稿，不是在设计布置。
 3) 出入口：有几处写几处。若「出入口」写在场地某一角，必须写 corner=southeast/southwest/northeast/northwest（西南角为原点，X东 Y北），并写 along=east 或 west；禁止只写 south 而当成南墙正中。
 4) 必填一行（西南角原点，X东 Y北，单位米，沿外轮廓顺序闭合）：
 polygon: [{"x":0,"y":0},{"x":..,"y":..},...]
+5) 若图上已画出充电车位/停车位，输出：
+parkingRows: [{"id":"r1","stalls":8,"stallWidthM":3,"stallLengthM":6,"angleDeg":0,"origin":{"x":1,"y":4},"along":"x","charger":{"type":"none","side":"head"}}]
+没有车位则写 parkingRows: []
 
 规则：
 - 禁止只写「约长×宽」而不给 polygon。
 - 禁止把 T型/梯形改成大矩形或 L 型。
+- 用户正文里的东西长/南北宽或面积是尺度：polygon 必须按该米制写，禁止另编一套长宽。
 - 用户正文里的车位数量、箱变容量、斜列角度不要改写、不要复述成「建议值」。
 - 图上看不清的尺寸数字不要填。
+- parkingRows.origin 是该排第一台车位西南角；along=x 沿东西排，along=y 沿南北排。禁止把用户正文里的桩数当成图上车位数。
 """
 
 PLAN_SYSTEM = """你是充电站平面布置的方案员。只输出一个可被程序绘图的 JSON，不要 Markdown、不要代码围栏、不要解释。
@@ -71,7 +76,7 @@ PLAN_SYSTEM = """你是充电站平面布置的方案员。只输出一个可被
 【必须遵守的输入，冲突时按此顺序】
 1. 用户消息里的【强制条件表】—— 桩数、箱变、靠墙、斜列、出入口以它为准；表里为 null / 写在 unset 里的项禁止用案例补。
 2. 平台目录（程序会再锁一次，你也必须按此填占位）：轿车车位 3×6，重卡车位 5×17；轿车回转≥7m，重卡回转≥15m。禁止自创尺寸。
-3. 【读图】只取外形。有 polygon 则原样写入 site.polygon，widthM/heightM 取包络。禁止改成另一种形状。
+3. 【读图】外形 + 已有车位。有 polygon 则原样写入 site.polygon，widthM/heightM 取包络。禁止改成另一种形状。若读图含 parkingRows，origin/along/angleDeg 必须沿用，禁止重排靠墙；数量以条件表为准（表为 null 则沿用图上数量）。
 4. 【当前任务】与条件表冲突时以条件表为准（条件表已从本句抽出）。
 5. 【知识库案例】只允许模仿排列模式（双排/斜列/背对背）。禁止抄案例桩数、kVA、场地、坐标。
 6. 【上一张布置】若存在：这是增量修改，不是重画。用户没说的长宽、桩数、分排数量、靠哪面墙必须原样保留；禁止把长宽对调；禁止把两侧 4+4 改成 6+6 或改成单侧。只改本句点名的项（如出入口改到东南角）。
@@ -104,8 +109,8 @@ aisles、trenches、cables、sheetStyle。禁止编造电缆沟折线。禁止�
 - 把 T型/梯形画成矩形
 - 东南角大门写成东墙正中或南墙正中
 
-【字段示例（只看结构；禁止抄这里的 8 车位和 -45°）】
-{"schemaVersion":"1","kind":"ev_charging_station_plan","titleBlock":{"title":"充电站平面布置图","sheetNo":"001","project":""},"site":{"widthM":40,"heightM":28,"northDeg":0,"gate":{"side":"south","offsetM":14,"widthM":8,"label":"出入口"},"polygon":[]},"buildings":[],"parkingRows":[{"id":"cars","stalls":8,"stallWidthM":3,"stallLengthM":6,"angleDeg":-45,"origin":{"x":6,"y":8},"along":"x","charger":{"type":"dc_160kw","startNo":1,"side":"head"},"labelPrefix":"直流充电桩"}],"equipment":[],"trenches":[],"cables":[],"trees":[],"greenery":[],"roads":[],"legend":["dc_160kw","parking"],"notes":[]}
+【字段示例（只看结构；禁止抄这里的桩数、桩型和场地尺寸）】
+{"schemaVersion":"1","kind":"ev_charging_station_plan","titleBlock":{"title":"充电站平面布置图","sheetNo":"001","project":""},"site":{"widthM":100,"heightM":50,"northDeg":0,"gate":{"side":"south","offsetM":82,"widthM":8,"label":"出入口"},"polygon":[]},"buildings":[],"parkingRows":[{"id":"cars","stalls":70,"stallWidthM":3,"stallLengthM":6,"angleDeg":0,"origin":{"x":1,"y":8},"along":"y","charger":{"type":"dc_320kw","startNo":1,"side":"left"},"labelPrefix":"直流充电桩"}],"equipment":[],"trenches":[],"cables":[],"trees":[],"greenery":[],"roads":[],"legend":["dc_320kw","parking"],"notes":[]}
 """
 
 PLAN_USER = """【强制条件表】

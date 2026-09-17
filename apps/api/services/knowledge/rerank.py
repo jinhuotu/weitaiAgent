@@ -34,10 +34,22 @@ _STOP = frozenset(
 )
 
 
+_LOOK_RE = re.compile(
+    r"^(查询一下|查看一下|看一下|查一下|找一下|看看|查查|看下)[:：,，\s]*"
+)
+_PREFIX_RE = re.compile(r"^(请你|请您|麻烦你|麻烦您|麻烦|帮我|请问)[:：,，\s]*")
+
+
 def compact_search_query(query: str) -> str:
     """去掉寒暄前缀，过长时取尾部，减少对话句稀释向量。"""
     q = (query or "").strip()
-    q = re.sub(r"^(请你|请您|麻烦你|麻烦|帮我|请问)[:：,，\s]*", "", q)
+    for _ in range(4):
+        nxt = _PREFIX_RE.sub("", q, count=1).strip()
+        if nxt == q:
+            break
+        q = nxt
+    q = _LOOK_RE.sub("", q, count=1).strip()
+    q = re.sub(r"^(我的|我们的)[:：,，\s]*", "", q).strip()
     if len(q) > 500:
         q = q[-500:]
     return q.strip() or (query or "").strip()
@@ -128,12 +140,15 @@ def keyword_overlap_score(query: str, content: str, name: str = "") -> float:
     hit = 0.0
     total = 0.0
     hay_l = compact_h.lower()
+    name_compact = _WS_RE.sub("", name or "")
     for p in phrases:
         weight = min(5.0, max(1.0, len(p) / 2.0))
         total += weight
         needle = _WS_RE.sub("", p)
         if needle and (needle in compact_h or needle.lower() in hay_l):
             hit += weight
+            if len(needle) >= 3 and needle in name_compact:
+                hit += weight
     return min(1.0, hit / total) if total else 0.0
 
 
@@ -175,3 +190,82 @@ def filter_weak_hits(
     threshold = max(floor, best * max(0.0, min(1.0, keep_ratio)))
     kept = [h for h in hits if float(h.get("score") or 0.0) >= threshold]
     return kept or hits[:1]
+
+
+_GENERIC_PHRASE = frozenset(
+    {
+        "查看一下",
+        "看一下",
+        "查一下",
+        "找一下",
+        "帮我查看",
+        "查看一",
+        "看一下我",
+        "一下我",
+        "我的",
+    }
+)
+
+
+def topic_keys(query: str, hits: list[dict[str, Any]]) -> list[str]:
+    """查询里能对上资料名称的短语，用来丢掉同库里语义相近但主题不同的件。"""
+    phrases = [
+        p
+        for p in extract_query_phrases(query)
+        if len(p) >= 3 and p not in _STOP and p not in _GENERIC_PHRASE
+    ]
+    if not phrases or not hits:
+        return []
+    names = [_WS_RE.sub("", str(h.get("name") or "")) for h in hits]
+    keys = [p for p in phrases if any(p in n for n in names)]
+    if keys:
+        return keys
+    blobs = [
+        _WS_RE.sub("", f"{h.get('name') or ''}{h.get('content') or ''}") for h in hits
+    ]
+    return [p for p in phrases if any(p in b for b in blobs)]
+
+
+def restrict_topic_hits(
+    query: str, hits: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    keys = topic_keys(query, hits)
+    if not keys:
+        return hits
+    kept: list[dict[str, Any]] = []
+    for h in hits:
+        blob = _WS_RE.sub("", f"{h.get('name') or ''}{h.get('content') or ''}")
+        if any(k in blob for k in keys):
+            kept.append(h)
+    return kept or hits
+
+
+def _slot_key(tags: object) -> str:
+    if not isinstance(tags, list):
+        return ""
+    for raw in tags:
+        text = str(raw or "").strip()
+        if text.startswith("slot:"):
+            return text[5:].strip()
+    return ""
+
+
+def query_slot_keys(query: str) -> set[str]:
+    from api.services.tenders.match import _kind_hits
+
+    q = compact_search_query(query).replace("的", "")
+    return _kind_hits(q)
+
+
+def restrict_slot_hits(
+    query: str, hits: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    wanted = query_slot_keys(query)
+    if not wanted:
+        return hits
+    kept: list[dict[str, Any]] = []
+    for h in hits:
+        slot = _slot_key(h.get("tags"))
+        if slot and slot in wanted:
+            kept.append(h)
+    return kept or hits

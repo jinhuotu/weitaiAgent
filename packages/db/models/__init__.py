@@ -17,6 +17,7 @@ from db.models.knowledge import (
 from db.models.mcp import McpServer, McpTool
 from db.models.model_config import ModelConfig
 from db.models.prompt import Prompt
+from db.models.quote import QuoteRecord
 from db.models.role import Role, UserRole
 from db.models.tender import TenderApprovalLog, TenderRecord
 from db.models.user import User
@@ -41,6 +42,7 @@ __all__ = [
     "KnowledgeDocumentReview",
     "KnowledgeIngestTask",
     "Prompt",
+    "QuoteRecord",
     "McpServer",
     "McpTool",
     "ScenarioAgent",

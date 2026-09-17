@@ -21,6 +21,33 @@ logger = get_logger(__name__)
 
 MAX_TOOL_ROUNDS = 5
 
+_FS_TOOL_NAMES = frozenset(
+    {
+        "read_media_file",
+        "read_file",
+        "read_text_file",
+        "list_allowed_directories",
+        "list_directory",
+        "directory_tree",
+        "search_files",
+        "get_file_info",
+        "move_file",
+        "write_file",
+        "create_directory",
+    }
+)
+
+
+def drop_fs_tools_for_tender_lib(
+    enabled: list[dict[str, Any]],
+    kb_ids: list[str] | None,
+) -> list[dict[str, Any]]:
+    from api.services.knowledge.access import TENDER_LIB_PUBLIC_ID
+
+    if TENDER_LIB_PUBLIC_ID not in {str(x).strip() for x in (kb_ids or []) if str(x).strip()}:
+        return enabled
+    return [t for t in enabled if str(t.get("name") or "").strip() not in _FS_TOOL_NAMES]
+
 
 def _message_content(m: dict[str, Any]) -> Any:
     """保留多模态 content 列表，避免 image_url 被 str() 丢掉。"""
@@ -111,10 +138,13 @@ async def run_chat_with_mcp(
     为 True 时使用全部已启用工具。
     """
     raw_enabled = await mcp_svc.list_enabled_tools_for_chat(db)
-    enabled = _filter_enabled_tools(
-        raw_enabled,
-        tools_enabled=tools_enabled,
-        allowed_tool_ids=allowed_tool_ids,
+    enabled = drop_fs_tools_for_tender_lib(
+        _filter_enabled_tools(
+            raw_enabled,
+            tools_enabled=tools_enabled,
+            allowed_tool_ids=allowed_tool_ids,
+        ),
+        kb_ids,
     )
     tools = to_openai_tools(enabled)
     allowed_openai_names = {t["function"]["name"] for t in tools}

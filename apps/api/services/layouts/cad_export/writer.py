@@ -155,6 +155,11 @@ def _setup_paperspace(
         psp, plan, scale_n=scale_n, paper=paper, used_title_block=used_title
     )
     min_x, min_y, max_x, max_y = extents
+    pad = 4.0
+    min_x -= pad
+    min_y -= pad
+    max_x += pad
+    max_y += pad
     ms_cx = mm((min_x + max_x) / 2.0)
     ms_cy = mm((min_y + max_y) / 2.0)
     vp_w = max(40.0, vp_x1 - vp_x0)

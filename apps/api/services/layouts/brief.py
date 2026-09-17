@@ -57,7 +57,8 @@ _CAR_RE = re.compile(
 )
 _STALL_RE = re.compile(rf"({_NUM})\s*个(?:\s*带充电桩的)?车位")
 _PILE_RE = re.compile(
-    rf"({_NUM})\s*(?:个|台).{{0,16}}?(?:充电)?桩"
+    rf"({_NUM})\s*(?:个|台)\s*(?:轿车|小车|乘用车)?\s*(?:可充电的)?\s*(?:\d+(?:\.\d+)?\s*(?:kw|千瓦)\s*)?(?:直流|交流)?\s*(?:充电)?桩",
+    re.I,
 )
 _AREA_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:㎡|m²|m2|平方米|平米)", re.I)
 _KVA_RE = re.compile(r"(\d+(?:\.\d+)?)\s*(?:kva|千伏安)", re.I)
@@ -233,10 +234,7 @@ def apply_layout_brief(plan: EvChargingStationPlan, *texts: str) -> EvChargingSt
             out, side=brief.gate_side, east=brief.gate_east, along=brief.gate_along
         )
     if brief.site_w and brief.site_h and not brief.site_is_yard:
-        out.site.widthM = brief.site_w
-        out.site.heightM = brief.site_h
-        if len(out.site.polygon or []) < 3:
-            out.site.polygon = []
+        scale_site_polygon_to_box(out, brief.site_w, brief.site_h)
     return out
 
 
@@ -300,6 +298,45 @@ def scale_site_to_area_m2(plan: EvChargingStationPlan, area_m2: float) -> None:
     factor = (target / cur) ** 0.5
     plan.site.widthM = max(8.0, w * factor)
     plan.site.heightM = max(8.0, h * factor)
+
+
+def scale_site_polygon_to_box(
+    plan: EvChargingStationPlan, width: float, height: float
+) -> None:
+    """读图 polygon 是估的米；用户给了东西长×南北宽时，把包络拉到该尺寸，外形比例跟草稿。"""
+    w, h = max(8.0, float(width)), max(8.0, float(height))
+    poly = list(plan.site.polygon or [])
+    if len(poly) < 3:
+        plan.site.widthM = w
+        plan.site.heightM = h
+        plan.site.polygon = []
+        return
+    xs, ys = [p.x for p in poly], [p.y for p in poly]
+    min_x, min_y = min(xs), min(ys)
+    bw, bh = max(xs) - min_x, max(ys) - min_y
+    if bw < 0.5 or bh < 0.5:
+        plan.site.widthM = w
+        plan.site.heightM = h
+        return
+    sx, sy = w / bw, h / bh
+
+    def _xf(x: float, y: float) -> tuple[float, float]:
+        return (x - min_x) * sx, (y - min_y) * sy
+
+    plan.site.polygon = [PointM(x=x, y=y) for x, y in (_xf(p.x, p.y) for p in poly)]
+    plan.site.widthM = w
+    plan.site.heightM = h
+    for b in plan.buildings:
+        r = b.rect
+        x0, y0 = _xf(r.x, r.y)
+        x1, y1 = _xf(r.x + r.w, r.y + r.h)
+        b.rect.x, b.rect.y = min(x0, x1), min(y0, y1)
+        b.rect.w, b.rect.h = abs(x1 - x0), abs(y1 - y0)
+    for row in plan.parkingRows:
+        ox, oy = _xf(row.origin.x, row.origin.y)
+        row.origin = PointM(x=ox, y=oy)
+    for eq in plan.equipment:
+        eq.x, eq.y = _xf(eq.x, eq.y)
 
 
 def restore_draft_context(

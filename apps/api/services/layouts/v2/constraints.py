@@ -255,6 +255,59 @@ def constraints_from_user_text(*texts: str) -> LayoutConstraints | None:
     )
 
 
+def overlay_user_text_on_constraints(
+    cons: LayoutConstraints,
+    *texts: str,
+    overwrite_counts: bool = False,
+) -> LayoutConstraints:
+    """条件 JSON 解析成功但桩数/面积/箱变是空的时，用原话补上，避免种子默认 8 台。"""
+    from api.services.layouts.brief import parse_layout_brief
+    from api.services.layouts.revise import parse_charger_type_hint
+
+    blob = "\n".join(t for t in texts if t).strip()
+    if not blob:
+        return cons
+    brief = parse_layout_brief(*texts)
+    dc = parse_charger_type_hint(*texts)
+    out = cons.model_copy(deep=True)
+    empty_fleet = (
+        out.fleet.cars is None
+        and out.fleet.trucks is None
+        and (out.fleet.piles is None or int(out.fleet.piles) <= 0)
+    )
+    # 模型常抄示例里的 8 台；用户原话是别的数时盖掉。已填的 12/4 重卡不要动。
+    copied_eight = (
+        overwrite_counts
+        and out.fleet.cars == 8
+        and (out.fleet.trucks in (None, 0))
+        and brief.cars is not None
+        and brief.cars != 8
+    )
+    if (empty_fleet or copied_eight) and (
+        brief.cars is not None or brief.trucks is not None
+    ):
+        cars = brief.cars if brief.cars is not None else 0
+        trucks = brief.trucks if brief.trucks is not None else 0
+        out.fleet.cars = cars
+        out.fleet.trucks = trucks
+        out.fleet.piles = int(cars) + int(trucks)
+    if brief.site_area_m2 is not None and out.site.areaM2 is None:
+        out.site.areaM2 = float(brief.site_area_m2)
+    if brief.site_w and brief.site_h and not (out.site.widthM and out.site.heightM):
+        out.site.widthM = float(brief.site_w)
+        out.site.heightM = float(brief.site_h)
+        out.site.shapeFrom = "user_rect"
+    if brief.transformer_n and not out.transformers:
+        out.transformers = [
+            ConstraintTransformer(
+                count=int(brief.transformer_n), kva=brief.transformer_kva
+            )
+        ]
+    if dc in {"dc_320kw", "dc_160kw", "dc_120kw"} and out.chargers.dcType is None:
+        out.chargers.dcType = dc  # type: ignore[assignment]
+    return out
+
+
 def _along_from_plan_gate(plan: EvChargingStationPlan) -> str | None:
     from api.services.layouts.brief import infer_gate_along
 
@@ -336,11 +389,15 @@ def transformer_need(cons: LayoutConstraints) -> tuple[int | None, float | None]
 
 def seed_plan_payload(cons: LayoutConstraints, *, query: str = "") -> dict[str, Any]:
     """条件表可出图时的最小布置 JSON，供模型 JSON 损坏时兜底。"""
+    from api.services.layouts.brief import parse_layout_brief
+
     cars, trucks = wanted_stalls(cons)
     cars_n = int(cars or 0)
     trucks_n = int(trucks or 0)
-    if cars_n + trucks_n <= 0:
-        cars_n = 8
+    brief = parse_layout_brief(query) if query else None
+    if cars_n + trucks_n <= 0 and brief is not None:
+        cars_n = int(brief.cars or 0)
+        trucks_n = int(brief.trucks or 0)
     width = float(cons.site.widthM or 0)
     height = float(cons.site.heightM or 0)
     if width <= 0 or height <= 0:
@@ -375,8 +432,17 @@ def seed_plan_payload(cons: LayoutConstraints, *, query: str = "") -> dict[str, 
     )
     angle = float(cons.layout.angleDeg or 0)
     dc = cons.chargers.dcType if cons.chargers.dcType in {"dc_320kw", "dc_160kw", "dc_120kw"} else None
+    if dc is None and query:
+        from api.services.layouts.revise import parse_charger_type_hint
+
+        hinted = parse_charger_type_hint(query)
+        if hinted in {"dc_320kw", "dc_160kw", "dc_120kw"}:
+            dc = hinted
     charger_type = dc or "none"
     tx_n, tx_kva = transformer_need(cons)
+    if (tx_n or 0) <= 0 and brief is not None and brief.transformer_n:
+        tx_n = int(brief.transformer_n)
+        tx_kva = brief.transformer_kva
     tx_n = max(0, int(tx_n or 0))
     kva = float(tx_kva or 2000)
     if kva <= 20:

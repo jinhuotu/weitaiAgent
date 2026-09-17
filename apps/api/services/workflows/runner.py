@@ -13,9 +13,9 @@ from api.services.ai import memory as memory_svc
 from api.services.ai import sessions as sessions_svc
 from api.services.ai.chat_images import (
     DEFAULT_IMAGE_PROMPT,
+    ingest_input_images,
     output_images_to_blobs,
     persist_chat_images,
-    state_images_from_input,
 )
 from api.services.workflows import crud as crud_svc
 from api.services.workflows import nodes as nodes_svc
@@ -312,8 +312,9 @@ async def run_workflow(
         await db.refresh(run)
 
         images: list[dict[str, str]] = []
+        draft_plan = None
         if isinstance(input_data, dict) and input_data.get("images"):
-            images = state_images_from_input(input_data.get("images"))
+            images, draft_plan = ingest_input_images(input_data.get("images"))
 
         prior_layout = None
         if session is not None:
@@ -364,6 +365,7 @@ async def run_workflow(
             "runId": run.public_id,
             "priorLayout": prior_layout,
             "layoutRevise": layout_revise,
+            "draftPlan": draft_plan,
             "preferredModelId": (
                 str(input_data.get("modelId") or "").strip()
                 if isinstance(input_data, dict)

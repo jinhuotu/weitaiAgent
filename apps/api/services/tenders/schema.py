@@ -120,9 +120,9 @@ class DocumentFormat(BaseModel):
 
     coverRequired: bool = True
     coverShowProject: bool = True
-    coverShowTenderNo: bool = False
+    coverShowTenderNo: bool = True
     coverShowBidder: bool = True
-    coverShowCopyMark: bool = False
+    coverShowCopyMark: bool = True
     coverCopyMark: str = Field(default="正本", max_length=8)
     coverShowDate: bool = True
     coverNeedSeal: bool = False

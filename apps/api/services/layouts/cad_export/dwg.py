@@ -72,3 +72,38 @@ def write_plan_dwg(dxf_path: Path, *, timeout_s: float = 60.0) -> Path | None:
             return None
         shutil.copy2(produced, dest)
     return dest if dest.is_file() and dest.stat().st_size > 0 else None
+
+
+def dwg_to_dxf_bytes(raw: bytes, *, timeout_s: float = 60.0) -> bytes | None:
+    """把 DWG 字节转成 DXF。没有 ODA 则返回 None。"""
+    if not raw:
+        return None
+    converter = resolve_oda_converter()
+    if converter is None:
+        return None
+    with tempfile.TemporaryDirectory(prefix="weitai-dwg-in-") as tmp:
+        tdir = Path(tmp)
+        src = tdir / "draft.dwg"
+        src.write_bytes(raw)
+        try:
+            subprocess.run(  # noqa: S603
+                [
+                    str(converter),
+                    str(tdir),
+                    str(tdir),
+                    "ACAD2013",
+                    "DXF",
+                    "0",
+                    "1",
+                ],
+                check=False,
+                capture_output=True,
+                timeout=timeout_s,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        produced = tdir / "draft.dxf"
+        if not produced.is_file() or produced.stat().st_size <= 0:
+            return None
+        return produced.read_bytes()
+

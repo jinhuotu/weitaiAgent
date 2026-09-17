@@ -17,6 +17,7 @@ from common.errors import AppError, ErrorCode
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 _MAX_UPLOAD = 20 * 1024 * 1024
+MAX_SITE_MAPS = 20
 _ALLOWED = {
     ".png",
     ".jpg",
@@ -31,6 +32,7 @@ _PROMPT = """你是充电站造价助理。根据场地规划图提取工程量�
 规则：
 - 桩型 code 只能是 dc_320kw / dc_160kw / dc_120kw / ac_14kw
 - 设备 code 可用 box_transformer / ring_cabinet / lv_cabinet / group_host / fire_hydrant
+- 多张图视为同一项目，同类工程量合计，不要把同一批桩重复计数
 - 图上看不清的数量不要编，放进 uncertainties
 - 不要填写单价
 JSON 形状：

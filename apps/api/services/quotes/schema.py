@@ -23,4 +23,6 @@ class GenerateQuoteIn(BaseModel):
     projectName: str = Field("", max_length=120)
     note: str = Field("", max_length=2000)
     taxRate: Decimal = Field(Decimal("0.13"), ge=0, le=1)
+    baseId: str = Field("", max_length=32)
+    baseName: str = Field("", max_length=128)
     lines: list[QuoteLineIn] = Field(default_factory=list)

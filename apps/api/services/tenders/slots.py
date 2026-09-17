@@ -12,6 +12,7 @@ from api.services.tenders.schema import PlaceholderItem
 from common.errors import AppError, ErrorCode
 
 _KEY_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+_DRAWING_ID_RE = re.compile(r"^[a-f0-9]{10,16}$", re.I)
 _ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 _MAX_BYTES = 40 * 1024 * 1024
 _MAX_FILES_PER_SLOT = 30
@@ -147,7 +148,7 @@ def attachments_for_slots(slots: list[PlaceholderItem]) -> dict[str, list[Path]]
     out: dict[str, list[Path]] = {}
     for item in slots:
         key = (item.key or "").strip()
-        if not key or not _KEY_RE.match(key):
+        if not key or not _KEY_RE.match(key) or key == TECH_DRAWING_SLOT.key:
             continue
         files = list_slot_files(key)
         if files:
@@ -155,21 +156,108 @@ def attachments_for_slots(slots: list[PlaceholderItem]) -> dict[str, list[Path]]
     return out
 
 
-def drawing_slot_status() -> dict[str, object]:
-    return slot_status(TECH_DRAWING_SLOT)
+def _invite_id(invitation_id: str) -> str:
+    raw = (invitation_id or "").strip()
+    if not _DRAWING_ID_RE.fullmatch(raw):
+        raise AppError(ErrorCode.VALIDATION, "请先识别邀请书后再上传本项目图纸", status_code=422)
+    return raw
 
 
-def save_drawing_file(*, filename: str, data: bytes, replace: bool = False) -> dict[str, object]:
-    saved = save_slot_file(TECH_DRAWING_SLOT.key, filename=filename, data=data, replace=replace)
-    payload = drawing_slot_status()
-    payload["fileName"] = saved.get("fileName") or ""
-    payload["sizeBytes"] = saved.get("sizeBytes") or 0
+def drawing_dir(invitation_id: str) -> Path:
+    path = tender_assets_dir() / "drawings" / _invite_id(invitation_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def list_drawing_files(invitation_id: str) -> list[Path]:
+    raw = (invitation_id or "").strip()
+    if not _DRAWING_ID_RE.fullmatch(raw):
+        return []
+    folder = tender_assets_dir() / "drawings" / raw
+    if not folder.is_dir():
+        return []
+    files = [
+        p
+        for p in folder.iterdir()
+        if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in _ALLOWED_EXT
+    ]
+    return sorted(files, key=lambda p: p.name.lower())
+
+
+def attach_invitation_drawings(
+    media: dict[str, list[Path]], invitation_id: str
+) -> dict[str, list[Path]]:
+    key = TECH_DRAWING_SLOT.key
+    files = list_drawing_files(invitation_id)
+    if files:
+        media[key] = files
+    else:
+        media.pop(key, None)
+    return media
+
+
+def drawing_slot_status(invitation_id: str = "") -> dict[str, object]:
+    files = list_drawing_files(invitation_id)
+    return {
+        "key": TECH_DRAWING_SLOT.key,
+        "title": TECH_DRAWING_SLOT.title,
+        "hint": TECH_DRAWING_SLOT.hint or "",
+        "fileCount": len(files),
+        "files": [{"name": p.name, "sizeBytes": p.stat().st_size} for p in files],
+    }
+
+
+def save_drawing_file(
+    *,
+    invitation_id: str,
+    filename: str,
+    data: bytes,
+    replace: bool = False,
+) -> dict[str, object]:
+    if not data:
+        raise AppError(ErrorCode.VALIDATION, "上传文件为空", status_code=422)
+    if len(data) > _MAX_BYTES:
+        raise AppError(ErrorCode.VALIDATION, "单个文件不能超过 40MB", status_code=422)
+    name = Path((filename or "upload.bin").replace("\\", "/").split("/")[-1]).name
+    suffix = Path(name).suffix.lower()
+    if suffix not in _ALLOWED_EXT:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "仅支持 PDF / PNG / JPG / WEBP / GIF / BMP",
+            status_code=422,
+        )
+    folder = drawing_dir(invitation_id)
+    if replace:
+        for item in list(folder.iterdir()):
+            if item.is_file():
+                item.unlink(missing_ok=True)
+            elif item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+    existing = list_drawing_files(invitation_id)
+    if len(existing) >= _MAX_FILES_PER_SLOT:
+        raise AppError(ErrorCode.VALIDATION, f"每项最多 {_MAX_FILES_PER_SLOT} 个文件", status_code=422)
+    stem = Path(name).stem[:80] or "scan"
+    stem = re.sub(r"[^\w\u4e00-\u9fff\-]+", "_", stem).strip("_") or "scan"
+    dest = folder / f"{stem}{suffix}"
+    n = 1
+    while dest.exists():
+        dest = folder / f"{stem}_{n}{suffix}"
+        n += 1
+    dest.write_bytes(data)
+    payload = drawing_slot_status(invitation_id)
+    payload["fileName"] = dest.name
+    payload["sizeBytes"] = dest.stat().st_size
     return payload
 
 
-def clear_drawing_files() -> dict[str, object]:
-    clear_slot(TECH_DRAWING_SLOT.key)
-    return drawing_slot_status()
+def clear_drawing_files(invitation_id: str) -> dict[str, object]:
+    folder = drawing_dir(invitation_id)
+    for item in list(folder.iterdir()):
+        if item.is_file():
+            item.unlink(missing_ok=True)
+        elif item.is_dir():
+            shutil.rmtree(item, ignore_errors=True)
+    return drawing_slot_status(invitation_id)
 
 
 def default_slots_payload() -> list[dict[str, object]]:

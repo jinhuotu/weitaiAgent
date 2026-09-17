@@ -21,6 +21,7 @@ from api.services.tenders.quote import (
     attach_sheet,
     parse_quote_from_text,
     parse_quote_path,
+    sheet_from_quote_records,
 )
 from api.services.tenders.history import (
     BIDDER_LOCK,
@@ -367,7 +368,9 @@ async def parse_invitation(
     kb_ids: list[str] | None = None,
     current: BidBrief | None = None,
     quote_upload: UploadFile | None = None,
+    quote_record_ids: list[str] | None = None,
     created_by: int | None = None,
+    persist_library: bool = True,
 ) -> dict[str, Any]:
     path = await _save_upload(upload)
     quote_path = None
@@ -463,7 +466,8 @@ async def parse_invitation(
             filled.append(key)
     extras = slots_from_payload(patch, catalog=catalog)
     before_keys = {item.key for item in catalog if item.key}
-    extras = await persist_parsed_materials(db, extras, created_by=created_by)
+    if persist_library:
+        extras = await persist_parsed_materials(db, extras, created_by=created_by)
     created_keys = [item.key for item in extras if item.key and item.key not in before_keys]
     catalog = await catalog_placeholders(db)
     has_agent = bool((brief.agentName or "").strip() or (brief.agentIdNo or "").strip())
@@ -517,7 +521,14 @@ async def parse_invitation(
     brief.includeSlotKeys = include_keys
     brief.includePlaceholders = True
 
-    quote_note, brief, quote_filled = _merge_quote(brief, patch, invitation, path, quote_path)
+    quote_note, brief, quote_filled = _merge_quote(
+        brief,
+        patch,
+        invitation,
+        path,
+        quote_path,
+        record_sheet=await _quote_record_sheet(db, created_by, quote_record_ids),
+    )
     if quote_filled:
         filled = [*filled, "quoteLines"]
         if "bidPriceYuan" not in filled and brief.bidPriceYuan > 0:
@@ -774,6 +785,7 @@ def _merge_quote(
     invitation: str,
     invite_path,
     quote_path,
+    record_sheet=None,
 ) -> tuple[list[str], BidBrief, bool]:
     del patch
     notes: list[str] = []
@@ -781,6 +793,9 @@ def _merge_quote(
     source = "file" if sheet is not None else ""
     if sheet is None and quote_path is not None:
         notes.append("工程量清单文件未能按表格解析，已改从邀请书里找")
+    if sheet is None and record_sheet is not None:
+        sheet = record_sheet
+        source = "record"
     if sheet is None:
         sheet = parse_quote_path(invite_path)
         if sheet is not None:
@@ -791,7 +806,7 @@ def _merge_quote(
             source = "text"
     if sheet is None:
         notes.append(
-            "未解析到工程量清单。请另传 Excel/Word 清单后重新识别再生成。"
+            "未解析到工程量清单。请另传 Excel/Word 清单，或勾选 AI 报价记录后重新识别再生成。"
             "未采用模型或历史投标书中的台数。"
         )
         if brief.quoteLines:
@@ -804,7 +819,10 @@ def _merge_quote(
         return notes, brief, False
     before = float(brief.bidPriceYuan or 0)
     brief = attach_sheet(brief, sheet, source=source)
-    notes.append(f"已解析分项 {len(sheet.lines)} 项（《{sheet.title}》，清单含税 {sheet.total_inc_tax}）")
+    if source == "record":
+        notes.append(f"已引用报价记录分项 {len(sheet.lines)} 项（《{sheet.title}》，清单含税 {sheet.total_inc_tax}）")
+    else:
+        notes.append(f"已解析分项 {len(sheet.lines)} 项（《{sheet.title}》，清单含税 {sheet.total_inc_tax}）")
     if before <= 0 and brief.bidPriceYuan > 0:
         notes.append("投标总价已按清单含税合计填入，可按二次报价再改")
     return notes, brief, True
@@ -854,3 +872,16 @@ def parse_kb_ids(raw: str | None) -> list[str]:
             raise AppError(ErrorCode.VALIDATION, "kbIds 必须是 JSON 数组", status_code=422)
         return [str(x).strip() for x in data if str(x).strip()]
     return [p.strip() for p in text.split(",") if p.strip()]
+
+
+async def _quote_record_sheet(db: AsyncSession, user_id: int | None, public_ids: list[str] | None):
+    ids = [str(x).strip() for x in (public_ids or []) if str(x).strip()]
+    if not ids:
+        return None
+    from api.services.quotes.records import load_owned
+
+    rows = await load_owned(db, user_id=int(user_id or 0), public_ids=ids)
+    sheet = sheet_from_quote_records(rows)
+    if sheet is None:
+        raise AppError(ErrorCode.VALIDATION, "所选报价记录没有可用明细", status_code=422)
+    return sheet

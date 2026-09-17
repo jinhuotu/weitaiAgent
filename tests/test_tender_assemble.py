@@ -635,7 +635,7 @@ def test_render_factory_and_tech_plan_modules() -> None:
     brief.techPlanNote = "按采购需求实施，不编造桩数。"
     doc = Document()
     render_module(doc, brief, OutlineItem(id="f1", title="原厂生产承诺", kind="factory"))
-    render_module(doc, brief, OutlineItem(id="t1", title="实施方案", kind="tech_plan"))
+    render_module(doc, brief, OutlineItem(id="t1", title="实施方案", kind="tech_plan"), media={})
     text = _docx_text(doc)
     assert "河南伟泰光电科技有限公司" in text
     assert "承担原厂责任" in text
@@ -643,6 +643,34 @@ def test_render_factory_and_tech_plan_modules() -> None:
     assert "按采购需求实施" in text
     assert "图纸" in text
     assert "在此粘贴扫描件" in text
+
+
+def test_tech_plan_embeds_uploaded_drawings(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.modules import render_module
+    from api.services.tenders.placeholders import TECH_DRAWING_KEY
+
+    png = tmp_path / "layout.png"
+    Image.new("RGB", (160, 90), (30, 90, 160)).save(png, "PNG")
+    extra = tmp_path / "layout2.png"
+    Image.new("RGB", (140, 80), (80, 40, 20)).save(extra, "PNG")
+    third = tmp_path / "layout3.png"
+    Image.new("RGB", (100, 70), (20, 80, 40)).save(third, "PNG")
+    brief = default_brief()
+    brief.techPlanNote = "按采购需求实施，不编造桩数。"
+    doc = Document()
+    notes = render_module(
+        doc,
+        brief,
+        OutlineItem(id="t1", title="实施方案", kind="tech_plan"),
+        media={TECH_DRAWING_KEY: [png, extra, third]},
+    )
+    blob = doc.element.xml
+    assert blob.count("a:blip") >= 3
+    assert "在此粘贴扫描件" not in _docx_text(doc)
+    assert any("图纸写入" in n for n in notes)
 
 
 def test_assemble_quote_and_dev_follow_invitation_headers(tmp_path) -> None:
@@ -1435,6 +1463,28 @@ def test_assemble_technical_volume_excludes_quote(tmp_path) -> None:
     assert "分项报价" not in blob
     assert "投标函" not in blob
     assert "商 务 标 投 标 文 件" not in blob
+
+
+def test_assemble_technical_volume_embeds_drawings(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+    from api.services.tenders.placeholders import TECH_DRAWING_KEY
+
+    png = tmp_path / "a.png"
+    Image.new("RGB", (120, 80), (10, 80, 140)).save(png, "PNG")
+    brief = _volume_brief()
+    brief.techPlanNote = "按现场布置施工。"
+    path, warnings = assemble_bid_docx(
+        brief,
+        tmp_path / "tech.docx",
+        volume="technical",
+        catalog_media={TECH_DRAWING_KEY: [png]},
+    )
+    blob = Document(str(path)).element.xml
+    assert "a:blip" in blob
+    assert any("图纸写入" in w for w in warnings)
 
 
 def test_assemble_technical_omits_library_scan_heading(tmp_path) -> None:

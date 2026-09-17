@@ -12,14 +12,16 @@ from api.services.tenders.tables import quote_role
 
 _TWO = Decimal("0.01")
 _SKIP = ("不含税合计", "含税合计", "税率", "合计", "小计", "总计", "备注")
-_TOKEN = re.compile(r"[a-z0-9\u4e00-\u9fff]+", re.I)
+_TOKEN = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+", re.I)
+_KW_RE = re.compile(r"(\d+(?:\.\d+)?)kw", re.I)
+_KVA_RE = re.compile(r"(\d+(?:\.\d+)?)kva", re.I)
 
 CODE_HINTS: dict[str, tuple[str, ...]] = {
     "dc_320kw": ("320kw", "320千瓦", "400kw", "直流320", "320kW直流"),
     "dc_160kw": ("160kw", "160千瓦", "直流160", "160kW直流"),
     "dc_120kw": ("120kw", "120千瓦", "直流120", "120kW直流"),
-    "ac_14kw": ("14kw", "14千瓦", "7kw", "交流桩", "交流14"),
-    "box_transformer": ("箱变", "箱式变压", "变压器"),
+    "ac_14kw": ("14kw", "14千瓦", "交流14", "交流桩"),
+    "box_transformer": ("箱变", "箱式变压", "箱式变", "变电站"),
     "ring_cabinet": ("环网柜", "环网箱"),
     "lv_cabinet": ("低压柜", "低压配电"),
     "group_host": ("群充", "主机"),
@@ -36,12 +38,15 @@ class CatalogItem:
     unit: str
     unit_price: Decimal
     source: str = ""
+    category: str = ""
+    scene: str = ""
 
 
 def parse_catalog_xlsx(path: Path) -> list[CatalogItem]:
     from openpyxl import load_workbook
 
-    wb = load_workbook(path, data_only=True, read_only=True)
+    # 不用 read_only：不少价目表 dimension 仍是 A1，只读模式会整表丢行
+    wb = load_workbook(path, data_only=True)
     try:
         rows: list[CatalogItem] = []
         for ws in wb.worksheets:
@@ -97,7 +102,15 @@ def _row_item(cells: list[object], mapping: dict[str, int], source: str) -> Cata
     price = _q(_cell(cells, mapping.get("price")))
     if price <= 0:
         return None
-    return CatalogItem(name=name, spec=spec, unit=unit, unit_price=price, source=source)
+    return CatalogItem(
+        name=name,
+        spec=spec,
+        unit=unit,
+        unit_price=price,
+        source=source,
+        category=_txt(_cell(cells, mapping.get("group"))),
+        scene=_txt(_cell(cells, mapping.get("scene"))),
+    )
 
 
 def load_catalog(paths: list[Path]) -> list[CatalogItem]:
@@ -120,11 +133,27 @@ def _tokens(text: str) -> set[str]:
     return {m.group(0).lower() for m in _TOKEN.finditer(text or "") if len(m.group(0)) >= 2}
 
 
+def _ratings(text: str, pat: re.Pattern[str]) -> set[float]:
+    return {float(x) for x in pat.findall(_norm(text))}
+
+
+def _rating_conflict(query: str, item: CatalogItem) -> bool:
+    blob = f"{item.category} {item.name} {item.spec}"
+    qkw, bkw = _ratings(query, _KW_RE), _ratings(blob, _KW_RE)
+    if qkw and bkw and qkw.isdisjoint(bkw):
+        return True
+    qkva, bkva = _ratings(query, _KVA_RE), _ratings(blob, _KVA_RE)
+    return bool(qkva and bkva and qkva.isdisjoint(bkva))
+
+
 def match_score(query: str, code: str, item: CatalogItem) -> float:
-    blob = f"{item.name} {item.spec}"
+    blob = f"{item.category} {item.name} {item.spec}"
+    name_blob = f"{item.category} {item.name}"
     qn = _norm(query)
     bn = _norm(blob)
     if not qn or not bn:
+        return 0.0
+    if _rating_conflict(query, item):
         return 0.0
     score = 0.0
     if qn == bn:
@@ -136,10 +165,19 @@ def match_score(query: str, code: str, item: CatalogItem) -> float:
         bt = _tokens(blob)
         if qt and bt:
             score = len(qt & bt) / max(len(qt), 1)
+    bn_name = _norm(name_blob)
     for hint in CODE_HINTS.get((code or "").strip().lower(), ()):
-        if _norm(hint) and _norm(hint) in bn:
+        if _norm(hint) and _norm(hint) in bn_name:
             score = max(score, 0.78)
     return score
+
+
+def _spec_rank(item: CatalogItem) -> int:
+    spec = item.spec or ""
+    n = len(spec)
+    if re.search(r"[（(]\s*1\s*[）)]", spec) or "输入电压" in spec or "输出功率" in spec:
+        n += 8000
+    return n
 
 
 def pick_catalog(
@@ -150,16 +188,50 @@ def pick_catalog(
     catalog: list[CatalogItem],
 ) -> tuple[CatalogItem | None, float]:
     query = f"{name} {spec}".strip()
-    best: CatalogItem | None = None
+    passed: list[tuple[float, CatalogItem]] = []
     best_s = 0.0
     for item in catalog:
         s = match_score(query, code, item)
+        if s < 0.42:
+            continue
+        passed.append((s, item))
         if s > best_s:
             best_s = s
-            best = item
-    if best_s < 0.42:
+    if not passed:
         return None, best_s
-    return best, best_s
+    qkw = _ratings(query, _KW_RE)
+    qkva = _ratings(query, _KVA_RE)
+    same = passed
+    if qkw:
+        kw_hit = [
+            (s, it)
+            for s, it in passed
+            if qkw & _ratings(f"{it.category} {it.name} {it.spec}", _KW_RE)
+        ]
+        if kw_hit:
+            same = kw_hit
+    elif qkva:
+        kva_hit = [
+            (s, it)
+            for s, it in passed
+            if qkva & _ratings(f"{it.category} {it.name} {it.spec}", _KVA_RE)
+        ]
+        if kva_hit:
+            same = kva_hit
+    same.sort(key=lambda x: x[0], reverse=True)
+    hit = same[0][1]
+    rich = max(same, key=lambda x: _spec_rank(x[1]))[1]
+    if rich.spec and _spec_rank(rich) > _spec_rank(hit):
+        hit = CatalogItem(
+            name=hit.name,
+            spec=rich.spec,
+            unit=hit.unit,
+            unit_price=hit.unit_price,
+            source=hit.source,
+            category=hit.category or rich.category,
+            scene=hit.scene or rich.scene,
+        )
+    return hit, best_s
 
 
 def money(qty: Decimal, price: Decimal) -> Decimal:

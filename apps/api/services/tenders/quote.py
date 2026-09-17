@@ -314,6 +314,69 @@ def load_quote_sheet(path: Path | None) -> QuoteSheet:
     raise ValueError("未能解析工程量清单")
 
 
+def sheet_from_quote_records(rows: list) -> QuoteSheet | None:
+    from api.services.quotes.records import _lines_load
+
+    lines: list[QuoteLine] = []
+    titles: list[str] = []
+    tax = Decimal("0.13")
+    total_inc = Decimal("0")
+    for row in rows:
+        title = str(getattr(row, "project_name", "") or "").strip()
+        if title:
+            titles.append(title)
+        tax = _q(getattr(row, "tax_rate", 0) or 0.13)
+        if tax > 1:
+            tax = tax / Decimal("100")
+        if tax <= 0:
+            tax = Decimal("0.13")
+        total_inc += _q(getattr(row, "total_inc_tax", 0))
+        for ln in _lines_load(getattr(row, "lines_json", None)):
+            name = str(ln.name or "").strip()
+            if not name or _skip_name(name):
+                continue
+            qty = Decimal(str(ln.qty or 0))
+            price = _q(ln.unitPrice)
+            amount = _q(ln.amount)
+            if amount <= 0 and qty and price:
+                amount = (price * qty).quantize(_TWO, rounding=ROUND_HALF_UP)
+            if qty <= 0 and amount <= 0 and price <= 0:
+                continue
+            lines.append(
+                QuoteLine(
+                    seq=str(len(lines) + 1),
+                    name=name,
+                    spec=str(ln.spec or "").strip(),
+                    unit=str(ln.unit or "").strip() or "项",
+                    qty=qty,
+                    unit_price=price,
+                    amount=amount,
+                )
+            )
+    if not lines:
+        return None
+    if len(titles) == 1:
+        title = f"{titles[0]}-报价清单"
+    elif titles:
+        title = f"报价清单（{len(titles)} 份记录）"
+    else:
+        title = "报价清单"
+    total_ex = sum((ln.amount for ln in lines), Decimal("0"))
+    if total_inc <= 0:
+        total_inc = (total_ex * (1 + tax)).quantize(_TWO, rounding=ROUND_HALF_UP)
+    return QuoteSheet(
+        title=title,
+        lines=tuple(lines),
+        tax_rate=tax,
+        total_ex_tax=total_ex,
+        total_inc_tax=total_inc,
+        note="",
+        source_inc_tax=total_inc,
+        headers=("序号", "名称", "规格型号", "单位", "数量", "不含税单价（元）", "合价"),
+        roles=("seq", "name", "spec", "unit", "qty", "price", "amount"),
+    )
+
+
 def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
     items = list(brief.quoteLines or [])
     if not items:
@@ -583,5 +646,6 @@ __all__ = [
     "resolve_quote_sheet",
     "scale_quote",
     "sheet_from_brief",
+    "sheet_from_quote_records",
     "sheet_from_rows",
 ]

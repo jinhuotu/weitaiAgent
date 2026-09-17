@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from api.deps import CurrentUser, DbSession, SuperuserUser, user_is_admin, user_is_superuser
 from api.schemas.approval_flow import ApprovalFlowUpdateIn
 from api.services.approval_flow import get_tender_flow, save_tender_flow
+from api.services.knowledge import access as kb_access
 from api.services.menus import can_access_menu
 from api.services.tenders.assets import restore_chapter5_template, save_chapter5_template
 from api.services.tenders.extract import parse_invitation, parse_kb_ids
@@ -48,6 +49,7 @@ from api.services.tenders.records import (
     get_record,
     get_record_qa,
     inspect_record_qa,
+    inspect_record_qa_upload,
     list_records,
     mark_result,
     record_ids_for_actor,
@@ -105,9 +107,20 @@ def _require_menu(user, href: str) -> None:
     raise AppError(ErrorCode.FORBIDDEN, "无权限访问该功能", status_code=403)
 
 
+def _require_qa_menu(user) -> None:
+    if (
+        user_is_admin(user)
+        or can_access_menu(user, "/tenders")
+        or can_access_menu(user, "/tender-qa")
+    ):
+        return
+    raise AppError(ErrorCode.FORBIDDEN, "无权限访问该功能", status_code=403)
+
+
 @router.get("/defaults")
 async def tenders_defaults(db: DbSession, user: CurrentUser):
-    return ok(await defaults_payload_kb(db, created_by=int(user.id)))
+    del user
+    return ok(await defaults_payload_kb(db))
 
 
 @router.get("/approval-flow")
@@ -156,7 +169,8 @@ async def tenders_restore_layout_template(user: CurrentUser):
 @router.get("/library")
 async def tenders_library(db: DbSession, user: CurrentUser):
     """投标资料库：知识库中的可维护扫描件清单。"""
-    return ok(await library_payload_kb(db, created_by=int(user.id)))
+    await kb_access.require_tender_lib_read(db, user)
+    return ok(await library_payload_kb(db))
 
 
 @router.post("/library/reindex")
@@ -166,7 +180,7 @@ async def tenders_library_reindex(
     force: bool = Query(default=False, description="true=强制重新 OCR 入库"),
 ):
     """将资料库扫描件 OCR 向量化，供 AI 智能问答检索。"""
-    del user
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(await enqueue_library_rag_backfill(db, force=bool(force)))
 
 
@@ -177,7 +191,7 @@ async def tenders_library_file(
     user: CurrentUser,
     thumb: bool = Query(False, description="true=缩略图 JPEG"),
 ):
-    del user
+    await kb_access.require_tender_lib_read(db, user)
     data, filename, media_type = await open_library_file(db, doc_id, thumb=thumb)
     ascii_name = re.sub(r"[^\w.\-]+", "_", filename) or "preview.jpg"
     return Response(
@@ -192,12 +206,13 @@ async def tenders_library_file(
 
 @router.delete("/library/files/{doc_id}")
 async def tenders_delete_library_file(doc_id: str, db: DbSession, user: CurrentUser):
-    del user
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(await delete_library_file(db, doc_id))
 
 
 @router.post("/library/items")
 async def tenders_create_library_item(body: LibraryItemIn, db: DbSession, user: CurrentUser):
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(
         await create_library_item(
             db,
@@ -216,13 +231,13 @@ async def tenders_update_library_item(
     db: DbSession,
     user: CurrentUser,
 ):
-    del user
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(await update_library_item(db, key, title=body.title, hint=body.hint))
 
 
 @router.delete("/library/items/{key}")
 async def tenders_delete_library_item(key: str, db: DbSession, user: CurrentUser):
-    del user
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(await delete_library_item(db, key))
 
 
@@ -231,10 +246,19 @@ async def tenders_list_slots(
     db: DbSession,
     user: CurrentUser,
     extras: str | None = None,
+    invitationId: str | None = Query(None),
 ):
     """待补附件槽位状态。extras 为可选 JSON 数组（邀请书多出来的项）。"""
-    del user
-    return ok({"slots": await list_slots_status_kb(db, _parse_extras(extras))})
+    await kb_access.require_tender_lib_read(db, user)
+    return ok(
+        {
+            "slots": await list_slots_status_kb(
+                db,
+                _parse_extras(extras),
+                invitation_id=invitationId or "",
+            )
+        }
+    )
 
 
 @router.post("/slots/{key}")
@@ -244,19 +268,21 @@ async def tenders_upload_slot(
     user: CurrentUser,
     file: UploadFile = File(..., description="扫描件：pdf / png / jpg / webp / gif / bmp"),
     replace: str | None = Form("true", description="true=替换该项全部文件；false=追加"),
+    invitationId: str | None = Form(None),
 ):
-    del user
     safe = sanitize_slot_key(key)
     raw = await file.read()
     do_replace = str(replace or "true").strip().lower() not in {"0", "false", "no"}
     if safe == TECH_DRAWING_KEY:
         return ok(
             save_drawing_file(
+                invitation_id=invitationId or "",
                 filename=file.filename or "upload.bin",
                 data=raw,
                 replace=do_replace,
             )
         )
+    await kb_access.require_tender_lib_manage(db, user)
     payload = await save_library_file(
         db,
         safe,
@@ -268,11 +294,16 @@ async def tenders_upload_slot(
 
 
 @router.delete("/slots/{key}")
-async def tenders_clear_slot(key: str, db: DbSession, user: CurrentUser):
-    del user
+async def tenders_clear_slot(
+    key: str,
+    db: DbSession,
+    user: CurrentUser,
+    invitationId: str | None = Query(None),
+):
     safe = sanitize_slot_key(key)
     if safe == TECH_DRAWING_KEY:
-        return ok(clear_drawing_files())
+        return ok(clear_drawing_files(invitationId or ""))
+    await kb_access.require_tender_lib_manage(db, user)
     return ok(await clear_library_files(db, safe))
 
 
@@ -282,17 +313,25 @@ async def tenders_parse_invitation(
     user: CurrentUser,
     file: UploadFile = File(..., description="投标邀请书 / 招标文件：pdf / docx / xlsx / txt / 图片"),
     quoteFile: UploadFile | None = File(None, description="可选：工程量清单 Excel/Word"),
+    quoteRecordIds: str | None = Form(
+        None, description="可选：AI 报价记录 publicId，JSON 数组或逗号分隔"
+    ),
     kbIds: str | None = Form(None, description="知识库 ID：JSON 数组或逗号分隔"),
     current: str | None = Form(None, description="当前表单 JSON，抽取结果合并到其上"),
 ):
     brief = _parse_current_brief(current)
+    persist_library = await kb_access.has_base_perm(
+        db, user, kb_access.TENDER_LIB_PUBLIC_ID, kb_access.PERM_MANAGE
+    )
     payload = await parse_invitation(
         db,
         file,
         kb_ids=parse_kb_ids(kbIds),
         current=brief,
         quote_upload=quoteFile,
+        quote_record_ids=parse_kb_ids(quoteRecordIds),
         created_by=int(user.id),
+        persist_library=persist_library,
     )
     brief_data = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     extras = _coerce_placeholders(brief_data.get("extraPlaceholders"))
@@ -393,16 +432,60 @@ async def tenders_get_record(record_id: str, db: DbSession, user: CurrentUser):
 
 
 @router.get("/records/{record_id}/qa")
-async def tenders_get_record_qa(record_id: str, db: DbSession, user: CurrentUser):
-    del user
-    return ok(await get_record_qa(db, record_id))
+async def tenders_get_record_qa(
+    record_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    volume: str | None = Query(default=None),
+):
+    _require_qa_menu(user)
+    vol = (volume or "").strip().lower()
+    if vol and vol not in {"business", "technical"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    return ok(await get_record_qa(db, record_id, volume=vol or None))
 
 
 @router.post("/records/{record_id}/qa")
-async def tenders_inspect_record_qa(record_id: str, db: DbSession, user: CurrentUser):
+async def tenders_inspect_record_qa(
+    record_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    volume: str | None = Query(default=None),
+):
     """生成后对照邀请书做 AI 质检：符合度与缺失项。"""
-    del user
-    return ok(await inspect_record_qa(db, record_id))
+    _require_qa_menu(user)
+    vol = (volume or "").strip().lower()
+    if vol and vol not in {"business", "technical"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    return ok(await inspect_record_qa(db, record_id, volume=vol or None))
+
+
+@router.post("/records/{record_id}/qa-upload")
+async def tenders_inspect_record_qa_upload(
+    record_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    file: UploadFile = File(..., description="改过的终稿 Word（.docx）"),
+    volume: str | None = Query(default=None),
+):
+    """上传终稿 Word，对照本任务邀请书做 AI 复检。"""
+    _require_qa_menu(user)
+    name = (file.filename or "").strip()
+    if not name.lower().endswith(".docx"):
+        raise AppError(ErrorCode.VALIDATION, "请上传 Word（.docx）", status_code=422)
+    vol = (volume or "").strip().lower()
+    if vol and vol not in {"business", "technical"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    data = await file.read()
+    return ok(
+        await inspect_record_qa_upload(
+            db,
+            record_id,
+            data=data,
+            filename=name,
+            volume=vol or None,
+        )
+    )
 
 
 @router.delete("/records/{record_id}")

@@ -16,13 +16,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from api.services.knowledge.bases import PURPOSE_RAG, get_base_by_public_id, to_base_item
-from api.services.menus import user_is_admin
+from api.services.menus import can_access_menu, user_is_admin
 from common.errors import AppError, ErrorCode
 from db.models.knowledge import KnowledgeBase, KnowledgeBaseAcl
 from db.models.role import Role
 from db.models.user import User
 
-# 投标资料库对登录用户开放检索（与菜单侧「投标资料库」同级共享资产）
 TENDER_LIB_PUBLIC_ID = "tenderlib01"
 
 PERM_VIEW = "view"
@@ -79,9 +78,6 @@ async def perms_for_bases(
     for b in bases:
         if b.created_by is not None and int(b.created_by) == uid:
             out[b.id] = set(_ALL)
-        # 共享投标资料库：所有登录用户可查看 / 检索
-        elif b.public_id == TENDER_LIB_PUBLIC_ID:
-            out[b.id] = {PERM_VIEW, PERM_USE}
 
     ids = [b.id for b in bases]
     result = await db.execute(select(KnowledgeBaseAcl).where(KnowledgeBaseAcl.base_id.in_(ids)))
@@ -127,6 +123,27 @@ async def require_base(
         f"无权{labels.get(perm, perm)}该知识库",
         status_code=403,
     )
+
+
+async def has_base_perm(db: AsyncSession, user: User, public_id: str, perm: Perm) -> bool:
+    try:
+        await require_base(db, user, public_id, perm)
+        return True
+    except AppError as exc:
+        if exc.status_code in {403, 404}:
+            return False
+        raise
+
+
+async def require_tender_lib_read(db: AsyncSession, user: User) -> None:
+    """组卷贴附件或问答原件：读清单 / 文件。"""
+    if can_access_menu(user, "/tenders"):
+        return
+    await require_base(db, user, TENDER_LIB_PUBLIC_ID, PERM_USE)
+
+
+async def require_tender_lib_manage(db: AsyncSession, user: User) -> KnowledgeBase:
+    return await require_base(db, user, TENDER_LIB_PUBLIC_ID, PERM_MANAGE)
 
 
 async def list_visible_bases(

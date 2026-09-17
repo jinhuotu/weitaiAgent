@@ -46,8 +46,8 @@ def test_decode_rejects_too_many_and_bad_mime() -> None:
         )
     assert too_many.value.status_code == 422
     with pytest.raises(AppError) as bad_mime:
-        decode_chat_images([{"mimeType": "application/pdf", "data": _b64()}])
-    assert "jpeg" in bad_mime.value.msg
+        decode_chat_images([{"mimeType": "application/zip", "data": _b64()}])
+    assert "草稿" in bad_mime.value.msg
 
 
 def test_persist_hydrate_and_llm_parts(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

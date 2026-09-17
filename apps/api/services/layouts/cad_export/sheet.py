@@ -46,7 +46,7 @@ def draw_sheet(
     paper: str | None = None,
     used_title_block: bool = False,
 ) -> tuple[float, float, float, float]:
-    """画图框与表。标题栏压在视口上，返回几乎铺满内框的视口（图纸毫米）。"""
+    """画图框与表。视口让开标题栏和设计说明，返回图纸毫米。"""
     pw, ph = paper_size(plan, paper)
     style = plan.sheetStyle
     if not used_title_block:
@@ -54,13 +54,15 @@ def draw_sheet(
     tb_h = 0.0
     if style.showTitleBlock and not used_title_block:
         tb_h = _title_block(psp, plan, pw, ph, scale_n)
+    notes_h = 0.0
     if plan.notes:
-        _notes(psp, plan, pw, ph, title_h=tb_h)
+        notes_h = _notes(psp, plan, pw, ph, title_h=tb_h)
     if style.showLegend:
         _legend(psp, plan, ph)
     if style.showNorthArrow:
         _north(psp, pw, ph)
-    return overlay_viewport(pw, ph)
+    bottom = 16.0 + max(tb_h, notes_h, 36.0) + 8.0
+    return overlay_viewport(pw, ph, bottom=bottom)
 
 
 def _frame(psp: Any, pw: float, ph: float) -> None:
@@ -127,10 +129,10 @@ def _notes(
     if title_h <= 0:
         width = pw - 28.0
     body = "设计说明\n" + "\n".join(notes[:6])
+    n = 1 + len(notes[:6])
+    height = max(28.0, 10.0 + 5.4 * n)
     if title_h > 0:
-        height = max(28.0, title_h)
-    else:
-        height = max(28.0, 8.0 + 5.2 * (1 + len(notes[:6])))
+        height = max(height, title_h)
     psp.add_lwpolyline(
         [(x0, y0), (x0 + width, y0), (x0 + width, y0 + height), (x0, y0 + height)],
         close=True,

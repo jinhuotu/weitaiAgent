@@ -25,6 +25,10 @@ _COMPACT = re.compile(r"[\s/（）()【】\[\]:：·,，。、\-—_“”\"']+"
 _BID_TEXT_MAX = 80_000
 _LLM_INVITE_CHARS = 12_000
 _LLM_BID_CHARS = 12_000
+_MAX_QA_UPLOAD = 40 * 1024 * 1024
+_SOURCE_GENERATED = "generated"
+_SOURCE_UPLOAD = "upload"
+QA_VOLUMES = ("business", "technical")
 
 _QA_JSON_KEYS = ("similarityScore", "missing", "summary")
 
@@ -35,7 +39,8 @@ _SYSTEM = """你是投标文件质检员。对照甲方邀请书/招标文件，
 1. 只根据给出的邀请书正文和投标文件正文判断，禁止编造未出现的条款。
 2. 投标人是河南伟泰光电科技有限公司。邀请书范例里的其他公司名称不算缺失。
 3. 扫描件标题已写入但标注待补/虚线框，算「材料未附」，不要当成整章缺失。
-4. 只输出一个 JSON 对象，不要思考过程、不要 Markdown。
+4. 用户消息会标明当前是商务标还是技术标：只评这一卷该有的内容，不要把另一卷的章节算作本卷缺失。
+5. 只输出一个 JSON 对象，不要思考过程、不要 Markdown。
 JSON 字段：
 similarityScore（整数 0-100，响应完整度）,
 summary（一两句中文总评）,
@@ -59,18 +64,16 @@ def qa_report_path(public_id: str) -> Path:
     return tenders_output_dir() / f"{pid}.qa.json"
 
 
-def unlink_qa_report(public_id: str) -> None:
-    pid = (public_id or "").strip()
-    if not _RECORD_ID_RE.fullmatch(pid):
-        return
-    path = tenders_output_dir() / f"{pid}.qa.json"
-    try:
-        path.unlink(missing_ok=True)
-    except OSError:
-        pass
+def normalize_qa_volume(raw: str | None) -> str:
+    v = (raw or "").strip().lower()
+    return v if v in QA_VOLUMES else "business"
 
 
-def load_qa_report(public_id: str) -> dict[str, Any] | None:
+def _is_report(item: Any) -> bool:
+    return isinstance(item, dict) and item.get("similarityScore") is not None
+
+
+def _read_qa_file(public_id: str) -> dict[str, Any] | None:
     try:
         path = qa_report_path(public_id)
     except AppError:
@@ -84,9 +87,108 @@ def load_qa_report(public_id: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def save_qa_report(public_id: str, report: dict[str, Any]) -> None:
+def load_qa_bundle(public_id: str) -> dict[str, dict[str, Any]]:
+    data = _read_qa_file(public_id)
+    if not data:
+        return {}
+    nested = {k: dict(data[k]) for k in QA_VOLUMES if _is_report(data.get(k))}
+    if nested:
+        return nested
+    if _is_report(data):
+        return {normalize_qa_volume(str(data.get("volume") or "")): data}
+    return {}
+
+
+def unlink_qa_report(public_id: str, volume: str | None = None) -> None:
+    pid = (public_id or "").strip()
+    if not _RECORD_ID_RE.fullmatch(pid):
+        return
+    path = tenders_output_dir() / f"{pid}.qa.json"
+    if not volume:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        unlink_qa_upload(pid)
+        return
+    bundle = load_qa_bundle(pid)
+    bundle.pop(normalize_qa_volume(volume), None)
+    if not bundle:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return
+    path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+
+
+def qa_upload_path(public_id: str) -> Path:
+    pid = (public_id or "").strip()
+    if not _RECORD_ID_RE.fullmatch(pid):
+        raise AppError(ErrorCode.BAD_REQUEST, "invalid tender record id", status_code=400)
+    return tenders_output_dir() / f"{pid}.qa-upload.docx"
+
+
+def unlink_qa_upload(public_id: str) -> None:
+    pid = (public_id or "").strip()
+    if not _RECORD_ID_RE.fullmatch(pid):
+        return
+    path = tenders_output_dir() / f"{pid}.qa-upload.docx"
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def save_qa_upload(public_id: str, data: bytes) -> Path:
+    blob = data or b""
+    if len(blob) < 80:
+        raise AppError(ErrorCode.VALIDATION, "文件太小，请上传有效的 Word（.docx）", status_code=422)
+    if len(blob) > _MAX_QA_UPLOAD:
+        raise AppError(ErrorCode.VALIDATION, "Word 超过 40MB，请压缩后再传", status_code=422)
+    if blob[:2] != b"PK":
+        raise AppError(ErrorCode.VALIDATION, "请上传 Word（.docx）", status_code=422)
+    path = qa_upload_path(public_id)
+    path.write_bytes(blob)
+    return path
+
+
+def qa_summary(public_id: str) -> dict[str, Any]:
+    report = load_qa_report(public_id)
+    if not report:
+        return {"qaScore": None, "qaGrade": None, "qaSource": None, "qaCheckedAt": None}
+    return {
+        "qaScore": report.get("similarityScore"),
+        "qaGrade": report.get("grade"),
+        "qaSource": report.get("source") or _SOURCE_GENERATED,
+        "qaCheckedAt": report.get("checkedAt"),
+        "qaVolume": report.get("volume") or "business",
+    }
+
+
+def load_qa_report(public_id: str, volume: str | None = None) -> dict[str, Any] | None:
+    bundle = load_qa_bundle(public_id)
+    if not bundle:
+        return None
+    if volume:
+        hit = bundle.get(normalize_qa_volume(volume))
+        return dict(hit) if hit else None
+    latest = max(bundle.values(), key=lambda r: int(r.get("checkedAt") or 0))
+    return dict(latest)
+
+
+def save_qa_report(
+    public_id: str,
+    report: dict[str, Any],
+    volume: str | None = None,
+) -> None:
+    vol = normalize_qa_volume(volume or str(report.get("volume") or ""))
+    row = dict(report)
+    row["volume"] = vol
+    bundle = load_qa_bundle(public_id)
+    bundle[vol] = row
     path = qa_report_path(public_id)
-    path.write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
 
 
 def compact_text(text: str) -> str:
@@ -149,12 +251,22 @@ def rule_inspect(
     bid_text: str,
     *,
     missing_slot_titles: list[str] | None = None,
+    volume: str | None = None,
 ) -> dict[str, Any]:
     """规则核对：组卷目录、关键商务字段、报价行、资格扫描件。"""
     gaps: list[dict[str, str]] = []
     blob = compact_text(bid_text)
+    vol = (volume or "").strip().lower()
+    if vol not in QA_VOLUMES:
+        vol = ""
+    if vol:
+        from api.services.tenders.outline import items_for_volume
+
+        outline_items = items_for_volume(brief, vol)
+    else:
+        outline_items = brief.outlineItems or []
     outline_found = outline_total = 0
-    for item in brief.outlineItems or []:
+    for item in outline_items:
         if item.skipped or not item.required:
             continue
         title = (item.title or "").strip()
@@ -183,14 +295,14 @@ def rule_inspect(
         field_checks.append(
             (brief.tenderer, "招标人名称未出现在投标文件", SEVERITY_DEDUCT, "commercial")
         )
-    if float(brief.bidPriceYuan or 0) > 0:
+    if vol != "technical" and float(brief.bidPriceYuan or 0) > 0:
         price = (
             str(int(brief.bidPriceYuan))
             if float(brief.bidPriceYuan).is_integer()
             else str(brief.bidPriceYuan)
         )
         field_checks.append((price, "投标总价未出现在投标文件", SEVERITY_DISQUALIFY, "commercial"))
-    if int(brief.deliveryDays or 0) > 0:
+    if vol != "technical" and int(brief.deliveryDays or 0) > 0:
         field_checks.append(
             (
                 str(int(brief.deliveryDays)),
@@ -207,60 +319,64 @@ def rule_inspect(
             gaps.append(_gap(needle[:40], reason, severity=severity, category=category))
 
     quote_found = quote_total = 0
-    names = [
-        (row.name or "").strip() for row in (brief.quoteLines or []) if (row.name or "").strip()
-    ]
-    for name in names[:24]:
-        quote_total += 1
-        if title_in_text(blob, name, min_len=2):
-            quote_found += 1
-        else:
-            gaps.append(
-                _gap(
-                    name,
-                    "邀请书/清单中的分项未出现在投标报价表",
-                    severity=SEVERITY_DISQUALIFY,
-                    category="quote",
+    if vol != "technical":
+        names = [
+            (row.name or "").strip() for row in (brief.quoteLines or []) if (row.name or "").strip()
+        ]
+        for name in names[:24]:
+            quote_total += 1
+            if title_in_text(blob, name, min_len=2):
+                quote_found += 1
+            else:
+                gaps.append(
+                    _gap(
+                        name,
+                        "邀请书/清单中的分项未出现在投标报价表",
+                        severity=SEVERITY_DISQUALIFY,
+                        category="quote",
+                    )
                 )
-            )
 
     tech_found = tech_total = 0
-    has_tech_outline = any(
-        item.kind == "tech_plan" and not item.skipped for item in (brief.outlineItems or [])
-    )
-    if has_tech_outline or tech_plan_text(brief):
-        tech_total += 1
-        if tech_plan_text(brief) and (
-            title_in_text(blob, "实施方案")
-            or title_in_text(blob, "技术标")
-            or title_in_text(blob, tech_plan_text(brief)[:12], min_len=4)
-        ):
-            tech_found += 1
-        elif title_in_text(blob, "实施方案") or title_in_text(blob, "技术标"):
-            tech_found += 1
-        else:
-            gaps.append(
-                _gap(
-                    "技术标实施方案",
-                    "邀请书要求技术方案/实施方案，生成稿中未见对应章节",
-                    severity=SEVERITY_DEDUCT,
-                    category="technical",
-                )
-            )
-    if not any((row.requirement or "").strip() for row in (brief.deviationLines or [])):
-        if any(item.kind == "tech_dev" and not item.skipped for item in (brief.outlineItems or [])):
+    if vol != "business":
+        has_tech_outline = any(
+            item.kind == "tech_plan" and not item.skipped for item in outline_items
+        )
+        if has_tech_outline or tech_plan_text(brief):
             tech_total += 1
-            gaps.append(
-                _gap(
-                    "技术偏离表",
-                    "尚未填写技术偏差，未响应招标技术要求会大量扣分",
-                    severity=SEVERITY_DEDUCT,
-                    category="technical",
+            if tech_plan_text(brief) and (
+                title_in_text(blob, "实施方案")
+                or title_in_text(blob, "技术标")
+                or title_in_text(blob, tech_plan_text(brief)[:12], min_len=4)
+            ):
+                tech_found += 1
+            elif title_in_text(blob, "实施方案") or title_in_text(blob, "技术标"):
+                tech_found += 1
+            else:
+                gaps.append(
+                    _gap(
+                        "技术标实施方案",
+                        "邀请书要求技术方案/实施方案，生成稿中未见对应章节",
+                        severity=SEVERITY_DEDUCT,
+                        category="technical",
+                    )
                 )
-            )
-    else:
-        tech_total += 1
-        tech_found += 1
+        if not any((row.requirement or "").strip() for row in (brief.deviationLines or [])):
+            if any(item.kind == "tech_dev" and not item.skipped for item in outline_items):
+                tech_total += 1
+                gaps.append(
+                    _gap(
+                        "技术偏离表",
+                        "尚未填写技术偏差，未响应招标技术要求会大量扣分",
+                        severity=SEVERITY_DEDUCT,
+                        category="technical",
+                    )
+                )
+        else:
+            tech_total += 1
+            tech_found += 1
+
+    from api.services.tenders.categories import slot_volume
 
     mat_found = mat_total = 0
     missing_set = {t for t in (missing_slot_titles or []) if t}
@@ -271,6 +387,8 @@ def rule_inspect(
     for key in brief.requiredSlotKeys or []:
         title = slot_map.get(key) or key
         if not title or title in seen_titles:
+            continue
+        if vol and slot_volume(key, title) != vol:
             continue
         seen_titles.add(title)
         mat_total += 1
@@ -467,6 +585,9 @@ def build_report(
     bid_text: str,
     rule: dict[str, Any],
     llm: dict[str, Any] | None,
+    source: str = _SOURCE_GENERATED,
+    upload_name: str | None = None,
+    volume: str | None = None,
 ) -> dict[str, Any]:
     llm_score = int(llm["similarityScore"]) if llm and "similarityScore" in llm else None
     score = combine_score(int(rule.get("score") or 0), llm_score)
@@ -481,9 +602,12 @@ def build_report(
         )
         if not invitation.strip():
             summary = "未保存邀请书原文，仅按组卷大纲与表单做缺项检查。" + summary
-    return {
+    src = source if source in {_SOURCE_GENERATED, _SOURCE_UPLOAD} else _SOURCE_GENERATED
+    vol = normalize_qa_volume(volume)
+    out = {
         "recordId": record_id,
         "docxFile": docx_file,
+        "volume": vol,
         "similarityScore": score,
         "ruleScore": int(rule.get("score") or 0),
         "llmScore": llm_score,
@@ -497,7 +621,13 @@ def build_report(
         "coverage": rule.get("coverage") or {},
         "missing": missing,
         "checkedAt": to_epoch_ms(datetime.now(UTC)),
+        "source": src,
     }
+    if src == _SOURCE_UPLOAD:
+        name = (upload_name or "").strip()[:160]
+        if name:
+            out["uploadName"] = name
+    return out
 
 
 async def extract_bid_text(path: Path) -> str:
@@ -513,6 +643,7 @@ async def analyze_with_llm(
     invitation: str,
     bid_text: str,
     brief: BidBrief,
+    volume: str | None = None,
 ) -> dict[str, Any] | None:
     if not (invitation or "").strip() or not (bid_text or "").strip():
         return None
@@ -520,15 +651,23 @@ async def analyze_with_llm(
         from api.services.models.runtime import build_llm_client
 
         client = await build_llm_client(db, "fast")
+        outline_src = brief.outlineItems or []
+        vol = (volume or "").strip().lower()
+        if vol in QA_VOLUMES:
+            from api.services.tenders.outline import items_for_volume
+
+            outline_src = items_for_volume(brief, vol)
         outline = "、".join(
             (item.title or "").strip()
-            for item in (brief.outlineItems or [])
+            for item in outline_src
             if (item.title or "").strip() and not item.skipped
         )[:800]
+        vol_label = "技术标 Word" if vol == "technical" else "商务标 Word"
         user = "\n".join(
             [
                 f"项目：{(brief.projectName or '').strip() or '（未填）'}",
                 f"招标人：{(brief.tenderer or '').strip() or '（未填）'}",
+                f"当前质检对象：{vol_label}。只评这一卷该有的内容。",
                 f"组卷目录：{outline or '（未抽出）'}",
                 "",
                 "【邀请书正文】",
@@ -551,7 +690,9 @@ async def analyze_with_llm(
         return None
 
 
-async def _missing_slot_titles(db: AsyncSession, brief: BidBrief) -> list[str]:
+async def _missing_slot_titles(
+    db: AsyncSession, brief: BidBrief, *, volume: str | None = None
+) -> list[str]:
     try:
         from api.services.tenders.library_kb import catalog_placeholders, resolve_attachments
         from api.services.tenders.placeholders import collect_slots, this_bid_keys
@@ -568,11 +709,17 @@ async def _missing_slot_titles(db: AsyncSession, brief: BidBrief) -> list[str]:
         slots = collect_slots(brief.extraPlaceholders, catalog=catalog, include_keys=include_keys)
         media = await resolve_attachments(db, slots)
         titles = {item.key: item.title or item.key for item in slots}
+        vol = (volume or "").strip().lower()
+        from api.services.tenders.categories import slot_volume
+
         missing: list[str] = []
         for key in required_keys:
+            title = titles.get(key) or key
+            if vol in QA_VOLUMES and slot_volume(key, title) != vol:
+                continue
             files = media.get(key) if isinstance(media, dict) else None
             if not files:
-                missing.append(titles.get(key) or key)
+                missing.append(title)
         return missing
     except Exception:
         logger.exception("tender qa slot resolve failed")
@@ -585,21 +732,36 @@ async def inspect_bid(
     public_id: str,
     brief: BidBrief,
     docx_file: str,
+    bid_path: Path | None = None,
+    source: str = _SOURCE_GENERATED,
+    upload_name: str | None = None,
+    volume: str | None = None,
 ) -> dict[str, Any]:
     from api.services.tenders.generate import resolve_output_file
 
-    path = resolve_output_file(docx_file)
+    src = source if source in {_SOURCE_GENERATED, _SOURCE_UPLOAD} else _SOURCE_GENERATED
+    vol = normalize_qa_volume(volume)
+    if bid_path is not None:
+        path = Path(bid_path)
+        if not path.is_file():
+            raise AppError(ErrorCode.VALIDATION, "上传的 Word 无法读取", status_code=422)
+    else:
+        path = resolve_output_file(docx_file)
     bid_text = await extract_bid_text(path)
     if len(bid_text) < 20:
         raise AppError(
             ErrorCode.VALIDATION,
-            "无法读取生成稿正文，请确认 Word 文件完好",
+            "无法读取投标文件正文，请确认 Word 完好"
+            if src == _SOURCE_UPLOAD
+            else "无法读取生成稿正文，请确认 Word 文件完好",
             status_code=422,
         )
     invitation = load_invitation_text(brief.invitationId)
-    missing_slots = await _missing_slot_titles(db, brief)
-    rule = rule_inspect(brief, bid_text, missing_slot_titles=missing_slots)
-    llm = await analyze_with_llm(db, invitation=invitation, bid_text=bid_text, brief=brief)
+    missing_slots = await _missing_slot_titles(db, brief, volume=vol)
+    rule = rule_inspect(brief, bid_text, missing_slot_titles=missing_slots, volume=vol)
+    llm = await analyze_with_llm(
+        db, invitation=invitation, bid_text=bid_text, brief=brief, volume=vol
+    )
     report = build_report(
         record_id=public_id,
         docx_file=docx_file,
@@ -607,6 +769,9 @@ async def inspect_bid(
         bid_text=bid_text,
         rule=rule,
         llm=llm,
+        source=src,
+        upload_name=upload_name,
+        volume=vol,
     )
-    save_qa_report(public_id, report)
+    save_qa_report(public_id, report, volume=vol)
     return report

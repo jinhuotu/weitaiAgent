@@ -22,6 +22,46 @@ MAX_BYTES = 4 * 1024 * 1024
 DEFAULT_IMAGE_PROMPT = "请根据图片内容作答。"
 
 
+def _item_filename(item: dict[str, Any]) -> str:
+    return str(item.get("fileName") or item.get("file_name") or "").strip()
+
+
+def _decode_one(item: dict[str, Any]) -> tuple[str, bytes, str]:
+    from api.services.layouts.draft import MAX_DRAFT_BYTES, guess_draft_kind
+
+    mime = str(item.get("mimeType") or item.get("mime_type") or "").strip().lower()
+    name = _item_filename(item)
+    data = str(item.get("data") or "").strip()
+    if data.startswith("data:") and "," in data:
+        data = data.split(",", 1)[1]
+    data = "".join(data.split())
+    if not data:
+        raise AppError(ErrorCode.VALIDATION, "图片数据为空", status_code=422)
+    try:
+        blob = base64.b64decode(data, validate=False)
+    except (binascii.Error, ValueError) as exc:
+        raise AppError(ErrorCode.VALIDATION, "图片 Base64 无效", status_code=422) from exc
+    if not blob:
+        raise AppError(ErrorCode.VALIDATION, "图片数据为空", status_code=422)
+    kind = guess_draft_kind(mime, name, blob)
+    if mime not in ALLOWED_MIME and kind is None:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "草稿仅支持 jpeg / png / webp / gif / PDF / DXF / DWG",
+            status_code=422,
+        )
+    limit = MAX_DRAFT_BYTES if kind is not None else MAX_BYTES
+    if len(blob) > limit:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"单个附件不能超过 {limit // (1024 * 1024)} MB",
+            status_code=422,
+        )
+    if mime == "image/jpg":
+        mime = "image/jpeg"
+    return mime, blob, name
+
+
 def _storage_root() -> Path:
     return Path(get_settings().storage_root).expanduser().resolve()
 
@@ -37,45 +77,28 @@ def resolve_chat_path(key: str) -> Path:
     return path
 
 
-def decode_chat_images(raw: list[dict[str, Any]] | None) -> list[tuple[str, bytes]]:
+def decode_chat_uploads(raw: list[dict[str, Any]] | None):
+    from api.services.layouts.draft import ChatUploads, materialize_uploads
+
     items = list(raw or [])
     if len(items) > MAX_IMAGES:
         raise AppError(
             ErrorCode.VALIDATION,
-            f"最多上传 {MAX_IMAGES} 张图片",
+            f"最多上传 {MAX_IMAGES} 个附件",
             status_code=422,
         )
-    out: list[tuple[str, bytes]] = []
+    staged: list[tuple[str, bytes, str]] = []
     for item in items:
         if not isinstance(item, dict):
             continue
-        mime = str(item.get("mimeType") or item.get("mime_type") or "").strip().lower()
-        if mime not in ALLOWED_MIME:
-            raise AppError(
-                ErrorCode.VALIDATION,
-                "图片仅支持 jpeg / png / webp / gif",
-                status_code=422,
-            )
-        data = str(item.get("data") or "").strip()
-        if data.startswith("data:") and "," in data:
-            data = data.split(",", 1)[1]
-        data = "".join(data.split())
-        if not data:
-            raise AppError(ErrorCode.VALIDATION, "图片数据为空", status_code=422)
-        try:
-            blob = base64.b64decode(data, validate=False)
-        except (binascii.Error, ValueError) as exc:
-            raise AppError(ErrorCode.VALIDATION, "图片 Base64 无效", status_code=422) from exc
-        if not blob:
-            raise AppError(ErrorCode.VALIDATION, "图片数据为空", status_code=422)
-        if len(blob) > MAX_BYTES:
-            raise AppError(
-                ErrorCode.VALIDATION,
-                f"单张图片不能超过 {MAX_BYTES // (1024 * 1024)} MB",
-                status_code=422,
-            )
-        out.append(("image/jpeg" if mime == "image/jpg" else mime, blob))
-    return out
+        staged.append(_decode_one(item))
+    if not staged:
+        return ChatUploads(images=[], draft_plan=None)
+    return materialize_uploads(staged)
+
+
+def decode_chat_images(raw: list[dict[str, Any]] | None) -> list[tuple[str, bytes]]:
+    return decode_chat_uploads(raw).images
 
 
 def persist_chat_images(
@@ -221,10 +244,12 @@ def blobs_to_state_images(blobs: list[tuple[str, bytes]]) -> list[dict[str, str]
     return out
 
 
-def state_images_from_input(raw: Any) -> list[dict[str, str]]:
-    """工作流 input.images：支持 data / dataUrl。"""
+def ingest_input_images(raw: Any) -> tuple[list[dict[str, str]], dict[str, Any] | None]:
+    """工作流 input.images：支持 data / dataUrl；CAD/PDF 会栅格化并尽量回读车位。"""
+    from api.services.layouts.draft import DRAFT_MIME, guess_draft_kind
+
     if not isinstance(raw, list) or not raw:
-        return []
+        return [], None
     ready: list[dict[str, str]] = []
     to_decode: list[dict[str, Any]] = []
     for item in raw:
@@ -233,21 +258,46 @@ def state_images_from_input(raw: Any) -> list[dict[str, str]]:
         mime = str(item.get("mimeType") or item.get("mime_type") or "image/jpeg")
         url = str(item.get("dataUrl") or item.get("data_url") or "").strip()
         data = str(item.get("data") or "").strip()
-        if url.startswith("data:"):
-            ready.append({"mimeType": mime, "dataUrl": url})
+        name = _item_filename(item)
+        if url.startswith("data:") and "," in url:
+            header, b64 = url.split(",", 1)
+            sniff = "image/jpeg"
+            if ";base64" in header:
+                sniff = header[5:].split(";", 1)[0].strip() or sniff
+            kind = None
+            try:
+                blob = base64.b64decode("".join(b64.split()), validate=False)
+            except (binascii.Error, ValueError):
+                blob = b""
+            if blob:
+                kind = guess_draft_kind(sniff, name, blob)
+            if kind is not None or sniff in DRAFT_MIME:
+                to_decode.append(
+                    {"mimeType": sniff, "data": b64, "fileName": name}
+                )
+            else:
+                ready.append({"mimeType": mime, "dataUrl": url})
         elif data:
             to_decode.append(item)
         elif url:
             ready.append({"mimeType": mime, "dataUrl": url})
+    draft = None
     if to_decode:
-        ready.extend(blobs_to_state_images(decode_chat_images(to_decode)))
+        uploads = decode_chat_uploads(to_decode)
+        ready.extend(blobs_to_state_images(uploads.images))
+        draft = uploads.draft_plan
     if len(ready) > MAX_IMAGES:
         raise AppError(
             ErrorCode.VALIDATION,
-            f"最多上传 {MAX_IMAGES} 张图片",
+            f"最多上传 {MAX_IMAGES} 个附件",
             status_code=422,
         )
-    return ready
+    return ready, draft
+
+
+def state_images_from_input(raw: Any) -> list[dict[str, str]]:
+    imgs, _ = ingest_input_images(raw)
+    return imgs
 
 
 def data_url_to_blob(item: dict[str, Any]) -> tuple[str, bytes] | None:

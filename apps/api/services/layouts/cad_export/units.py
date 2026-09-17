@@ -57,9 +57,27 @@ def snap_scale(needed: float, preferred: int) -> int:
     return int(max(SCALE_STEPS[-1], round(want / 50.0) * 50.0))
 
 
-def overlay_viewport(pw: float, ph: float) -> tuple[float, float, float, float]:
-    """图框压在视口上，视口几乎铺满内框，才能在 A3 上保住 1:200。"""
-    return 16.0, 16.0, pw - 16.0, ph - 16.0
+# 底边留给标题栏+设计说明，顶边留给图例，视口不得铺进这些表。
+SHEET_SIDE_MM = 16.0
+SHEET_TOP_MM = 18.0
+SHEET_BOTTOM_MM = 86.0
+
+
+def overlay_viewport(
+    pw: float,
+    ph: float,
+    *,
+    bottom: float | None = None,
+    top: float | None = None,
+    left: float | None = None,
+    right: float | None = None,
+) -> tuple[float, float, float, float]:
+    """图纸空间视口：让开图框、标题栏和设计说明，避免场地压字。"""
+    l = SHEET_SIDE_MM if left is None else float(left)
+    r = SHEET_SIDE_MM if right is None else float(right)
+    b = SHEET_BOTTOM_MM if bottom is None else float(bottom)
+    t = SHEET_TOP_MM if top is None else float(top)
+    return l, b, pw - r, ph - t
 
 
 def choose_paper_and_scale(
