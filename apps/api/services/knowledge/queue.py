@@ -274,9 +274,11 @@ async def _claim_next(db: AsyncSession) -> KnowledgeIngestTask | None:
 
 async def _run_claimed(task: KnowledgeIngestTask) -> None:
     from api.services.knowledge.ingest import process_uploaded_document
+    from api.services.knowledge.video_contract import ERR_ASR_TIMEOUT, is_video_ext
 
     doc_pid = ""
     force = bool(task.force_reextract)
+    is_video = False
     async with AsyncSessionLocal() as db:
         row = await db.get(KnowledgeIngestTask, task.id)
         if row is None or row.status == "cancelled":
@@ -289,10 +291,16 @@ async def _run_claimed(task: KnowledgeIngestTask) -> None:
             await db.commit()
             return
         doc_pid = doc.public_id
+        is_video = (doc.kind or "") == "video" or is_video_ext(doc.file_type)
         row.progress = 20
         await db.commit()
     try:
         timeout = _parse_timeout_seconds()
+        if is_video:
+            timeout = max(
+                timeout,
+                max(60, int(get_settings().kb_video_asr_timeout_seconds)),
+            )
         await asyncio.wait_for(
             process_uploaded_document(doc_pid, force_reextract=force),
             timeout=timeout,
@@ -307,8 +315,17 @@ async def _run_claimed(task: KnowledgeIngestTask) -> None:
             row.error_msg = None
             await db.commit()
     except TimeoutError:
-        msg = f"解析超时（超过 {_parse_timeout_seconds()} 秒），请重试"
-        logger.warning("ingest task timeout id=%s doc=%s", task.public_id, doc_pid)
+        msg = (
+            ERR_ASR_TIMEOUT
+            if is_video
+            else f"解析超时（超过 {_parse_timeout_seconds()} 秒），请重试"
+        )
+        logger.warning(
+            "ingest task timeout id=%s doc=%s video=%s",
+            task.public_id,
+            doc_pid,
+            is_video,
+        )
         async with AsyncSessionLocal() as db:
             row = await db.get(KnowledgeIngestTask, task.id)
             if row is not None and row.status == "running":
@@ -322,7 +339,13 @@ async def _run_claimed(task: KnowledgeIngestTask) -> None:
                 return
             row.status = "failed"
             row.progress = 100
-            row.error_msg = str(exc)[:500]
+            from common.errors import AppError
+
+            row.error_msg = (
+                (exc.msg or str(exc))[:500]
+                if isinstance(exc, AppError)
+                else str(exc)[:500]
+            )
             row.finished_at = datetime.now(timezone.utc)
             await db.commit()
 

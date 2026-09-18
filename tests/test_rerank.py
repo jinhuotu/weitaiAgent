@@ -1,10 +1,12 @@
 from api.services.knowledge.rerank import (
     compact_search_query,
+    filter_unrelated_tender_hits,
     query_slot_keys,
     restrict_slot_hits,
     restrict_topic_hits,
     topic_keys,
 )
+from api.services.knowledge.access import TENDER_LIB_PUBLIC_ID
 
 
 def test_compact_strips_chat_padding() -> None:
@@ -64,3 +66,40 @@ def test_legal_id_query_drops_agent_slot() -> None:
     assert [h["name"] for h in agent] == ["图片2"]
     both = restrict_slot_hits("身份证", hits)
     assert len(both) == 2
+
+
+def test_unrelated_query_drops_tender_credit_scan() -> None:
+    hits = [
+        {
+            "name": "河南优祺计算机科技有限公司",
+            "content": "法人和非法人组织公共信用信息报告 信用中国",
+            "score": 0.35,
+            "keyword_score": 0.0,
+            "kb_id": TENDER_LIB_PUBLIC_ID,
+            "doc_id": "credit",
+        },
+        {
+            "name": "省位线工艺手册",
+            "content": "衣服省位线怎么做",
+            "score": 0.41,
+            "keyword_score": 0.8,
+            "kb_id": "otherkb",
+            "doc_id": "sew",
+        },
+    ]
+    kept = filter_unrelated_tender_hits("做衣服的省位线怎么做", hits)
+    assert [h["doc_id"] for h in kept] == ["sew"]
+
+
+def test_id_query_keeps_tender_id_scan() -> None:
+    hits = [
+        {
+            "name": "身份证正面照",
+            "content": "居民身份证 公民身份号码",
+            "kb_id": TENDER_LIB_PUBLIC_ID,
+            "doc_id": "id-front",
+            "tags": ["投标资料", "slot:id_legal"],
+        }
+    ]
+    kept = filter_unrelated_tender_hits("帮我看一下法人身份证", hits)
+    assert [h["doc_id"] for h in kept] == ["id-front"]

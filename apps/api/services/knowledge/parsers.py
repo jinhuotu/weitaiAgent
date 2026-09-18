@@ -37,10 +37,15 @@ SUPPORTED_EXTENSIONS = frozenset(
         "webp",
         "gif",
         "bmp",
+        "mp4",
+        "webm",
     }
 )
 IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "webp", "gif", "bmp"})
-ALLOWED_HINT = "pdf / docx / xlsx / xls / pptx / txt / md / csv / json / xml / yaml / png / jpg / webp"
+ALLOWED_HINT = (
+    "pdf / docx / xlsx / xls / pptx / txt / md / csv / json / xml / yaml / "
+    "png / jpg / webp / mp4 / webm"
+)
 
 _CONTENT_TYPE_EXT = {
     "application/pdf": "pdf",
@@ -61,6 +66,8 @@ _CONTENT_TYPE_EXT = {
     "image/webp": "webp",
     "image/gif": "gif",
     "image/bmp": "bmp",
+    "video/mp4": "mp4",
+    "video/webm": "webm",
 }
 
 _XLSX_MAX_SHEETS = 40
@@ -163,6 +170,12 @@ async def extract_text_from_file(path: Path, *, ext: str | None = None) -> Extra
         result = await _read_pptx(path)
     elif kind in IMAGE_EXTENSIONS:
         result = await _read_image(path)
+    elif kind in {"mp4", "webm"}:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "视频请走语音转写入库，不能直接当文本解析",
+            status_code=422,
+        )
     else:
         raise AppError(ErrorCode.VALIDATION, f"不支持的文件类型 .{kind}", status_code=422)
 

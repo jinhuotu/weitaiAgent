@@ -644,19 +644,6 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     assert sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
 
 
-def _run_has_tab(run) -> bool:
-    from docx.oxml.ns import qn
-
-    return run._element.find(qn("w:tab")) is not None
-
-
-def _run_has_u(run) -> bool:
-    from docx.oxml.ns import qn
-
-    rpr = run._element.find(qn("w:rPr"))
-    return rpr is not None and rpr.find(qn("w:u")) is not None
-
-
 def test_commitment_letter_fills_tenderer(tmp_path) -> None:
     brief = BidBrief(
         projectName="厂内新能源充电桩采购项目",
@@ -1481,6 +1468,8 @@ def test_library_file_kind() -> None:
     assert library_file_kind("docx") == "file"
     assert _query_token_allowed("/api/v1/tenders/library/files/abc123") is True
     assert _query_token_allowed("/api/v1/tenders/library") is False
+    assert _query_token_allowed("/api/v1/knowledge/documents/abc123/file") is True
+    assert _query_token_allowed("/api/v1/knowledge/documents/abc123/download") is False
 
 
 def test_delete_library_file_rejects_empty_id() -> None:

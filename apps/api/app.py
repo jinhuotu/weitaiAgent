@@ -74,6 +74,14 @@ async def _lifespan(_app: FastAPI):
         start_ingest_worker()
     except Exception:  # noqa: BLE001
         log.exception("kb stale parsing reclaim failed")
+    try:
+        from api.services.prompts import configs as prompt_configs
+        from db.session import AsyncSessionLocal
+
+        async with AsyncSessionLocal() as db:
+            await prompt_configs.ensure_seed_prompt(db)
+    except Exception:  # noqa: BLE001
+        log.exception("prompt seed sync failed")
     yield
 
 

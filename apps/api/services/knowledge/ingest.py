@@ -22,6 +22,23 @@ from api.services.knowledge.classify import (
     should_skip_kb_retrieval,
 )
 from api.services.knowledge.drawings import is_drawing_ext, preview_jpeg_from_file
+from api.services.knowledge.video_contract import (
+    ERR_ASR_EMPTY,
+    ERR_ASR_FAILED,
+    ERR_EMBED_FAILED,
+    ERR_NO_FILE,
+    KIND_VIDEO,
+    SUMMARY_ASR,
+    SUMMARY_EMBED,
+    is_video_ext,
+)
+from api.services.knowledge.asr.factory import get_asr_provider
+from api.services.knowledge.asr.pipeline import (
+    build_timed_chunks,
+    transcribe_video_file,
+    unlink_asr_cues,
+    write_asr_cues,
+)
 from api.services.knowledge.embeddings import get_embedding_client
 from api.services.knowledge.parsers import (
     ExtractResult,
@@ -75,6 +92,7 @@ def unlink_base_storage(base_public_id: str, docs: list[KnowledgeDocument] | Non
     for doc in docs or []:
         unlink_stored_file(doc.file_key or doc.storage_path)
         unlink_stored_file(_extracted_text_key(base_public_id, doc.public_id))
+        unlink_asr_cues(base_public_id, doc.public_id)
     try:
         folder = resolve_storage_path(f"knowledge/{base_public_id}")
     except AppError:
@@ -366,6 +384,7 @@ async def delete_document_record(
             logger.warning("delete vectors failed id=%s: %s", item.public_id, exc)
         unlink_stored_file(item.file_key or item.storage_path)
         unlink_stored_file(_extracted_text_key(base.public_id, item.public_id))
+        unlink_asr_cues(base.public_id, item.public_id)
         await db.delete(item)
     await db.flush()
     return deleted
@@ -440,14 +459,15 @@ async def ingest_upload(
     parent_id: str | None = None,
     as_attachment: bool | None = None,
 ) -> dict[str, Any]:
-    """落盘原文件。图纸附件不 OCR、不进向量；其余后台抽字/向量化。"""
+    """落盘原文件。图纸/视频先旁路；其余后台抽字/向量化。"""
     settings = get_settings()
     filename = _safe_upload_name(upload.filename)
     ext = assert_supported(sniff_extension(filename, upload.content_type))
     base = await get_base_by_public_id(db, base_public_id)
     parent_pid = (parent_id or "").strip() or None
     tag_list = list(tags) if tags is not None else ["手动上传"]
-    drawing = _want_drawing_attachment(
+    video = is_video_ext(ext)
+    drawing = (not video) and _want_drawing_attachment(
         ext=ext,
         as_attachment=as_attachment,
         parent_id=parent_pid,
@@ -456,12 +476,20 @@ async def ingest_upload(
     if drawing and "图纸附件" not in tag_list:
         tag_list.append("图纸附件")
 
+    # 视频走 ASR 后再向量化；图纸旁路
     if not drawing:
         await require_embedding_ready(db)
+    if video:
+        get_asr_provider()
     public_id = short_id(12)
     rel_key = f"knowledge/{base_public_id}/{public_id}.{ext}"
     dest = resolve_storage_path(rel_key)
-    _size, digest = await _write_upload(upload, dest, max_bytes=int(settings.kb_upload_max_bytes))
+    max_bytes = (
+        int(settings.kb_video_upload_max_bytes)
+        if video
+        else int(settings.kb_upload_max_bytes)
+    )
+    _size, digest = await _write_upload(upload, dest, max_bytes=max_bytes)
 
     existing = await _find_by_content_hash(db, base_id=base.id, digest=digest)
     if existing is not None:
@@ -479,24 +507,36 @@ async def ingest_upload(
             raise AppError(ErrorCode.VALIDATION, "parentId 对应的案例文档不存在", status_code=422)
 
     display_name = (name or "").strip() or Path(filename).stem or filename
+    if drawing:
+        kind = "drawing"
+        summary = "图纸附件（未向量化）"
+        ready = True
+    elif video:
+        kind = KIND_VIDEO
+        summary = SUMMARY_ASR
+        ready = False
+    else:
+        kind = "doc"
+        summary = "正在解析…"
+        ready = False
     doc = KnowledgeDocument(
         public_id=public_id,
         base_id=base.id,
         name=display_name,
         source="file",
-        kind="drawing" if drawing else "doc",
+        kind=kind,
         parent_id=parent_pid,
         file_type=ext,
         size=dest.stat().st_size,
         storage_path=rel_key,
         file_key=rel_key,
-        summary="图纸附件（未向量化）" if drawing else "正在解析…",
+        summary=summary,
         char_count=0,
         chunk_count=0,
         content_hash=digest,
         tags=tag_list,
         uploader=uploader,
-        status="ready" if drawing else "parsing",
+        status="ready" if ready else "parsing",
         review_status=_initial_review_status(drawing=drawing),
         created_by=created_by,
     )
@@ -504,7 +544,7 @@ async def ingest_upload(
     await db.commit()
     await db.refresh(doc)
     setattr(doc, "_base_public_id", base.public_id)
-    if not drawing:
+    if not ready:
         from api.services.knowledge.queue import enqueue_ingest_task
 
         task = await enqueue_ingest_task(db, base=base, doc=doc)
@@ -566,6 +606,17 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
                 doc.chunk_count = 0
                 await db.commit()
                 return
+            if (doc.kind or "") == KIND_VIDEO or is_video_ext(doc.file_type):
+                await _process_video_document(
+                    db, doc, base_pid, force_reextract=force_reextract
+                )
+                await db.commit()
+                logger.info(
+                    "ingest video ready id=%s chunks=%s",
+                    public_id,
+                    doc.chunk_count,
+                )
+                return
             extracted = await _load_or_extract_text(
                 doc, base_pid, prefer_cached=not force_reextract
             )
@@ -594,6 +645,85 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
             doc.status = "failed"
             doc.error_msg = _error_msg(exc)
             await db.commit()
+
+
+async def _process_video_document(
+    db: AsyncSession,
+    doc: KnowledgeDocument,
+    base_pid: str,
+    *,
+    force_reextract: bool = False,
+) -> None:
+    import time
+
+    doc.kind = KIND_VIDEO
+    doc.summary = SUMMARY_ASR
+    doc.error_msg = None
+    await db.commit()
+    await db.refresh(doc)
+
+    t0 = time.monotonic()
+    text = ""
+    if base_pid and not force_reextract:
+        text = (read_extracted_text(base_pid, doc.public_id) or "").strip()
+
+    if len(text) < 4:
+        key = doc.file_key or doc.storage_path
+        if not key:
+            raise AppError(ErrorCode.VALIDATION, ERR_NO_FILE, status_code=422)
+        path = resolve_storage_path(key)
+        if not path.is_file():
+            raise AppError(ErrorCode.VALIDATION, ERR_NO_FILE, status_code=404)
+        try:
+            result = await transcribe_video_file(
+                path,
+                display_name=f"{doc.name or 'video'}.{doc.file_type or 'mp4'}",
+            )
+        except AppError:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            raise AppError(ErrorCode.INTERNAL, ERR_ASR_FAILED, status_code=500) from exc
+        text = (result.text or "").strip()
+        if len(text) < 4:
+            raise AppError(ErrorCode.VALIDATION, ERR_ASR_EMPTY, status_code=422)
+        if base_pid:
+            write_extracted_text(base_pid, doc.public_id, text)
+            write_asr_cues(base_pid, doc.public_id, result.segments)
+
+    asr_ms = int((time.monotonic() - t0) * 1000)
+    logger.info(
+        "kb video asr done id=%s ms=%s chars=%s",
+        doc.public_id,
+        asr_ms,
+        len(text),
+    )
+
+    doc.summary = SUMMARY_EMBED
+    await db.commit()
+    await db.refresh(doc)
+
+    t1 = time.monotonic()
+    timed = build_timed_chunks(text, base_public_id=base_pid, doc_public_id=doc.public_id)
+    doc.char_count = len(text)
+    doc.chunk_count = 0
+    doc.status = "ready"
+    doc.error_msg = None
+    doc.review_status = "approved"
+    try:
+        await _vectorize_document(db, doc, text, timed_chunks=timed)
+    except AppError as exc:
+        if "too short" in (exc.msg or "").lower():
+            raise AppError(ErrorCode.VALIDATION, ERR_ASR_EMPTY, status_code=422) from exc
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise AppError(ErrorCode.INTERNAL, ERR_EMBED_FAILED, status_code=500) from exc
+    doc.summary = text[:200]
+    logger.info(
+        "kb video embed done id=%s ms=%s chunks=%s",
+        doc.public_id,
+        int((time.monotonic() - t1) * 1000),
+        doc.chunk_count,
+    )
 
 
 async def _load_or_extract_text(
@@ -655,6 +785,31 @@ async def reparse_document(
         await db.commit()
         await db.refresh(doc)
         setattr(doc, "_base_public_id", base.public_id)
+        return to_kb_item(doc)
+
+    if (doc.kind or "") == KIND_VIDEO or is_video_ext(doc.file_type):
+        doc.kind = KIND_VIDEO
+        try:
+            get_qdrant_store().delete_by_doc_id(doc.public_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("reparse delete vectors failed id=%s: %s", doc.public_id, exc)
+        unlink_asr_cues(base.public_id, doc.public_id)
+        unlink_stored_file(_extracted_text_key(base.public_id, doc.public_id))
+        await require_embedding_ready(db)
+        get_asr_provider()
+        doc.status = "parsing"
+        doc.review_status = "approved"
+        doc.error_msg = None
+        doc.summary = SUMMARY_ASR
+        doc.chunk_count = 0
+        doc.char_count = 0
+        await db.commit()
+        await db.refresh(doc)
+        setattr(doc, "_base_public_id", base.public_id)
+        from api.services.knowledge.queue import enqueue_ingest_task
+
+        task = await enqueue_ingest_task(db, base=base, doc=doc, force_reextract=True)
+        setattr(doc, "_task_id", task.public_id)
         return to_kb_item(doc)
 
     try:
@@ -849,7 +1004,13 @@ def _apply_skip_rag(doc: KnowledgeDocument, reason: str) -> None:
         doc.summary = (reason or "未向量化，检索将跳过")[:200]
 
 
-async def _vectorize_document(db: AsyncSession, doc: KnowledgeDocument, text: str) -> None:
+async def _vectorize_document(
+    db: AsyncSession,
+    doc: KnowledgeDocument,
+    text: str,
+    *,
+    timed_chunks: list | None = None,
+) -> None:
     from db.models.knowledge import KnowledgeBase
 
     cleaned = text.strip()
@@ -873,7 +1034,42 @@ async def _vectorize_document(db: AsyncSession, doc: KnowledgeDocument, text: st
     if base is None:
         raise AppError(ErrorCode.NOT_FOUND, "knowledge base not found", status_code=404)
 
-    chunks = split_text(cleaned)
+    meta: list[dict[str, Any]] | None = None
+    if timed_chunks:
+        pieces = [c for c in timed_chunks if getattr(c, "content", None)]
+        chunks = [str(c.content).strip() for c in pieces if str(c.content).strip()]
+        meta = []
+        for c in pieces:
+            if not str(c.content).strip():
+                continue
+            row: dict[str, Any] = {}
+            if getattr(c, "start_ms", None) is not None:
+                row["startMs"] = int(c.start_ms)
+            if getattr(c, "end_ms", None) is not None:
+                row["endMs"] = int(c.end_ms)
+            meta.append(row)
+        if not any(row for row in meta):
+            meta = None
+    elif (doc.kind or "") == KIND_VIDEO:
+        rebuilt = build_timed_chunks(
+            cleaned, base_public_id=base.public_id, doc_public_id=doc.public_id
+        )
+        chunks = [c.content for c in rebuilt if c.content.strip()]
+        meta = []
+        for c in rebuilt:
+            if not c.content.strip():
+                continue
+            row = {}
+            if c.start_ms is not None:
+                row["startMs"] = int(c.start_ms)
+            if c.end_ms is not None:
+                row["endMs"] = int(c.end_ms)
+            meta.append(row)
+        if not any(row for row in meta):
+            meta = None
+    else:
+        chunks = split_text(cleaned)
+
     if not chunks:
         raise AppError(ErrorCode.VALIDATION, "content too short after chunk", status_code=422)
 
@@ -889,6 +1085,7 @@ async def _vectorize_document(db: AsyncSession, doc: KnowledgeDocument, text: st
         tags=doc.tags if isinstance(doc.tags, list) else [],
         chunks=chunks,
         vectors=vectors,
+        chunk_meta=meta,
     )
     doc.char_count = len(cleaned)
     doc.chunk_count = len(chunks)
@@ -946,6 +1143,70 @@ async def get_document_preview(
     }
 
 
+_FILE_MIME = {
+    ".txt": "text/plain; charset=utf-8",
+    ".md": "text/markdown; charset=utf-8",
+    ".csv": "text/csv; charset=utf-8",
+    ".json": "application/json",
+    ".xml": "application/xml",
+    ".yaml": "text/yaml",
+    ".yml": "text/yaml",
+    ".xls": "application/vnd.ms-excel",
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".bmp": "image/bmp",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
+
+
+def _guess_file_mime(path: Path) -> str:
+    return _FILE_MIME.get(path.suffix.lower(), "application/octet-stream")
+
+
+async def resolve_document_file(
+    db: AsyncSession,
+    *,
+    base_public_id: str,
+    doc_public_id: str,
+) -> tuple[Path, str, str]:
+    """原件落盘路径、下载名、MIME。无原件抛 404（不做 txt 回退）。"""
+    base = await get_base_by_public_id(db, base_public_id)
+    result = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.public_id == doc_public_id,
+            KnowledgeDocument.base_id == base.id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise AppError(ErrorCode.NOT_FOUND, "文档不存在", status_code=404)
+
+    key = doc.file_key or doc.storage_path
+    if not key:
+        raise AppError(ErrorCode.NOT_FOUND, "文档无原文件", status_code=404)
+    try:
+        path = resolve_storage_path(key)
+    except AppError as exc:
+        raise AppError(ErrorCode.NOT_FOUND, "文档无原文件", status_code=404) from exc
+    if path is None or not path.is_file():
+        raise AppError(ErrorCode.NOT_FOUND, "文档无原文件", status_code=404)
+
+    stem = (doc.name or path.stem or doc.public_id).replace("/", "_").replace("\\", "_")
+    suffix = path.suffix or ""
+    if suffix and not stem.lower().endswith(suffix.lower()):
+        name = f"{stem}{suffix}"
+    else:
+        name = path.name or f"{stem}.bin"
+    return path, name, _guess_file_mime(path)
+
+
 async def download_document(
     db: AsyncSession,
     *,
@@ -953,6 +1214,19 @@ async def download_document(
     doc_public_id: str,
 ) -> tuple[bytes, str, str]:
     """优先磁盘原文件；否则导出预览正文为 txt。"""
+    try:
+        path, name, media = await resolve_document_file(
+            db, base_public_id=base_public_id, doc_public_id=doc_public_id
+        )
+        return path.read_bytes(), name, media
+    except AppError as exc:
+        if exc.status_code != 404:
+            raise
+
+    preview = await get_document_preview(
+        db, base_public_id=base_public_id, doc_public_id=doc_public_id
+    )
+    # get_document_preview 在文档不存在时已抛 404；这里仅无原件回退
     base = await get_base_by_public_id(db, base_public_id)
     result = await db.execute(
         select(KnowledgeDocument).where(
@@ -963,43 +1237,6 @@ async def download_document(
     doc = result.scalar_one_or_none()
     if doc is None:
         raise AppError(ErrorCode.NOT_FOUND, "document not found", status_code=404)
-
-    key = doc.file_key or doc.storage_path
-    if key:
-        try:
-            path = resolve_storage_path(key)
-        except AppError:
-            path = None
-        if path is not None and path.is_file():
-            name = path.name or f"{doc.name}.bin"
-            suffix = path.suffix.lower()
-            media = {
-                ".txt": "text/plain; charset=utf-8",
-                ".md": "text/markdown; charset=utf-8",
-                ".csv": "text/csv; charset=utf-8",
-                ".json": "application/json",
-                ".xml": "application/xml",
-                ".yaml": "text/yaml",
-                ".yml": "text/yaml",
-                ".xls": "application/vnd.ms-excel",
-                ".pdf": "application/pdf",
-                ".docx": (
-                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                ),
-                ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                ".png": "image/png",
-                ".jpg": "image/jpeg",
-                ".jpeg": "image/jpeg",
-                ".webp": "image/webp",
-                ".gif": "image/gif",
-                ".bmp": "image/bmp",
-                ".mp4": "video/mp4",
-            }.get(suffix, "application/octet-stream")
-            return path.read_bytes(), name, media
-
-    preview = await get_document_preview(
-        db, base_public_id=base_public_id, doc_public_id=doc_public_id
-    )
     content = str(preview.get("content") or doc.summary or doc.name or "")
     if not content.strip():
         raise AppError(40402, "文档无可导出内容", status_code=404)
@@ -1019,6 +1256,7 @@ async def search_chunks(
     from api.services.knowledge.rerank import (
         compact_search_query,
         extract_lookup_needles,
+        filter_unrelated_tender_hits,
         filter_weak_hits,
         hybrid_rerank,
         restrict_slot_hits,
@@ -1073,6 +1311,7 @@ async def search_chunks(
     ranked = await _fill_chunk_names(db, ranked)
     ranked = restrict_topic_hits(q, ranked)
     ranked = restrict_slot_hits(q, ranked)
+    ranked = filter_unrelated_tender_hits(q, ranked)
     window = int(settings.kb_neighbor_window or 0)
     if window > 0 and ranked:
         try:
@@ -1287,6 +1526,7 @@ async def delete_document(
 
 
 _PREVIEW_IMAGE = frozenset({"png", "jpg", "jpeg", "webp", "gif", "bmp"})
+_PREVIEW_VIDEO = frozenset({"mp4", "webm"})
 
 
 def _chunk_preview_kind(file_type: str | None, *, has_file: bool) -> str:
@@ -1297,6 +1537,8 @@ def _chunk_preview_kind(file_type: str | None, *, has_file: bool) -> str:
         return "pdf"
     if ext in _PREVIEW_IMAGE:
         return "image"
+    if ext in _PREVIEW_VIDEO:
+        return "video"
     return "file"
 
 
@@ -1316,6 +1558,7 @@ async def _fill_chunk_names(
             KnowledgeDocument.file_key,
             KnowledgeDocument.storage_path,
             KnowledgeDocument.tags,
+            KnowledgeDocument.kind,
         ).where(KnowledgeDocument.public_id.in_(ids))
     )
     rows = {
@@ -1324,21 +1567,34 @@ async def _fill_chunk_names(
             (ft or "").strip().lower(),
             bool((file_key or storage_path or "").strip()),
             tags if isinstance(tags, list) else [],
+            (kind or "").strip().lower(),
         )
-        for pid, name, ft, file_key, storage_path, tags in result.all()
+        for pid, name, ft, file_key, storage_path, tags, kind in result.all()
     }
     out: list[dict[str, Any]] = []
     for h in hits:
         item = dict(h)
         pid = str(item.get("doc_id") or "").strip()
-        name, ft, has_file, tags = rows.get(pid, ("", "", False, []))
+        name, ft, has_file, tags, kind = rows.get(pid, ("", "", False, [], ""))
         if name:
             item["name"] = name
         elif not str(item.get("name") or "").strip():
             item["name"] = "未命名资料"
         item["file_type"] = ft or str(item.get("file_type") or "")
         item["has_file"] = has_file
+        if kind:
+            item["kind"] = kind
         item["preview_kind"] = _chunk_preview_kind(item["file_type"], has_file=has_file)
+        if item.get("startMs") is not None:
+            try:
+                item["startMs"] = int(item["startMs"])
+            except (TypeError, ValueError):
+                item.pop("startMs", None)
+        if item.get("endMs") is not None:
+            try:
+                item["endMs"] = int(item["endMs"])
+            except (TypeError, ValueError):
+                item.pop("endMs", None)
         if not item.get("tags") and tags:
             item["tags"] = tags
         out.append(item)

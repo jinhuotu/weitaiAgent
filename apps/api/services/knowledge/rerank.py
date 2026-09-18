@@ -269,3 +269,40 @@ def restrict_slot_hits(
         if slot and slot in wanted:
             kept.append(h)
     return kept or hits
+
+
+def _tender_hit(h: dict[str, Any]) -> bool:
+    from api.services.knowledge.access import TENDER_LIB_PUBLIC_ID
+
+    kb = str(h.get("kb_id") or h.get("kbId") or "").strip()
+    return kb == TENDER_LIB_PUBLIC_ID
+
+
+def tender_hit_matches_query(query: str, hit: dict[str, Any]) -> bool:
+    """投标扫描件必须和问句对得上，才进入引用/原件附图。"""
+    name = str(hit.get("name") or "")
+    content = str(hit.get("content") or "")
+    kw = float(hit.get("keyword_score") or 0.0)
+    if kw < 0.01:
+        kw = keyword_overlap_score(query, content, name)
+    if kw >= 0.08:
+        return True
+    wanted = query_slot_keys(query)
+    slot = _slot_key(hit.get("tags"))
+    if wanted and slot and slot in wanted:
+        return True
+    keys = topic_keys(query, [hit])
+    return bool(keys)
+
+
+def filter_unrelated_tender_hits(
+    query: str, hits: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """向量偶尔会把无关扫描件捞上来；没有字面/槽位对应就丢掉。"""
+    if not hits:
+        return hits
+    kept: list[dict[str, Any]] = []
+    for h in hits:
+        if not _tender_hit(h) or tender_hit_matches_query(query, h):
+            kept.append(h)
+    return kept

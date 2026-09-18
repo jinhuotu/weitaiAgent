@@ -69,7 +69,18 @@ class Settings(BaseSettings):
 
     storage_root: str = "./storage"
     kb_upload_max_bytes: int = 200 * 1024 * 1024
+    # 知识库视频单独上限（见 docs/kb-video-contract.md）
+    kb_video_upload_max_bytes: int = 512 * 1024 * 1024
+    kb_video_asr_timeout_seconds: int = 7200
     kb_extract_max_chars: int = 2_000_000
+
+    # 知识库视频 ASR（OpenAI 兼容 /v1/audio/transcriptions；也可指本地 Whisper HTTP）
+    # none = 不转写，视频上传会失败在入库阶段
+    asr_provider: str = "none"
+    asr_api_base: str = ""
+    asr_api_key: str = ""
+    asr_model: str = "whisper-1"
+    asr_language: str = "zh"
 
     # 知识库 OCR：测试阶段 aliyun 通用文字识别（不是 DocMind）
     # none = 不调云，扫描页/图片会失败

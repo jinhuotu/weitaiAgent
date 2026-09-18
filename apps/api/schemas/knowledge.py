@@ -2,6 +2,24 @@ from pydantic import BaseModel, Field
 from typing import Literal
 
 
+# 对话 / 检索命中块（snake_case，与 SSE refs、Qdrant 补全字段一致）
+# 视频字段约定见 docs/kb-video-contract.md
+class KnowledgeRefChunk(BaseModel):
+    content: str = ""
+    score: float = 0.0
+    doc_id: str | None = None
+    kb_id: str | None = None
+    name: str | None = None
+    chunk_index: int | None = None
+    file_type: str | None = None
+    has_file: bool | None = None
+    preview_kind: Literal["pdf", "image", "file", "video", ""] | str | None = None
+    kind: str | None = None
+    tags: list[str] | None = None
+    startMs: int | None = None
+    endMs: int | None = None
+
+
 class CreateBaseRequest(BaseModel):
     name: str = Field(min_length=1, max_length=128)
     description: str | None = Field(default=None, max_length=512)

@@ -54,8 +54,14 @@ def _is_whitelisted(path: str) -> bool:
 
 
 def _query_token_allowed(path: str) -> bool:
-    """缩略图用 <img src> 无法带头，仅资料库扫描件允许 query token。"""
-    return "/tenders/library/files/" in (path or "")
+    """<img>/<video src> 无法带头，仅允许这些路径用 ?access_token=。"""
+    p = path or ""
+    if "/tenders/library/files/" in p:
+        return True
+    # 知识库原件流式播放：.../documents/{id}/file
+    if "/knowledge/documents/" in p and p.rstrip("/").endswith("/file"):
+        return True
+    return False
 
 
 def access_token_from_request(request: Request) -> str:

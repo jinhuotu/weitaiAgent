@@ -126,7 +126,7 @@ class KnowledgeDocument(Base):
         String(16), nullable=False, default="text", comment="来源：file/text/url"
     )
     kind: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="doc", comment="类型：doc/drawing/3d"
+        String(16), nullable=False, default="doc", comment="类型：doc/drawing/3d/video"
     )
     parent_id: Mapped[str | None] = mapped_column(
         String(32),

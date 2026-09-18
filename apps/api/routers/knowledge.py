@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, File, Form, Query, UploadFile
 from urllib.parse import quote
 
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 
 from api.deps import AdminUser, CurrentUser, DbSession
 from api.services.menus import user_is_admin
@@ -40,6 +40,7 @@ from api.services.knowledge.ingest import (
     ingest_upload,
     list_documents,
     reparse_document,
+    resolve_document_file,
     search_chunks,
     unlink_base_storage,
 )
@@ -503,6 +504,30 @@ async def documents_download(
         media_type=media_type,
         headers={
             "Content-Disposition": disposition,
+            "Cache-Control": "private, max-age=60",
+        },
+    )
+
+
+@router.get("/documents/{public_id}/file")
+async def documents_file(
+    public_id: str,
+    db: DbSession,
+    user: CurrentUser,
+    baseId: str = Query(..., min_length=1, max_length=32),
+) -> FileResponse:
+    """原件流式播放/预览：支持 Range，供 <video src> 边下边播。"""
+    await kb_access.require_base(db, user, baseId, kb_access.PERM_VIEW)
+    path, filename, media_type = await resolve_document_file(
+        db, base_public_id=baseId, doc_public_id=public_id
+    )
+    return FileResponse(
+        path,
+        media_type=media_type,
+        filename=filename,
+        content_disposition_type="inline",
+        headers={
+            "Accept-Ranges": "bytes",
             "Cache-Control": "private, max-age=60",
         },
     )

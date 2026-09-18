@@ -1,4 +1,5 @@
-# 本地依赖：MySQL + Redis + Qdrant + OnlyOffice。对话归档 Worker 用 poetry 起，不强制容器化。
+# 本地依赖：MySQL + Redis + Qdrant + OnlyOffice + Whisper ASR。
+# 对话归档 Worker 用 poetry 起，不强制容器化。
 #
 # 宿主机端口刻意避开 zhongjiAgent 的 deploy 栈（3306 / 16379 / 6333 / 6334）。
 # 容器内部端口仍用官方默认值。
@@ -76,9 +77,29 @@ services:
       # Windows 可先运行 infra/sync-onlyoffice-fonts.ps1 拷入 onlyoffice-fonts。
       - ./onlyoffice-fonts:/usr/share/fonts/truetype/custom:ro
 
+  # 知识库视频 ASR（OpenAI 兼容 /v1/audio/transcriptions）。
+  # 宿主机 19000 → 容器 9000；API 侧 ASR_API_BASE=http://127.0.0.1:19000/v1
+  whisper:
+    image: hwdsl2/whisper-server:latest
+    container_name: weitai-whisper
+    restart: unless-stopped
+    ports:
+      - "19000:9000"
+    environment:
+      WHISPER_MODEL: base
+      WHISPER_LANGUAGE: zh
+      WHISPER_DEVICE: cpu
+      WHISPER_COMPUTE_TYPE: int8
+      WHISPER_THREADS: "4"
+      # 固定本地开发密钥，避免镜像自动生成导致 API 对不上
+      WHISPER_API_KEY: weitai-dev-whisper
+    volumes:
+      - whisper_data:/var/lib/whisper
+
 volumes:
   mysql_data:
   redis_data:
   qdrant_data:
   onlyoffice_data:
   onlyoffice_logs:
+  whisper_data:

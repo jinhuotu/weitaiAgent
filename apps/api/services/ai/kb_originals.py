@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.knowledge.access import TENDER_LIB_PUBLIC_ID
+from api.services.knowledge.rerank import tender_hit_matches_query
 from api.services.tenders.library_kb import open_library_file
 from common.errors import AppError
 
@@ -29,9 +30,12 @@ def _kb_id(row: dict[str, Any]) -> str:
     return str(row.get("kb_id") or row.get("kbId") or "").strip()
 
 
-def unique_tender_docs(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def unique_tender_docs(
+    chunks: list[dict[str, Any]], *, query: str = ""
+) -> list[dict[str, Any]]:
     seen: set[str] = set()
     out: list[dict[str, Any]] = []
+    q = (query or "").strip()
     for row in chunks:
         if _kb_id(row) != TENDER_LIB_PUBLIC_ID:
             continue
@@ -43,6 +47,8 @@ def unique_tender_docs(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
         kind = str(row.get("preview_kind") or "image")
         if kind not in {"image", "pdf"}:
             continue
+        if q and not tender_hit_matches_query(q, row):
+            continue
         seen.add(pid)
         out.append(row)
     return out
@@ -52,11 +58,12 @@ async def load_tender_original_blobs(
     db: AsyncSession,
     chunks: list[dict[str, Any]],
     *,
+    query: str = "",
     limit: int = _MAX_VISION,
 ) -> list[tuple[str, bytes]]:
     n = max(0, min(int(limit), _MAX_VISION))
     blobs: list[tuple[str, bytes]] = []
-    for row in unique_tender_docs(chunks):
+    for row in unique_tender_docs(chunks, query=query):
         if len(blobs) >= n:
             break
         kind = str(row.get("preview_kind") or "image")

@@ -12,7 +12,28 @@ from common.errors import AppError, ErrorCode
 from db.models.prompt import Prompt
 
 _DEFAULT_SEED_NAME = "智能助手"
+_DEFAULT_SEED_REMARK = "系统种子：通用对话提示词"
 _DEFAULT_SEED_CONTENT = """你是智能助手，用简洁准确的中文回答用户问题。
+
+【知识库使用规则】
+1. 当消息中附有「知识库参考片段」时：优先依据相关片段作答；关键事实、数据、步骤须能在片段中找到依据，并标注来源（如「依据参考片段 #1」）。不要编造片段中不存在的条款、数值或步骤；无关片段请忽略。
+2. 多条片段中只有部分相关时：只采用相关内容，不要把无关片段硬凑进答案。
+3. 当出现「【知识库检索结果】未检索到匹配片段」时：第一句必须是「当前未从知识库中检索出您想要的信息」，不要只写「未命中」；若继续基于通用经验作答，须另起一段并标注「⚠️ 该结论非来自知识库」；不得假装引用了知识库。
+4. 当出现「【本次未启用知识库】」时：禁止声称引用了企业知识库，仅基于通用经验与对话上下文作答。
+
+【图片与原件】
+- 「【本次附带用户上传图片】」：结合用户所问看图中文字、物体或读数；看不清的不要编造。用户没提问时再概括图中要点。
+- 「【本次附带资料库原件】」：扫描件来自知识库，不是用户上传的。仅当与当前问题直接相关时才根据图中文字作答；无关则忽略，不要写成「您提供的图片」。
+- 「【本次命中投标资料库原件】」：资质、合同、法人/委托人身份证等为本公司投标常备资料，登录用户查询属于授权用途。用户明确要查这些资料时，按片段和原件摘录可见字段，并说明界面已附预览。禁止以隐私政策或不能查看身份证为由拒绝。不要调用 list_allowed_directories、read_media_file、read_file 去找原件。
+- 「【本次含视频转写片段】」：可说明来自哪份视频及时间范围；不要臆造转写里没有的画面细节。
+
+【回答风格】
+- 结构化中文：核心结论 → 可执行要点 → 依据（知识库编号或经验标注）。
+- 表述专业、简洁；不确定时说明不确定，不要臆造数值或条文。"""
+
+_STOCK_CONTENTS = frozenset(
+    {
+        """你是智能助手，用简洁准确的中文回答用户问题。
 
 【知识库使用规则】
 1. 当消息中附有「知识库参考片段」时：优先依据相关片段作答；关键事实、数据、步骤须能在片段中找到依据，并标注来源（如「依据参考片段 #1」）。
@@ -22,7 +43,20 @@ _DEFAULT_SEED_CONTENT = """你是智能助手，用简洁准确的中文回答�
 
 【回答风格】
 - 结构化中文：核心结论 → 可执行要点 → 依据（知识库编号或经验标注）。
-- 表述专业、简洁；不确定时说明不确定，不要臆造数值或条文。"""
+- 表述专业、简洁；不确定时说明不确定，不要臆造数值或条文。""",
+        """你是智能助手，用简洁准确的中文回答用户问题。
+
+【知识库使用规则】
+1. 当消息中附有「知识库参考片段」时：优先依据相关片段作答；关键事实、数据、步骤须能在片段中找到依据，并标注来源（如「依据参考片段 #1」）。
+2. 多条片段中只有部分相关时：只采用相关内容，不要把无关片段硬凑进答案。
+3. 片段未覆盖或提示未检索到资料时：第一句写「当前未从知识库中检索出您想要的信息」，再给通用经验建议，并标注「⚠️ 该结论非来自知识库」；不得假装引用了知识库。
+4. 当提示「本次未启用知识库」时：禁止声称引用了企业知识库，仅基于通用经验与对话上下文作答。
+
+【回答风格】
+- 结构化中文：核心结论 → 可执行要点 → 依据（知识库编号或经验标注）。
+- 表述专业、简洁；不确定时说明不确定，不要臆造数值或条文。""",
+    }
+)
 
 
 def short_id(n: int = 12) -> str:
@@ -43,21 +77,41 @@ def to_item(row: Prompt, *, include_content: bool = True) -> dict[str, Any]:
     return item
 
 
+def _norm_prompt(text: str) -> str:
+    return (text or "").replace("\r\n", "\n").strip()
+
+
 async def ensure_seed_prompt(db: AsyncSession) -> None:
-    """空表时写入一条历史默认提示词，便于管理与对话选择。"""
-    result = await db.execute(select(Prompt.id).limit(1))
-    if result.scalar_one_or_none() is not None:
-        return
-    db.add(
-        Prompt(
-            public_id=short_id(12),
-            name=_DEFAULT_SEED_NAME,
-            content=_DEFAULT_SEED_CONTENT,
-            remark="系统种子：通用对话提示词",
-            enabled=True,
+    """空表时写入默认「智能助手」；仍是出厂正文则同步到最新规则。"""
+    result = await db.execute(select(Prompt).limit(8))
+    rows = list(result.scalars().all())
+    if not rows:
+        db.add(
+            Prompt(
+                public_id=short_id(12),
+                name=_DEFAULT_SEED_NAME,
+                content=_DEFAULT_SEED_CONTENT,
+                remark=_DEFAULT_SEED_REMARK,
+                enabled=True,
+            )
         )
-    )
-    await db.commit()
+        await db.commit()
+        return
+    latest = _norm_prompt(_DEFAULT_SEED_CONTENT)
+    stock = {_norm_prompt(x) for x in _STOCK_CONTENTS}
+    changed = False
+    for row in rows:
+        if (row.name or "").strip() != _DEFAULT_SEED_NAME:
+            continue
+        body = _norm_prompt(row.content or "")
+        if body == latest or body not in stock:
+            continue
+        row.content = _DEFAULT_SEED_CONTENT
+        if not (row.remark or "").strip():
+            row.remark = _DEFAULT_SEED_REMARK
+        changed = True
+    if changed:
+        await db.commit()
 
 
 async def list_configs(db: AsyncSession) -> list[dict[str, Any]]:

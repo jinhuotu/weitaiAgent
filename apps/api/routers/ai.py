@@ -366,7 +366,9 @@ async def ai_chat(
                     kb_blobs: list[tuple[str, bytes]] = []
                     if chunks:
                         try:
-                            kb_blobs = await load_tender_original_blobs(db, chunks)
+                            kb_blobs = await load_tender_original_blobs(
+                                db, chunks, query=user_text
+                            )
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("tender originals load failed: %s", exc)
                             kb_blobs = []
@@ -399,7 +401,8 @@ async def ai_chat(
                         chunks,
                         base_prompt=base_prompt,
                         use_knowledge=do_rag,
-                        has_images=bool(saved_images or kb_blobs),
+                        has_images=bool(saved_images),
+                        has_kb_images=bool(kb_blobs),
                         kb_ids=kb_ids,
                     )
                     llm_messages: list[dict[str, Any]] = []
