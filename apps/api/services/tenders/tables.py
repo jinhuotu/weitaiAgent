@@ -94,6 +94,10 @@ def quote_role(cell: object) -> str | None:
         return "unit"
     if any(k in n for k in ("工程量", "数量")):
         return "qty"
+    if any(k in n for k in ("成本价", "成本单价", "进货价", "采购价")):
+        return "cost_price"
+    if any(k in n for k in ("指导售价", "销售单价", "报价单价", "投标单价")):
+        return "sell_price"
     if any(k in n for k in ("综合单价", "不含税单价", "参考单价", "市场均价", "均价")) and "区间" not in n:
         return "price"
     if "单价" in n and "区间" not in n:

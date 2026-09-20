@@ -37,6 +37,8 @@ class CatalogItem:
     spec: str
     unit: str
     unit_price: Decimal
+    cost_price: Decimal = Decimal("0")
+    sell_price: Decimal = Decimal("0")
     source: str = ""
     category: str = ""
     scene: str = ""
@@ -72,7 +74,9 @@ def _sheet_items(ws, source: str) -> list[CatalogItem]:
 
 def _header_map(cells: list[object]) -> dict[str, int] | None:
     roles = [quote_role(c) for c in cells]
-    if "name" not in roles or "price" not in roles:
+    if "name" not in roles:
+        return None
+    if "price" not in roles and "cost_price" not in roles and "sell_price" not in roles:
         return None
     mapping: dict[str, int] = {}
     for i, role in enumerate(roles):
@@ -100,8 +104,16 @@ def _row_item(cells: list[object], mapping: dict[str, int], source: str) -> Cata
     spec = _txt(_cell(cells, mapping.get("spec")))
     unit = _txt(_cell(cells, mapping.get("unit"))) or "项"
     price = _q(_cell(cells, mapping.get("price")))
+    cost = _q(_cell(cells, mapping.get("cost_price")))
+    sell = _q(_cell(cells, mapping.get("sell_price")))
+    if price <= 0:
+        price = sell if sell > 0 else cost
     if price <= 0:
         return None
+    if cost <= 0:
+        cost = price
+    if sell <= 0:
+        sell = price
     return CatalogItem(
         name=name,
         spec=spec,
@@ -110,6 +122,8 @@ def _row_item(cells: list[object], mapping: dict[str, int], source: str) -> Cata
         source=source,
         category=_txt(_cell(cells, mapping.get("group"))),
         scene=_txt(_cell(cells, mapping.get("scene"))),
+        cost_price=cost,
+        sell_price=sell,
     )
 
 
@@ -230,6 +244,8 @@ def pick_catalog(
             source=hit.source,
             category=hit.category or rich.category,
             scene=hit.scene or rich.scene,
+            cost_price=hit.cost_price or rich.cost_price,
+            sell_price=hit.sell_price or rich.sell_price,
         )
     return hit, best_s
 

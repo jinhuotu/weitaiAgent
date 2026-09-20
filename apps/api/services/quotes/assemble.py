@@ -46,6 +46,8 @@ def empty_line(**kwargs: Any) -> dict[str, Any]:
         "unit": "项",
         "qty": Decimal("0"),
         "unitPrice": Decimal("0"),
+        "costPrice": Decimal("0"),
+        "sellPrice": Decimal("0"),
         "amount": Decimal("0"),
         "source": "manual",
         "matchName": "",
@@ -156,8 +158,12 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
         if hit is None:
             unmatched += 1
             continue
-        row["unitPrice"] = hit.unit_price
-        row["amount"] = money(_qty(row.get("qty")), hit.unit_price)
+        cost = hit.cost_price if hit.cost_price > 0 else hit.unit_price
+        sell = hit.sell_price if hit.sell_price > 0 else hit.unit_price
+        row["costPrice"] = cost
+        row["sellPrice"] = sell
+        row["unitPrice"] = sell
+        row["amount"] = money(_qty(row.get("qty")), sell)
         row["matchName"] = hit.name
         if hit.spec:
             row["spec"] = hit.spec
@@ -168,7 +174,7 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
         if extra:
             old = str(row.get("note") or "").strip()
             row["note"] = f"{old}；{extra}" if old else extra
-        row["source"] = "catalog" if row.get("source") in {"vision", "rule", ""} else row.get("source")
+        row["source"] = "catalog" if row.get("source") in {"vision", "rule", "boq", ""} else row.get("source")
         if score < 0.7:
             notes.append(f"「{row['name']}」按「{hit.name}」估价，请确认")
     if unmatched:
@@ -183,8 +189,12 @@ def number_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
         item["seq"] = str(i)
         qty = _qty(item.get("qty"))
         price = _qty(item.get("unitPrice"))
+        cost = _qty(item.get("costPrice")) or price
+        sell = _qty(item.get("sellPrice")) or price
         item["qty"] = qty
         item["unitPrice"] = price
+        item["costPrice"] = cost
+        item["sellPrice"] = sell
         item["amount"] = money(qty, price)
         out.append(item)
     return out
@@ -203,6 +213,8 @@ def _dump_line(row: dict[str, Any]) -> dict[str, Any]:
         "unit": str(row.get("unit") or "项"),
         "qty": float(row.get("qty") or 0),
         "unitPrice": float(row.get("unitPrice") or 0),
+        "costPrice": float(row.get("costPrice") or 0),
+        "sellPrice": float(row.get("sellPrice") or 0),
         "amount": float(row.get("amount") or 0),
         "source": str(row.get("source") or "manual"),
         "matchName": str(row.get("matchName") or ""),

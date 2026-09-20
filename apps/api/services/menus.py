@@ -28,7 +28,9 @@ ALL_MENUS: tuple[str, ...] = (
     "/tenders",
     "/tender-qa",
     "/tender-library",
+    "/quotes-cost",
     "/quotes",
+    "/quotes-budget",
     "/prompt-manage",
     "/mcp-manage",
     "/scene-agents",
@@ -44,9 +46,26 @@ BUSINESS_MENUS: tuple[str, ...] = tuple(h for h in ALL_MENUS if h not in ADMIN_O
 DEFAULT_NEW_ROLE_MENUS: tuple[str, ...] = ("/", "/ai-chat")
 
 SEED_ROLE_MENUS: dict[str, tuple[str, ...]] = {
-    "operator": ("/", "/ai-chat", "/work-tasks", "/tenders", "/tender-qa", "/quotes"),
+    "operator": (
+        "/",
+        "/ai-chat",
+        "/work-tasks",
+        "/tenders",
+        "/tender-qa",
+        "/quotes",
+    ),
     "auditor": ("/", "/ai-chat", "/tender-tasks", "/tender-qa", "/approval"),
 }
+
+_QUOTE_FAMILY = ("/quotes", "/quotes-cost", "/quotes-budget")
+
+
+def expand_quote_family(menus: list[str]) -> list[str]:
+    if not any(h in menus for h in _QUOTE_FAMILY):
+        return menus
+    merged = set(menus)
+    merged.update(_QUOTE_FAMILY)
+    return _sort_menus(merged)
 
 
 def user_is_admin(user: User) -> bool:
@@ -102,7 +121,7 @@ def resolve_menus(user: User) -> list[str]:
     allowed -= ADMIN_ONLY_MENUS
     if not allowed:
         return ["/"]
-    return _sort_menus(allowed)
+    return expand_quote_family(_sort_menus(allowed))
 
 
 def can_access_menu(user: User, href: str) -> bool:
