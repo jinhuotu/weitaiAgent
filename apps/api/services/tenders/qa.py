@@ -337,6 +337,28 @@ def rule_inspect(
                     )
                 )
 
+    if vol != "technical":
+        from api.services.tenders.performance import performance_match_issues
+
+        for msg in performance_match_issues(brief.performanceLines, brief.performanceRequirement):
+            gaps.append(
+                _gap(
+                    "类似业绩",
+                    msg,
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+        if "合同首页" in (bid_text or "") and "在此粘贴扫描件" in (bid_text or ""):
+            gaps.append(
+                _gap(
+                    "业绩合同扫描件",
+                    "类似业绩合同首页/金额页/签字页有缺页占位",
+                    severity=SEVERITY_DEDUCT,
+                    category="qualification",
+                )
+            )
+
     tech_found = tech_total = 0
     if vol != "business":
         has_tech_outline = any(
@@ -443,7 +465,7 @@ def rule_inspect(
                 category="format",
             )
         )
-    if fmt.coverShowCopyMark:
+    if fmt.specified and fmt.coverShowCopyMark:
         mark = (fmt.coverCopyMark or "正本").strip()
         if mark and not title_in_text(blob, mark, min_len=2):
             gaps.append(

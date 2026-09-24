@@ -4,13 +4,20 @@ from __future__ import annotations
 
 from api.services.tenders.categories import is_volume_label, item_volume
 from api.services.tenders.outline import (
+    bid_item_title,
     classify_kind,
     compact_title,
     dedupe_outline_items,
     extract_outline,
+    ensure_biz_essentials,
+    is_noise_title,
+    is_outline_junk,
     is_seal_register,
     items_for_volume,
     source_for_kind,
+    split_mashed_zhi_line,
+    unfold_form_sign_lines,
+    unmash_invitation_text,
 )
 from api.services.tenders.schema import BidBrief, OutlineItem
 
@@ -37,6 +44,12 @@ def test_classify_kind_rules() -> None:
     assert classify_kind("企业业绩") == "performance"
     assert classify_kind("原厂生产承诺") == "factory"
     assert classify_kind("技术标（实施方案）") == "tech_plan"
+    assert classify_kind("响应方案") == "tech_plan"
+    assert classify_kind("技术标准和要求") != "tech_plan"
+    assert classify_kind("合同条款响应书") == "commitment_copy"
+    assert classify_kind("商务和技术偏差表") == "tech_dev"
+    assert classify_kind("分项报价表说明") == "unknown"
+    assert classify_kind("分项报价表单位：人民币元序号") == "unknown"
     assert classify_kind("商务标") == "unknown"
     assert is_volume_label("商务标")
     assert is_volume_label("技术标")
@@ -46,8 +59,14 @@ def test_classify_kind_rules() -> None:
     assert classify_kind("企业资质") == "scan"
     assert classify_kind("企业资质文件") == "scan"
     assert classify_kind("直接采购文件税务信息表") == "company"
-    assert classify_kind("无意义标题甲乙丙") == "unknown"
+    assert classify_kind("报价单模板") == "quote"
+    assert classify_kind("招标产品功能需求清单及说明") == "unknown"
+    assert classify_kind("无单位和法定代表人的印鉴") == "unknown"
+    assert is_outline_junk(title="无单位和法定代表人的印鉴")
+    assert is_noise_title("无单位和法定代表人的印鉴")
+    assert not is_outline_junk(title="印鉴预留备案表")
     assert source_for_kind("letter") == "generate"
+    assert source_for_kind("unknown") == "copy"
     assert source_for_kind("commitment_copy") == "copy"
     assert source_for_kind("letter", skipped=True) == "skip"
 
@@ -76,6 +95,9 @@ def test_extract_auth_need_and_default_skip() -> None:
 
     personally = "法定代表人亲自投标的，可不提供授权委托书。"
     assert extract_auth_need(personally, items) == "optional"
+
+    submit = "投标文件须由委托代理人递交，开标时授权代表应出席。"
+    assert extract_auth_need(submit, items) == "required"
 
 
 def test_extract_outline_drops_unknown_titles() -> None:
@@ -147,8 +169,9 @@ def test_extract_response_file_format_chapter() -> None:
     assert kinds["商务条款偏离表"] == "biz_dev"
     assert kinds["技术规范书偏离表"] == "tech_dev"
     assert kinds["知识产权不侵权承诺函"] == "commitment_copy"
-    assert kinds["报价表"] == "quote"
-    assert kinds["报价清单"] == "quote"
+    quotes = [item for item in items if item.kind == "quote"]
+    assert len(quotes) == 1
+    assert quotes[0].title in {"报价表", "报价清单", "报价单"}
     assert "合同条款" not in kinds
 
 
@@ -211,6 +234,35 @@ def test_drops_template_fields_and_eligibility_clauses() -> None:
     assert "印件备案表" not in titles
 
 
+def test_extract_drops_invite_bond_rules_and_invalid_seal_clause() -> None:
+    text = """
+第四部分 投标文件格式
+投标承诺函
+二、投标保证金：2 万元
+三、投标保证金 - 公司户汇款账号
+九、评标结束后 10 个工作日内退还投标保证金
+5.1 无单位和法定代表人（或法定委托代理人）的印鉴
+法定代表人身份证明
+报价单模板
+第五部分 评标办法
+"""
+    _chapter, items = extract_outline(text)
+    titles = [item.title for item in items]
+    blob = compact_title("".join(titles))
+    assert "2万元" not in blob and "2万" not in blob
+    assert "账号" not in blob
+    assert "评标结束" not in blob
+    assert "退还" not in blob
+    assert "无单位" not in blob
+    assert any("承诺函" in t for t in titles)
+    assert any("身份证明" in t for t in titles)
+    assert classify_kind("投标保证金") == "scan"
+    assert classify_kind("投标保证金：2 万元") == "unknown"
+    assert is_outline_junk(title="投标保证金 - 公司户汇款账号")
+    assert is_outline_junk(title="评标结束后10个工作日内退还投标保证金")
+    assert is_outline_junk(title="无单位和法定代表人（或法定委托代理人）的印鉴")
+
+
 def test_dedupe_keeps_one_seal_register() -> None:
     from api.services.tenders.schema import OutlineItem
 
@@ -230,6 +282,43 @@ def test_dedupe_keeps_one_seal_register() -> None:
     assert "资格要求" not in joined
     assert "民事责任" not in joined
     assert "经营场所" not in joined
+
+
+def test_dedupe_keeps_one_quote_form() -> None:
+    items = [
+        OutlineItem(
+            id="o01",
+            title="本次招标方案按照软件总体报价，实施费分项报价形式；甲方按照需求分期签订实施合同",
+            kind="quote",
+            source="generate",
+        ),
+        OutlineItem(
+            id="o02",
+            title="投标报价表(产品、实施、开发对接、服务、硬件服务器方案分项报价)及报价说明",
+            kind="quote",
+            source="generate",
+        ),
+        OutlineItem(
+            id="o03",
+            title="报价单",
+            kind="quote",
+            source="generate",
+        ),
+        OutlineItem(
+            id="o04",
+            title="报价单模板",
+            kind="quote",
+            source="copy",
+            body="序号 | 项目内容 | 金额(元) | 备注\n1 | MOM平台总费用 |  |\n",
+        ),
+    ]
+    out = [item for item in items if not is_outline_junk(item)]
+    out = dedupe_outline_items(out)
+    quotes = [item for item in out if item.kind == "quote"]
+    assert len(quotes) == 1
+    assert quotes[0].title in {"报价单", "报价单模板", "投标报价单"}
+    assert "MOM平台总费用" in (quotes[0].body or "")
+    assert not any("按照软件总体报价" in (item.title or "") for item in out)
 
 
 def test_extract_drops_mashed_biz_dev_form_header() -> None:
@@ -481,6 +570,29 @@ def test_attach_bodies_from_last_format_chapter_not_toc() -> None:
     assert "三处备案印鉴为红色章" in seal.body or "印鉴备案" in seal.body or "公章" in seal.body
 
 
+def test_extract_fu_yi_commitment_keeps_invitation_clauses() -> None:
+    text = """
+第五章 投标文件格式
+附一：投标承诺函模板
+投标承诺函
+致：河南鑫宇光科技股份有限公司
+1、我方已详细研究了招标文件的所有内容，包括修正文（如果有）和所有已提供的参考资料以及有关附件，并完全明白，我方放弃在此方面提出含糊意见或误解的一切权利。
+2、我方承诺投标文件夹中的一切资料、数据是真实的，并承担由此引起的一切后果和相应法律责任。
+3、我方明白并同意若我方在投标有效期之内撤回投标，则投标保证金将被贵方没收。
+4、我方理解贵方不一定接受最低标价或任何贵方可能收到的投标。
+5、我方如果中标，将保证履行招标文件以及招标文件修改书中的全部责任和义务。
+投标人(盖公章)：
+日期： 年 月 日
+第六章 合同条款
+"""
+    _chapter, items = extract_outline(text)
+    commit = next(item for item in items if item.kind == "commitment_copy")
+    assert "详细研究了招标文件" in commit.body
+    assert "资料、数据是真实的" in commit.body
+    assert "保证投标文件无虚假内容" not in commit.body
+    assert "不采取停工、上访" not in commit.body
+
+
 def test_items_for_volume_splits_and_drops_labels() -> None:
     brief = BidBrief(
         layoutMode="outline",
@@ -506,3 +618,266 @@ def test_items_for_volume_splits_and_drops_labels() -> None:
     assert "tech_dev" in tech_kinds
     assert "tech_plan" in tech_kinds
     assert not any(is_volume_label(item.title) for item in biz + tech)
+
+
+def test_extract_keeps_requirement_list_and_quote_template() -> None:
+    text = """
+第五章 投标文件格式
+附一：投标承诺函模板
+投标承诺函
+致：河南鑫宇光科技股份有限公司
+1、我方已详细研究了招标文件的所有内容。
+2、我方承诺投标文件夹中的一切资料、数据是真实的。
+投标人(盖公章)：
+日期： 年 月 日
+附二：招标产品功能需求清单及说明
+一、MOM生产运营管理平台：
+设备数采 1.多类型数据采集；2数据传输与存储功能
+TPM系统 1.设备档案管理
+附三：报价单模板
+项目总报价：
+序号 项目内容 金额(元) 备注
+1 MOM平台总费用
+2 总实施费用
+3 年度服务费
+4 合计
+（1）数采报价
+序号 项目内容 金额(元) 备注
+1 软件费用
+2 实施费用
+3 合计(1+2)
+（6）实施费用分项明细
+第六章 合同条款
+"""
+    chapter, items = extract_outline(text)
+    assert "投标文件格式" in chapter
+    by = {item.title: item for item in items}
+    assert "招标产品功能需求清单及说明" in by
+    assert by["招标产品功能需求清单及说明"].kind == "unknown"
+    assert by["招标产品功能需求清单及说明"].source == "copy"
+    assert "设备数采" in (by["招标产品功能需求清单及说明"].body or "")
+    assert "印鉴预留备案表" not in by
+    quote = next(item for item in items if item.kind == "quote")
+    assert "报价单" in quote.title
+    assert quote.source == "copy"
+    assert "MOM平台总费用" in (quote.body or "")
+    assert "软件费用" in (quote.body or "")
+    commit = next(item for item in items if item.kind == "commitment_copy")
+    assert "详细研究了招标文件" in (commit.body or "")
+    assert "MOM平台总费用" not in (commit.body or "")
+    assert "设备数采" not in (commit.body or "")
+
+
+def test_items_for_volume_outline_fills_biz_essentials() -> None:
+    brief = BidBrief(
+        layoutMode="outline",
+        outlineItems=[
+            OutlineItem(id="a", title="投标承诺函", kind="commitment_copy"),
+            OutlineItem(id="b", title="招标产品功能需求清单及说明", kind="unknown"),
+            OutlineItem(id="c", title="报价单模板", kind="quote"),
+        ],
+    )
+    biz = items_for_volume(brief, "business")
+    kinds = [item.kind for item in biz]
+    titles = [item.title for item in biz]
+    assert "letter" in kinds
+    assert biz[0].kind == "letter"
+    assert "legal_id" in kinds
+    assert "biz_dev" in kinds
+    assert "scan" in kinds
+    assert any("营业执照" in t for t in titles)
+    assert any("保证金" in t for t in titles)
+    assert any("无违法" in t for t in titles)
+    assert "quote" in kinds
+    assert "commitment_copy" in kinds
+    assert "unknown" in kinds
+    assert "印鉴预留备案表" not in titles
+    tech = items_for_volume(brief, "technical")
+    assert not any(item.kind == "tech_dev" for item in tech)
+    assert not any(item.kind == "tech_plan" for item in tech)
+
+
+def test_ensure_biz_essentials_keeps_invitation_letter() -> None:
+    items = [
+        OutlineItem(id="o1", title="投标函", kind="letter", source="copy", body="致：甲方\n我方确认收到招标文件"),
+        OutlineItem(id="o2", title="报价单", kind="quote", source="copy", body="序号 | 项目内容 |\n1 | MOM |"),
+    ]
+    out = ensure_biz_essentials(items)
+    letter = next(item for item in out if item.kind == "letter")
+    assert out[0].kind == "letter"
+    assert "我方确认收到招标文件" in (letter.body or "")
+    assert any(item.kind == "biz_dev" for item in out)
+    assert any("营业执照" in item.title for item in out)
+    assert any("无违法" in item.title for item in out)
+
+
+def test_ensure_biz_essentials_pins_letter_first() -> None:
+    items = [
+        OutlineItem(id="o1", title="授权委托书", kind="auth"),
+        OutlineItem(id="o2", title="投标函附录", kind="letter"),
+        OutlineItem(id="o3", title="投标函", kind="letter", body="致：甲方"),
+        OutlineItem(id="o4", title="报价单", kind="quote"),
+    ]
+    out = ensure_biz_essentials(items)
+    assert out[0].kind == "letter"
+    assert "附录" not in (out[0].title or "")
+    assert out[1].kind == "letter"
+    assert "附录" in (out[1].title or "")
+    kinds = [item.kind for item in out]
+    assert kinds.index("auth") < kinds.index("quote")
+
+
+def test_ensure_biz_essentials_orders_business_pack() -> None:
+    items = [
+        OutlineItem(id="q", title="报价单", kind="quote"),
+        OutlineItem(id="d", title="商务偏离表", kind="biz_dev"),
+        OutlineItem(id="c", title="投标承诺函", kind="commitment_copy"),
+        OutlineItem(id="p", title="类似项目业绩", kind="performance"),
+        OutlineItem(id="a", title="授权委托书", kind="auth"),
+        OutlineItem(id="l", title="法定代表人身份证明", kind="legal_id"),
+        OutlineItem(id="s", title="营业执照", kind="scan"),
+        OutlineItem(id="x", title="无单位和法定代表人的印鉴", kind="company"),
+    ]
+    out = ensure_biz_essentials(items)
+    titles = [item.title for item in out]
+    assert not any("无单位" in t and "印鉴" in t for t in titles)
+    kinds = [item.kind for item in out]
+    assert kinds[0] == "letter"
+    assert kinds.index("commitment_copy") < kinds.index("legal_id") < kinds.index("auth")
+    assert kinds.index("auth") < kinds.index("scan")
+    assert kinds.index("scan") < kinds.index("performance") < kinds.index("quote") < kinds.index("biz_dev")
+
+
+def test_extract_drops_disqualify_seal_clause() -> None:
+    text = """
+第四部分 投标文件格式
+投标承诺函
+无单位和法定代表人的印鉴
+法定代表人身份证明
+授权委托书
+报价单模板
+商务偏离表
+第五部分 评标办法
+"""
+    _chapter, items = extract_outline(text)
+    titles = [item.title for item in items]
+    assert not any("无单位" in t and "印鉴" in t for t in titles)
+    assert any("承诺函" in t for t in titles)
+    assert any("身份证明" in t for t in titles)
+
+
+def test_extract_skips_instruction_and_quote_debris() -> None:
+    text = """
+第五章 响应文件格式
+供应商名称：与营业执照、资质证书一
+技术标准和要求：满足第四章“技术标准及要求”规定，按照响应文件格式提供详细的技术文件
+B.有效的企业营业执照、企业资质证书
+二、合同条款响应书
+三、商务和技术偏差表
+四、响应方案
+五、分项报价表
+1. 分项报价表说明
+2. 分项报价表单位：人民币元
+序号 分项名称 单位 数量 单价（元） 总价（元） 备注
+第六章 合同条款
+"""
+    _chapter, items = extract_outline(text)
+    titles = [item.title for item in items]
+    assert any("合同条款响应书" in t for t in titles)
+    assert "分项报价表" in titles
+    assert sum(1 for t in titles if "分项报价" in t) == 1
+    assert not any("供应商名称" in t for t in titles)
+    assert not any("技术标准" in t for t in titles)
+    assert not any("人民币元" in t for t in titles)
+    assert not any("报价表说明" in t for t in titles)
+    assert not any("有效的企业营业执照" in t for t in titles)
+    kinds = {item.title: item.kind for item in items}
+    assert kinds.get("响应方案") == "tech_plan"
+    quote = next(item for item in items if item.kind == "quote")
+    assert "分项名称" in (quote.body or "")
+
+
+def test_fill_copy_blanks_does_not_glue_date_into_section() -> None:
+    from api.services.tenders.outline import fill_copy_blanks
+
+    text = "日期： 年 月 日四、响应方案供应商参见询价采购文件"
+    out = fill_copy_blanks(
+        text,
+        bidder="河南伟泰光电科技有限公司",
+        project="数智化运营管理系统",
+        tenderer="甲方",
+        legal="",
+        bid_date="2026-09-22",
+    )
+    assert "2026年09月22日四、" not in out.replace(" ", "")
+    assert "四、响应方案" in out
+
+
+def test_bid_item_title_strips_invite_attach_and_template() -> None:
+    assert bid_item_title("附一：投标承诺函模板") == "投标承诺函"
+    assert bid_item_title("附二：招标产品功能需求清单及说明") == "招标产品功能需求清单及说明"
+    assert bid_item_title("报价单模板") == "报价单"
+    assert bid_item_title("投标函（附件一）") == "投标函（附件一）"
+
+
+def test_unmash_splits_quote_caption_from_header() -> None:
+    out = unmash_invitation_text("（1）数采报价序号 | 项目内容 | 金额(元) | 备注")
+    assert "（1）数采报价" in out
+    assert out.splitlines()[1].startswith("序号 |")
+
+
+def test_split_mashed_zhi_keeps_company_only_on_salute() -> None:
+    parts = split_mashed_zhi_line(
+        "致：河南鑫宇光科技股份有限公司我方确认收到贵方提供的招标文件，并重申以下几点："
+    )
+    assert parts[0] == "致：河南鑫宇光科技股份有限公司"
+    assert parts[1].startswith("我方确认收到")
+
+
+def test_unfold_sign_lines_keeps_pipe_table_row() -> None:
+    row = (
+        "TPM系统 | 1.设备档案管理； | 基础信息：设备编号、采购日期、单价；"
+        "备件采购单价、供应商，备件出入库登记；录入供应商、校准周期。"
+    )
+    assert unfold_form_sign_lines(row) == row
+
+
+def test_extract_mashed_fu_attach_keeps_letter_and_tables() -> None:
+    text = """
+鑫宇科技《MOM生产运营管理平台》项目招标文件
+十一、附件附一、投标承诺函模板。
+附二、招标产品功能需求清单及说明。
+附三、报价单模板。
+河南鑫宇光科技股份有限公司
+2026年3月13日附一：投标承诺函模板投标承诺函致： 河南鑫宇光科技股份有限公司我方确认收到贵方提供的招标文件，并重申以下几点：
+1、我方已详细研究了招标文件的所有内容，包括修正文(如果有)和所有已提供的参考资料以及有关附件。
+2、我方承诺投标文件夹中的一切资料、数据是真实的。
+投标人(盖公章)：
+日期：     年月日附二：招标产品功能需求清单及说明一、MOM生产运营管理平台：
+MOM | 设备数采 | 1.多类型数据采集；2.数据传输与存储功能；
+MOM | TPM系统 | 1.设备档案管理；2. 设备台账与库存管理；
+ | 硬件 | 单独报价，不记录在总价中。
+二、重点需求明细包括（但不限于）：
+模块 | 建设要求 | 实现目标数据采集 | 1.多类型数据采集； | 数据采集的基础，针对设备的运行状态。
+TPM系统 | 1.设备档案管理； | 设备档案管理系统的数据基础。
+附三：报价单模板
+项目总报价：
+序号 | 项目内容 | 金额(元) | 备注
+1 | MOM平台总费用 |  |
+2 | 总实施费用 |  |
+"""
+    chapter, items = extract_outline(text)
+    commit = next(item for item in items if item.kind == "commitment_copy")
+    assert "详细研究了招标文件" in (commit.body or "")
+    assert "资料、数据是真实的" in (commit.body or "")
+    assert "MOM平台总费用" not in (commit.body or "")
+    req = next(item for item in items if "功能需求" in item.title)
+    assert "设备数采" in (req.body or "")
+    assert "硬件" in (req.body or "")
+    assert "重点需求明细" in (req.body or "")
+    assert "数据采集的基础" in (req.body or "")
+    quote = next(item for item in items if item.kind == "quote")
+    assert "MOM平台总费用" in (quote.body or "")
+    assert "设备数采" not in (quote.body or "")
+
+

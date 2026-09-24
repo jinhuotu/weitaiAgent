@@ -106,7 +106,7 @@ requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提
 missingMaterials（对象数组，每项 title/reason，仅当资料库完全没有同类项、邀请书额外要求时才填。不要因标题更长就新建；不要填其他项目的文件名；程序会建空项等用户上传）,
 deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术要求，禁止写死 7kW/30kW 充电桩套话。无条款则 []）,
 performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
-performanceRequirement（对象或 null：邀请书对类似业绩的资格门槛。字段 similarScope, minAmountYuan 单份最低金额元, minCount 至少几个, requireCompleted 是否须已竣工, keywords 字符串数组, note 原文短摘。邀请书没写则 null，禁止套用充电桩 20 万默认值）,
+performanceRequirement（对象或 null：仅当资格/业绩条款写明类似项目门槛时填写。字段 similarScope, minAmountYuan, minCount, requireCompleted, keywords, note。keywords 只取业绩条款里的行业词，禁止把建设范围里的 MES/MOM/WMS 模块名当成业绩门槛。邀请书没写则 null，禁止套用充电桩或 MES 默认值）,
 constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填；实施方案改为图纸+文字，由经办人上传）,
 techPlanNote（中文字符串：仅当邀请书提出施工、布置、配电、运维或工期要求时，用两三句话概括伟泰拟响应的要点；没有则空字符串，禁止编造图纸、桩位和台数）,
 factoryRole（字符串：如 充电设备生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
@@ -488,6 +488,7 @@ async def parse_invitation(
         choose_layout_mode,
         extract_auth_need,
         extract_outline,
+        ensure_biz_essentials,
     )
     from api.services.tenders.performance import (
         extract_performance_requirement,
@@ -505,6 +506,13 @@ async def parse_invitation(
         auth_need=brief.authNeed,
     )
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
+    if (brief.layoutMode or "").strip() == "outline":
+        outline_items = ensure_biz_essentials(outline_items)
+        outline_items = apply_auth_outline(
+            outline_items,
+            has_agent=has_agent,
+            auth_need=brief.authNeed,
+        )
     brief.outlineChapter = chapter
     brief.outlineItems = outline_items
     brief.documentFormat = extract_document_format(invitation)
@@ -519,7 +527,7 @@ async def parse_invitation(
     brief.extraPlaceholders = extras
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
-    brief.includePlaceholders = True
+    brief.includePlaceholders = False
 
     quote_note, brief, quote_filled = _merge_quote(
         brief,

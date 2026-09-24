@@ -706,9 +706,9 @@ def test_extra_placeholder_box(tmp_path) -> None:
 
     doc = Document(str(path))
     text = "\n".join(p.text for p in doc.paragraphs)
-    assert "ISO体系证书" in text
+    assert "ISO体系证书" not in text
+    assert "附件：资料库扫描件" not in text
     assert "（一）法定代表人身份证正反面" not in text
-    assert any("虚线框" in w or "已处理" in w or "占位" in w for w in warnings)
 
 
 def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
@@ -739,7 +739,7 @@ def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
 
     doc = Document(str(path))
     texts = [p.text or "" for p in doc.paragraphs]
-    assert any("附件：资料库扫描件" in t for t in texts)
+    assert not any("附件：资料库扫描件" in t for t in texts)
     assert not any("（一）法定代表人身份证正反面" in t for t in texts)
     legal_i = next(i for i, t in enumerate(texts) if t.strip() == "法定代表人身份证明")
     legal_sign_i = next(
@@ -925,8 +925,9 @@ def test_collect_slots_status_keys() -> None:
     assert "bond" in keys
 
     lib = library_payload()
-    assert lib["totalCount"] == 8
-    assert len(lib["slots"]) == 8
+    assert lib["totalCount"] == len(lib["slots"])
+    assert lib["totalCount"] >= 11
+    assert {s["key"] for s in lib["slots"]} >= {"license", "bank_permit", "iso", "perf"}
     assert all(s.get("title") for s in lib["slots"])
     assert "常备" in str(lib.get("hint") or "") or "扫描" in str(lib.get("hint") or "")
 
@@ -1237,6 +1238,16 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     assert "委托代理人（招标书要求授权委托）" in _brief_generate_issues(
         BidBrief(projectName="x", authNeed="required")
     )
+    assert "代理人身份证号" in _brief_generate_issues(BidBrief(projectName="x", authNeed="required"))
+    from api.services.tenders.schema import PerformanceRequirement
+
+    perf_issues = _brief_generate_issues(
+        BidBrief(
+            projectName="x",
+            performanceRequirement=PerformanceRequirement(keywords=["MES"], minCount=3),
+        )
+    )
+    assert any("类似业绩" in x for x in perf_issues)
     missing = _missing_required_titles(["id_legal"], slots, {})
     assert missing == ["法定代表人身份证正反面"]
     notes = _missing_slot_warnings(missing)
@@ -1361,8 +1372,10 @@ def test_find_catalog_item_does_not_borrow_other_slot() -> None:
     assert find_catalog_item(catalog, title="安全生产许可证") is None
     hit = find_catalog_item(catalog, title="法定代表人身份证")
     assert hit is not None and hit.key == "id_legal"
-    borrowed = find_catalog_item(catalog, key="id_legal", title="类似项目合同")
-    assert borrowed is not None and borrowed.key == "id_legal"
+    borrowed = find_catalog_item(catalog, key="id_legal", title="营业执照")
+    assert borrowed is None
+    remapped = find_catalog_item(catalog, key="id_legal", title="类似项目合同")
+    assert remapped is not None and remapped.key == "perf"
 
 
 def test_find_catalog_item_maps_credit_screenshot_aliases() -> None:
@@ -1426,10 +1439,10 @@ def test_find_catalog_item_maps_default_slot_aliases() -> None:
     assert key_of("型式试验报告") == "product"
     assert key_of("3C认证证书") == "product"
     assert key_of("投标承诺书") == "commit"
-    assert key_of("ISO9001质量管理体系认证证书") == "iso_cert"
+    assert key_of("ISO9001质量管理体系认证证书") in {"iso", "iso_cert"}
     assert key_of("企业法人营业执照副本") == "license"
     assert key_of("法定代表人身份证明") == ""
-    assert key_of("基本账户开户许可证") == ""
+    assert key_of("基本账户开户许可证") == "bank_permit"
     mapped, missing = split_invitation_materials(
         {
             "missingMaterials": [
@@ -1702,8 +1715,7 @@ def test_performance_extract_skips_screenshot_name() -> None:
         allow_client_title=True,
     )
     assert line is not None
-    assert line.projectName == "某供电公司充电桩供货合同"
-    assert line.chargerRelated
+    assert line.projectName == "某供电公司项目合同"
 
 
 def test_rank_performance_prefers_completed_charger() -> None:
@@ -1720,8 +1732,8 @@ def test_rank_performance_prefers_completed_charger() -> None:
     )
     assert [item.projectName for item in ranked] == [
         "已完成充电桩大额",
-        "已完成充电桩",
         "已完成电缆工程",
+        "已完成充电桩",
         "在建充电桩",
     ]
 

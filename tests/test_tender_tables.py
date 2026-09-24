@@ -18,6 +18,8 @@ def test_quote_role_reads_module_columns() -> None:
     assert quote_role("系统名称") == "group"
     assert quote_role("子系统") == "group"
     assert quote_role("功能模块") == "name"
+    assert quote_role("分项名称") == "name"
+    assert quote_role("总价（元）") == "amount"
     assert quote_role("单价（元）") == "price"
     assert quote_role("合价（元）") == "amount"
     assert quote_role("设备") == "name"
@@ -126,3 +128,13 @@ def test_outline_extract_keeps_quote_body_with_headers() -> None:
     by_title = {item.title: item for item in items}
     assert "系统名称" in by_title["报价表"].body
     assert "招标文件规定" in by_title["技术规范书偏离表"].body
+
+
+def test_extract_quote_headers_from_fenxiang_line() -> None:
+    layout = extract_quote_headers(
+        "2. 分项报价表单位：人民币元序号 分项名称 单位 数量 单价（元） 总价（元） 备注"
+    )
+    assert layout is not None
+    assert "分项名称" in layout.titles
+    assert "设备" not in layout.titles
+    assert "总价" in "".join(layout.titles)

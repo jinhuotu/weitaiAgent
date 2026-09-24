@@ -102,7 +102,7 @@ def quote_role(cell: object) -> str | None:
         return "price"
     if "单价" in n and "区间" not in n:
         return "price"
-    if "合价" in n or (n in {"金额"} or n.endswith("金额")):
+    if "合价" in n or "总价" in n or n in {"金额"} or n.endswith("金额"):
         return "amount"
     if any(k in n for k in ("功能模块", "模块名称")) or n == "模块":
         return "name"
@@ -120,6 +120,8 @@ def quote_role(cell: object) -> str | None:
             "产品名称",
             "产品型号",
             "项目名称",
+            "项目内容",
+            "分项名称",
             "货物名称",
             "物料名称",
             "品名",
@@ -129,6 +131,8 @@ def quote_role(cell: object) -> str | None:
         return "name"
     if n in {"设备", "名称", "项目", "货物", "物料"}:
         return "name"
+    if n in {"备注", "说明"} or n.endswith("备注"):
+        return "extra"
     return None
 
 
@@ -329,4 +333,79 @@ def _iter_header_rows(text: str) -> list[list[str]]:
             parts = [part.strip() for part in line.split("\t") if part.strip()]
             if len(parts) >= 3:
                 rows.append(parts)
+                continue
+        cells = split_quote_header_line(line)
+        if cells and len(cells) >= 3:
+            rows.append(cells)
     return rows
+
+
+_QUOTE_HEAD_MARKS = (
+    "不含税综合单价",
+    "不含税单价",
+    "规格型号",
+    "分项名称",
+    "项目内容",
+    "项目名称",
+    "功能模块",
+    "系统名称",
+    "序号",
+    "名称",
+    "单位",
+    "数量",
+    "单价",
+    "总价",
+    "合价",
+    "金额",
+    "备注",
+)
+
+
+def split_quote_header_line(line: str) -> list[str] | None:
+    raw = (line or "").strip()
+    if not raw:
+        return None
+    raw = re.sub(r"^[\d.．、]+\s*", "", raw)
+    n = compact_header(raw)
+    n = re.sub(r"^[\d.．、]*分项报价表(?:说明|单位)?人民币元?", "", n)
+    if raw.count("|") >= 2:
+        cells = [c.strip() for c in raw.strip("|").split("|")]
+        return cells if _quote_header_ok(cells) else None
+    parts = [p.strip() for p in re.split(r"[\t]| {2,}", raw) if p.strip()]
+    if len(parts) >= 3 and _quote_header_ok(parts):
+        return parts
+    if "序号" not in n:
+        return None
+    hits: list[str] = []
+    i = 0
+    keys = sorted(_QUOTE_HEAD_MARKS, key=len, reverse=True)
+    while i < len(n):
+        matched = next((k for k in keys if n.startswith(k, i)), None)
+        if matched:
+            if matched == "序号" and i > 0 and n[i - 1] in "元币位":
+                i += 1
+                continue
+            extra = ""
+            j = i + len(matched)
+            if j < len(n) and n[j] in "（(":
+                close = n.find("）", j)
+                if close < 0:
+                    close = n.find(")", j)
+                if close >= 0:
+                    extra = n[j : close + 1]
+                    j = close + 1
+            hits.append(matched + extra)
+            i = j
+            continue
+        i += 1
+    return hits if _quote_header_ok(hits) else None
+
+
+def _quote_header_ok(cells: list[str]) -> bool:
+    blob = compact_header("".join(cells))
+    if "序号" not in blob:
+        return False
+    return any(
+        k in blob
+        for k in ("项目内容", "项目名称", "分项名称", "金额", "单价", "合价", "总价", "名称", "备注", "功能模块")
+    )

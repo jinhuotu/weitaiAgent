@@ -1,4 +1,4 @@
-"""类似业绩：上传时 OCR/抽取合同关键字段，生成时优先已竣工充电桩项目。"""
+"""类似业绩：上传时 OCR/抽取合同关键字段，按本标招标门槛筛选。"""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ def performance_from_dict(
     if is_weak_title(name):
         name = ""
     if not name and client and allow_client_title:
-        name = f"{client}充电桩供货合同"[:255]
+        name = f"{client}项目合同"[:255]
     if not name:
         return None
     amount = _amount_from_value(item.get("amountYuan") or item.get("amount"))
@@ -150,7 +150,7 @@ def fallback_from_text(text: str, filename: str) -> PerformanceLine | None:
     if is_weak_title(project):
         project = ""
     if not project and client:
-        project = f"{client}充电桩供货合同"
+        project = f"{client}项目合同"
     if not project:
         return None
     ongoing = any(mark in blob for mark in _ONGOING_MARK) and not any(mark in blob for mark in _DONE_MARK)
@@ -178,15 +178,14 @@ def rank_performance_lines(
     lines: list[PerformanceLine],
     requirement: PerformanceRequirement | None = None,
 ) -> list[PerformanceLine]:
-    """有招标门槛时符合项在前；否则已竣工充电桩优先，其次其他已完成，再在建。"""
+    """有招标门槛时符合项在前；否则已竣工优先，不再默认充电桩。"""
     usable = [item for item in lines if (item.projectName or "").strip() and not is_weak_title(item.projectName)]
     active = requirement_active(requirement)
 
-    def key(item: PerformanceLine) -> tuple[int, int, int, float]:
+    def key(item: PerformanceLine) -> tuple[int, int, float]:
         matched = 1 if active and match_performance_line(item, requirement).passed else 0
-        charger = 1 if is_charger_line(item) else 0
         done = 0 if item.ongoing else 1
-        return (matched, done, charger, float(item.amountYuan or 0))
+        return (matched, done, float(item.amountYuan or 0))
 
     return sorted(usable, key=key, reverse=True)
 
@@ -232,6 +231,16 @@ _PERF_ANCHOR = re.compile(
     r"近三年.{0,12}(?:业绩|类似)|业绩证明|类似的项目"
 )
 _SCOPE_WORDS = (
+    "MES",
+    "MOM",
+    "WMS",
+    "TPM",
+    "QMS",
+    "数字化工厂",
+    "数智化",
+    "智能制造",
+    "制造执行",
+    "制造运营",
     "充电桩",
     "充电设施",
     "充电机",
@@ -299,6 +308,14 @@ def empty_requirement() -> PerformanceRequirement:
     return PerformanceRequirement()
 
 
+def _word_in(blob: str, word: str) -> bool:
+    if not word or not blob:
+        return False
+    if word in blob:
+        return True
+    return bool(word.isascii() and len(word) >= 2 and word.upper() in blob.upper())
+
+
 def extract_performance_requirement(text: str) -> PerformanceRequirement:
     """从招标/邀请书抽出业绩门槛。找不到则空对象，不套用默认 20 万。"""
     windows = _perf_windows(text)
@@ -307,7 +324,7 @@ def extract_performance_requirement(text: str) -> PerformanceRequirement:
     blob = "".join(windows)
     amount = _amount_from_windows(windows)
     count = _count_from_blob(blob)
-    keywords = [word for word in _SCOPE_WORDS if word in blob]
+    keywords = [word for word in _SCOPE_WORDS if _word_in(blob, word)]
     scopes = []
     for window in windows:
         for match in _SCOPE_PAT.finditer(window):
@@ -317,12 +334,14 @@ def extract_performance_requirement(text: str) -> PerformanceRequirement:
     similar = scopes[0] if scopes else ("、".join(keywords[:3]) if keywords else "")
     if similar:
         for word in _SCOPE_WORDS:
-            if word in similar and word not in keywords:
+            if _word_in(similar, word) and word not in keywords:
                 keywords.append(word)
+    if count <= 0:
+        count = 3
     require_completed = any(mark in blob for mark in ("已竣工", "已完成", "竣工验收", "已验收", "近三年完成"))
     if any(mark in blob for mark in ("在建亦可", "含在建", "在建项目也可")):
         require_completed = False
-    note = windows[0][:120] if windows else ""
+    note = windows[0][:120]
     return PerformanceRequirement(
         similarScope=similar[:80],
         keywords=keywords[:8],
@@ -378,10 +397,12 @@ def merge_performance_requirement(
         count = right.minCount
     keywords = list(dict.fromkeys([*(left.keywords or []), *(right.keywords or [])]))[:8]
     similar = (left.similarScope or "").strip() or (right.similarScope or "").strip()
+    if not similar and keywords:
+        similar = "、".join(keywords[:3])
     note = (left.note or "").strip() or (right.note or "").strip()
     return PerformanceRequirement(
         similarScope=similar[:80],
-        keywords=keywords,
+        keywords=keywords[:8],
         minAmountYuan=amount,
         minCount=count,
         requireCompleted=bool(left.requireCompleted or right.requireCompleted),
@@ -477,12 +498,12 @@ def compact_perf_text(line: PerformanceLine) -> str:
 
 def _similar_hit(line: PerformanceLine, blob: str, req: PerformanceRequirement) -> bool:
     for word in req.keywords or []:
-        if word and word in blob:
+        if _word_in(blob, word):
             return True
         if word in _CHARGER_SCOPE and is_charger_line(line):
             return True
     scope = re.sub(r"\s+", "", req.similarScope or "")
-    if len(scope) >= 2 and scope in blob:
+    if len(scope) >= 2 and (scope in blob or _word_in(blob, scope)):
         return True
     return False
 

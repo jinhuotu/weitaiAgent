@@ -150,10 +150,10 @@ async def _list_docs(db: AsyncSession, base_id: int) -> list[KnowledgeDocument]:
 
 async def _seed_defaults_if_empty(db: AsyncSession, base: KnowledgeBase) -> None:
     docs = await _list_docs(db, base.id)
-    if any(_is_material_parent(d) for d in docs):
-        return
+    existing = {key_from_tags(d.tags) for d in docs if _is_material_parent(d)}
+    added = False
     for item in DEFAULT_SLOTS:
-        if not item.key:
+        if not item.key or item.key in existing:
             continue
         db.add(
             _new_parent(
@@ -164,7 +164,9 @@ async def _seed_defaults_if_empty(db: AsyncSession, base: KnowledgeBase) -> None
                 hint=item.hint or "",
             )
         )
-    await db.commit()
+        added = True
+    if added:
+        await db.commit()
 
 
 def _new_parent(
@@ -662,6 +664,48 @@ async def filter_performance_attachments(
         if line_name_key(line.projectName) in names:
             kept.append(path)
     return kept
+
+
+async def group_performance_attachments(
+    db: AsyncSession,
+    paths: list[Path],
+    selected: list,
+) -> dict[str, list[Path]]:
+    """按勾选业绩把合同扫描件分组，供文字表后插首页/金额页/签字页。"""
+    from api.services.tenders.performance import line_name_key
+
+    names = [line_name_key(getattr(item, "projectName", "") or "") for item in selected or []]
+    names = [n for n in names if n]
+    grouped: dict[str, list[Path]] = {n: [] for n in names}
+    if not names:
+        return grouped
+    try:
+        parent, children = await _get_parent(db, "perf")
+    except AppError:
+        if paths and names:
+            grouped[names[0]] = list(paths)
+        return grouped
+    by_resolved: dict[str, KnowledgeDocument] = {}
+    for doc, path in _iter_file_docs(parent, children):
+        try:
+            by_resolved[str(path.resolve())] = doc
+        except OSError:
+            by_resolved[str(path)] = doc
+    for path in paths:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        doc = by_resolved.get(key)
+        if doc is None:
+            continue
+        line = load_perf_meta(doc.summary)
+        if line is None:
+            continue
+        nk = line_name_key(line.projectName)
+        if nk in grouped:
+            grouped[nk].append(path)
+    return grouped
 
 
 async def count_uncached_performance_files(db: AsyncSession) -> int:

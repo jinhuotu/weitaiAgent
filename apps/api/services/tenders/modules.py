@@ -41,11 +41,13 @@ from api.services.tenders.document import (
 from api.services.tenders.money import rmb_lowercase, rmb_uppercase
 from api.services.tenders.outline import is_seal_register
 from api.services.tenders.placeholders import (
+    _insert_slot_media,
     _set_row_height,
+    draw_placeholder_box,
     id_slot,
     inline_id_scans,
 )
-from api.services.tenders.schema import BidBrief, OutlineItem, PerformanceLine
+from api.services.tenders.schema import BidBrief, OutlineItem, PerformanceLine, PlaceholderItem
 from api.services.tenders.tables import resolve_dev_layout, resolve_quote_layout, width_ratios
 
 _SONG = "宋体"
@@ -70,6 +72,8 @@ def render_module(
     if kind in {"legal_id", "auth"}:
         return handler(doc, brief, item, media=media, inlined=inlined)
     if kind == "tech_plan":
+        return handler(doc, brief, item, media=media)
+    if kind == "performance":
         return handler(doc, brief, item, media=media)
     return handler(doc, brief, item)
 
@@ -178,6 +182,8 @@ def _legal_id(
     _form_run(rel, f" {bidder} ", underline=True)
     _form_run(rel, "的法定代表人。", underline=False)
     _para(doc, "特此证明。")
+    if not (brief.agentName or "").strip():
+        _para(doc, "本次由法定代表人亲自投标，不附授权委托书。")
     attach = _para(doc, "附：法定代表人身份证明复印件或扫描件。")
     attach.paragraph_format.keep_with_next = True
     notes: list[str] = []
@@ -250,7 +256,11 @@ def _auth(
 
 def _quote(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     layout = resolve_quote_layout(brief, item)
-    anchor = _para(doc, "备注：详见下表。工程量与招标清单一致，综合单价按投标总价折算。")
+    charger = any("技术参数" in (h or "") or (h or "").strip() == "设备" for h in layout.titles)
+    if charger:
+        anchor = _para(doc, "备注：详见下表。工程量与招标清单一致，综合单价按投标总价折算。")
+    else:
+        anchor = _para(doc, "")
     notes = _fill_quote_section(doc, brief, anchor, headers=layout.titles)
     titles = " / ".join(layout.titles)
     if "设备" not in layout.titles and "技术参数要求" not in layout.titles:
@@ -268,23 +278,63 @@ def _tech_dev(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     return []
 
 
-def _performance(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
+_PERF_PAGE_CAPS = ("合同首页", "合同金额页", "签字盖章页")
+
+
+def _perf_files_for(line: PerformanceLine, media: dict | None) -> list:
+    from api.services.tenders.performance import line_name_key
+
+    if not isinstance(media, dict):
+        return []
+    key = f"perf:{line_name_key(line.projectName)}"
+    files = media.get(key) or []
+    return [p for p in files if getattr(p, "is_file", lambda: False)()]
+
+
+def _write_perf_scans(doc: Document, line: PerformanceLine, media: dict | None) -> list[str]:
+    files = _perf_files_for(line, media)
+    name = (line.projectName or "").strip() or "类似业绩"
+    _para(doc, f"{name} 合同扫描件（首页 / 金额页 / 签字页）", bold=True)
+    inserted = 0
+    if files:
+        inserted = _insert_slot_media(doc, files[:3], max_pages=3)
+    notes: list[str] = []
+    missing = max(0, 3 - inserted)
+    for i in range(3 - missing, 3):
+        cap = _PERF_PAGE_CAPS[i]
+        draw_placeholder_box(
+            doc,
+            PlaceholderItem(key="perf", title=f"{name} {cap}", hint="装订时附原件"),
+        )
+        notes.append(f"{name}缺{cap}")
+    return notes
+
+
+def _performance(
+    doc: Document,
+    brief: BidBrief,
+    item: OutlineItem,
+    media: dict | None = None,
+) -> list[str]:
     del item
     lines = _ordered_perf_lines(brief)
     if not lines:
         _para(doc, "【待补】请在页面填写类似业绩后再生成。")
         return ["类似业绩为空，业绩页仅保留标题说明"]
+    notes: list[str] = []
     done = [line for line in lines if not line.ongoing]
     doing = [line for line in lines if line.ongoing]
     if done:
         _para(doc, "近年完成的类似项目", bold=True)
         for line in done:
             _perf_table(doc, line)
+            notes.extend(_write_perf_scans(doc, line, media))
     if doing:
         _para(doc, "正在供货和新承接的项目", bold=True)
         for line in doing:
             _perf_table(doc, line)
-    return []
+            notes.extend(_write_perf_scans(doc, line, media))
+    return notes
 
 
 def _factory(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
@@ -343,13 +393,14 @@ def _seal_register(doc: Document, brief: BidBrief) -> list[str]:
     _write_cell(table.cell(6, 4), "合同章", size=11, bold=False, underline=False, center=True)
     for col in (0, 2, 4):
         _write_cell(table.cell(7, col), "印鉴备案", size=10.5, bold=False, underline=False, center=True)
-    _set_row_height(table.rows[7], 3.6)
+    # 公章直径约 4.2cm，格子用精确行高，避免预览把 atLeast 收成一行字
+    _set_row_height(table.rows[7], 6.0, exact=True)
     _write_cell(table.cell(8, 0), "法人签字样本：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(8, 3), "", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(9, 0), "财务负责人签字样本：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(9, 3), "财务负责人电话：", size=10.5, bold=False, underline=False)
-    _set_row_height(table.rows[8], 1.5)
-    _set_row_height(table.rows[9], 1.5)
+    _set_row_height(table.rows[8], 2.0)
+    _set_row_height(table.rows[9], 2.0)
     _para(doc, "备注：本表中三处备案印鉴为红色章。")
     col_twips = _distribute_twips(_usable_width_twips(doc), (1, 1, 1, 1, 1, 1))
     _apply_fixed_table_widths(table, col_twips)
@@ -494,7 +545,6 @@ def _letter_sign_block(doc: Document, brief: BidBrief) -> None:
 def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
     spacer = _add_bottom_sign_spacer(doc, sign_cm=6.6)
     kw = _SIGN_OFF_KW
-    agent = (brief.agentName or "").strip() or "（不委托）"
     lines = [
         _add_sign_line(
             doc,
@@ -504,7 +554,7 @@ def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
         ),
         _add_sign_line(
             doc,
-            [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
+            [("法定代表人：", "", "（签字）")],
             kw,
         ),
         _add_sign_line(
@@ -514,7 +564,7 @@ def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
         ),
         _add_sign_line(
             doc,
-            [("委托代理人：", agent, "（签字）")],
+            [("委托代理人：", "", "（签字）")],
             kw,
         ),
         _add_sign_line(
@@ -543,7 +593,7 @@ def _id_sign_block(doc: Document, brief: BidBrief, *, unit: str = "投标人："
         ),
         _add_sign_line(
             doc,
-            [("法定代表人：", (brief.legalPersonName or "").strip(), "（签字）")],
+            [("法定代表人：", "", "（签字）")],
             kw,
         ),
     ]

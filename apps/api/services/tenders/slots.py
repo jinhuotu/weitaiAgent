@@ -132,7 +132,7 @@ def list_slots_status(extra: list[PlaceholderItem] | None = None) -> list[dict[s
 
 
 def library_payload() -> dict[str, object]:
-    """投标资料库：仅公司常备 8 大类（不含邀请书临时 extras）。"""
+    """投标资料库：仅公司常备扫描件（不含邀请书临时 extras）。"""
     slots = [slot_status(item) for item in DEFAULT_SLOTS]
     filled = sum(1 for s in slots if int(s.get("fileCount") or 0) > 0)
     return {

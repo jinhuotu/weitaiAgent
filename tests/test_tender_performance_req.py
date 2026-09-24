@@ -200,3 +200,33 @@ def test_match_issues_use_selected_rows() -> None:
     ]
     notes = performance_match_issues(lines, req)
     assert notes and "符合招标要求 1 条" in notes[0]
+
+
+def test_extract_mes_mom_threshold() -> None:
+    text = """
+项目名称：数智化工厂MOM系统
+资格条件：投标人须提供近三年类似制造执行/MES、MOM项目业绩。
+"""
+    req = extract_performance_requirement(text)
+    assert req.minCount >= 3
+    assert any(k.upper() in {"MES", "MOM"} for k in req.keywords)
+    assert req.minAmountYuan == 0
+
+
+def test_extract_ignores_mes_in_bid_content() -> None:
+    text = """
+项目名称：数智化工厂MOM系统
+投标内容：含设备采买、TPM、WMS、MES、QMS模块及系统拓展。交货期30天。
+"""
+    req = extract_performance_requirement(text)
+    assert req.keywords == []
+    assert req.minCount == 0
+    assert not req.similarScope
+
+
+def test_match_mes_case_insensitive() -> None:
+    req = PerformanceRequirement(keywords=["MES", "MOM"], minCount=3)
+    ok = PerformanceLine(projectName="某厂 mes 系统实施", amountYuan=100)
+    other = PerformanceLine(projectName="充电桩供货", chargerRelated=True, amountYuan=800000)
+    assert match_performance_line(ok, req).passed
+    assert "类型不符" in match_performance_line(other, req).reasons

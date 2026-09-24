@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from uuid import uuid4
 
 from sqlalchemy import and_, func, or_, select
@@ -165,8 +165,19 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
         issues.append("代理人身份证号")
     if (brief.authNeed or "").strip() == "required" and not (brief.agentName or "").strip():
         issues.append("委托代理人（招标书要求授权委托）")
+    if (brief.authNeed or "").strip() == "required" and not (brief.agentIdNo or "").strip():
+        issues.append("代理人身份证号")
     if not any((ln.name or "").strip() for ln in (brief.quoteLines or [])):
         issues.append("报价清单")
+    if generate_volume(brief) != "technical":
+        from api.services.tenders.performance import bid_performance_lines, requirement_active
+
+        req = brief.performanceRequirement
+        need = int(getattr(req, "minCount", 0) or 0) if requirement_active(req) else 0
+        if need > 0:
+            n = len(bid_performance_lines(brief.performanceLines))
+            if n < need:
+                issues.append(f"类似业绩已选 {n} 条，招标要求至少 {need} 个")
     return issues
 
 
@@ -202,6 +213,7 @@ async def _prepare_and_generate(
         catalog_placeholders,
         count_uncached_performance_files,
         filter_performance_attachments,
+        group_performance_attachments,
         list_library_items,
         performance_from_library,
         resolve_attachments,
@@ -209,6 +221,8 @@ async def _prepare_and_generate(
     from api.services.tenders.placeholders import collect_slots, this_bid_keys
 
     t0 = time.perf_counter()
+    if not (brief.bidDate or "").strip():
+        brief.bidDate = date.today().isoformat()
     issues = _brief_generate_issues(brief)
     if issues:
         raise AppError(
@@ -246,11 +260,14 @@ async def _prepare_and_generate(
     from api.services.tenders.performance import bid_performance_lines
 
     if "perf" in media:
-        media["perf"] = await filter_performance_attachments(
-            db, media["perf"], bid_performance_lines(brief.performanceLines)
-        )
+        selected = bid_performance_lines(brief.performanceLines)
+        grouped = await group_performance_attachments(db, media["perf"], selected)
+        media["perf"] = await filter_performance_attachments(db, media["perf"], selected)
         if not media["perf"]:
             media.pop("perf", None)
+        for name_key, files in grouped.items():
+            if files:
+                media[f"perf:{name_key}"] = files
     missing = _missing_required_titles(required_keys, slots, media)
     vol = generate_volume(brief)
     if vol in {"business", "technical"}:
@@ -814,7 +831,7 @@ async def record_ids_for_actor(
 
 def _qa_brief(row: TenderRecord) -> BidBrief:
     if not isinstance(row.brief_json, dict) or not row.brief_json:
-        raise AppError(ErrorCode.VALIDATION, "该记录没有保存表单，无法质检", status_code=422)
+        raise AppError(ErrorCode.VALIDATION, "该记录没有保存表单，无法自检", status_code=422)
     try:
         return BidBrief.model_validate(row.brief_json)
     except Exception as exc:
@@ -832,11 +849,11 @@ def _qa_generated_file(
     if want == "technical":
         if tech:
             return tech
-        raise AppError(ErrorCode.VALIDATION, "该记录没有技术标 Word，无法质检", status_code=422)
+        raise AppError(ErrorCode.VALIDATION, "该记录没有技术标 Word，无法自检", status_code=422)
     if want == "business":
         if biz:
             return biz
-        raise AppError(ErrorCode.VALIDATION, "该记录没有商务标 Word，无法质检", status_code=422)
+        raise AppError(ErrorCode.VALIDATION, "该记录没有商务标 Word，无法自检", status_code=422)
     vol = generate_volume(brief)
     if vol == "technical" and tech:
         return tech
@@ -844,7 +861,7 @@ def _qa_generated_file(
         return biz
     if tech:
         return tech
-    raise AppError(ErrorCode.VALIDATION, "该记录没有 Word 文件，无法质检", status_code=422)
+    raise AppError(ErrorCode.VALIDATION, "该记录没有 Word 文件，无法自检", status_code=422)
 
 
 async def inspect_record_qa(

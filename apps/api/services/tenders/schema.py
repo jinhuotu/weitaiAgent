@@ -198,7 +198,7 @@ class BidBrief(BaseModel):
     extraNote: str = Field(default="")
     factoryRole: str = Field(default="")
     attachQualifications: bool = Field(default=False)
-    includePlaceholders: bool = Field(default=True)
+    includePlaceholders: bool = Field(default=False)
     includeCommitment: bool = Field(default=True)
     extraPlaceholders: list[PlaceholderItem] = Field(default_factory=list)
     requiredSlotKeys: list[str] = Field(default_factory=list)

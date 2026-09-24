@@ -64,9 +64,24 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
         hint="法人亲自投标可划掉本项。须为本人证件。",
     ),
     PlaceholderItem(
+        key="license",
+        title="营业执照",
+        hint="企业法人营业执照副本扫描件，不要用身份证或其他证件顶替。",
+    ),
+    PlaceholderItem(
+        key="bank_permit",
+        title="开户许可证",
+        hint="基本账户开户许可证扫描件。",
+    ),
+    PlaceholderItem(
+        key="iso",
+        title="ISO/质量管理体系认证证书",
+        hint="按邀请书资质标题一对一提供，不要拿其他证书顶。",
+    ),
+    PlaceholderItem(
         key="perf",
-        title="类似项目合同及发票（单份金额≥20万元）",
-        hint="签约主体必须是河南伟泰光电科技有限公司。上传后自动识别项目/合同、规格型号、买方、联系人、合同额、概况与是否在建；招标优先采用已竣工充电桩项目。",
+        title="类似项目合同及发票",
+        hint="签约主体必须是河南伟泰光电科技有限公司。上传后识别项目/买方/合同额；生成本标时按邀请书业绩门槛（行业、MES/MOM 等）筛选，不再默认充电桩。",
     ),
     PlaceholderItem(
         key="finance",
@@ -103,8 +118,8 @@ TECH_DRAWING_SLOT = PlaceholderItem(
 )
 
 _PERF_NOTE = (
-    "【待补】请粘贴河南伟泰光电科技有限公司作为签约主体、金额≥20万元的合同及发票。"
-    "招标优先认可已竣工完成的充电桩项目。禁止使用其他公司业绩。"
+    "【待补】请粘贴河南伟泰光电科技有限公司作为签约主体的合同及发票。"
+    "按本标邀请书业绩门槛筛选，禁止使用其他公司业绩。"
 )
 
 
@@ -153,6 +168,9 @@ def this_bid_keys(
             if key not in include:
                 include.append(key)
     include = [key for key in include if key in known]
+    for key in ("license", "bank_permit", "iso"):
+        if key in known and key not in include:
+            include.append(key)
     if not has_agent:
         include = [key for key in include if key != "id_agent"]
     return required, include
@@ -1001,13 +1019,13 @@ def _set_dashed_borders(table: Table) -> None:
     tbl_pr.append(borders)
 
 
-def _set_row_height(row, height_cm: float) -> None:
+def _set_row_height(row, height_cm: float, *, exact: bool = False) -> None:
     tr_pr = row._tr.get_or_add_trPr()
     for old in tr_pr.findall(qn("w:trHeight")):
         tr_pr.remove(old)
     el = OxmlElement("w:trHeight")
     el.set(qn("w:val"), str(int(Cm(height_cm).twips)))
-    el.set(qn("w:hRule"), "atLeast")
+    el.set(qn("w:hRule"), "exact" if exact else "atLeast")
     tr_pr.append(el)
 
 

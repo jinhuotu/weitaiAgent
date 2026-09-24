@@ -35,7 +35,8 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("license", ("营业执照",)),
-    ("iso", ("iso", "质量体系", "管理体系认证", "体系认证证书", "体系证书")),
+    ("bank_permit", ("开户许可", "开户许可证", "基本账户", "基本户")),
+    ("iso", ("iso", "质量体系", "管理体系认证", "体系认证证书", "体系证书", "资质证书")),
     ("safety", ("安全生产许可证", "安全生产许可")),
     ("bond", ("投标保证金", "保证金缴存", "保证金回单")),
     ("finance", ("财务审计", "审计报告", "完税证明", "财务报表", "财务报告")),
@@ -43,7 +44,7 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("perf", ("类似业绩", "类似项目", "合同及发票", "业绩证明", "业绩合同")),
     ("product", ("检测报告", "型式试验", "3c认证", "ccc认证", "3c", "桩型证明", "产品合格证")),
     ("seal", ("签章页", "盖章页")),
-    ("commitment", ("承诺书", "承诺函")),
+    ("commitment", ("承诺书", "承诺函", "无违法", "无行贿")),
 )
 
 
@@ -89,6 +90,21 @@ def _same_material_kind(left: str, right: str) -> bool:
     return bool(_kind_hits(left) & _kind_hits(right))
 
 
+def scan_slot_key(title: str, slots: list[PlaceholderItem] | None = None) -> str:
+    hits = _kind_hits(title)
+    if not hits:
+        return ""
+    for item in slots or []:
+        key = (item.key or "").strip()
+        if key and (key in hits or _same_material_kind(title, item.title or "")):
+            return key
+    if "license" in hits:
+        return "license"
+    if len(hits) == 1:
+        return next(iter(hits))
+    return ""
+
+
 def _item_blob(item: PlaceholderItem) -> str:
     return f"{item.title or ''} {item.hint or ''}".strip()
 
@@ -101,18 +117,27 @@ def find_catalog_item(
     hint: str = "",
 ) -> PlaceholderItem | None:
     want = (key or "").strip()
+    query = f"{title} {hint}".strip()
+    q_hits = _kind_hits(query)
+    if want and q_hits and want not in q_hits:
+        want = ""
     if want:
         for item in catalog:
             if item.key == want:
                 return item
-    query = f"{title} {hint}".strip()
     if not compact_title(query):
         return None
     for item in catalog:
         if _titles_loosely_match(title, item.title):
+            i_hits = _kind_hits(item.title)
+            if q_hits and i_hits and not (q_hits & i_hits):
+                continue
             return item
     for item in catalog:
         blob = _item_blob(item)
+        i_hits = _kind_hits(blob)
+        if q_hits and i_hits and not (q_hits & i_hits):
+            continue
         if title and (
             _titles_loosely_match(title, item.hint or "") or _titles_loosely_match(title, blob)
         ):

@@ -6,7 +6,19 @@ from api.services.tenders.placeholders import TECH_DRAWING_KEY
 from api.services.tenders.schema import BidBrief, PlaceholderItem
 
 BUSINESS_SLOT_KEYS = frozenset(
-    {"id_legal", "id_agent", "perf", "finance", "credit", "bond", "seal"}
+    {
+        "id_legal",
+        "id_agent",
+        "perf",
+        "finance",
+        "credit",
+        "bond",
+        "seal",
+        "license",
+        "bank_permit",
+        "iso",
+        "commitment",
+    }
 )
 TECHNICAL_SLOT_KEYS = frozenset({"product", TECH_DRAWING_KEY})
 HIGH_DISQUALIFY_KEYS = frozenset({"id_legal", "id_agent", "bond", "seal", "finance", "credit"})
@@ -95,7 +107,7 @@ def technical_soft_issues(
     from api.services.tenders.performance import bid_performance_lines, performance_match_issues
 
     if not any((row.projectName or "").strip() for row in bid_performance_lines(brief.performanceLines or [])):
-        issues.append("商务标：类似业绩为空，资格评审可能扣分（已竣工充电桩优先）")
+        issues.append("商务标：类似业绩为空，资格评审可能扣分")
     else:
         issues.extend(performance_match_issues(brief.performanceLines, brief.performanceRequirement))
     required = set(required_keys or [])

@@ -36,7 +36,6 @@ from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
     TECH_DRAWING_SLOT,
     _set_row_height,
-    append_placeholder_section,
     collect_slots,
     draw_placeholder_box,
     fill_perf_placeholders,
@@ -542,7 +541,7 @@ def _rewrite_labeled_underline(
             para.add_run().add_break()
         display = _align_sign_label(label, label_width) if label_width else label
         _form_run(para, display, underline=False)
-        fill = "" if "签字" in f"{label}{suffix}" else value
+        fill = "" if any(k in f"{label}{suffix}{value}" for k in ("签字", "签名", "手签")) else value
         _underline_value(para, fill, min(target, _line_em_budget(para, display, suffix)))
         if suffix:
             _form_run(para, suffix, underline=False)
@@ -2042,7 +2041,7 @@ def _fill_paragraphs(
                         [
                             (
                                 "法定代表人：",
-                                (brief.legalPersonName or "").strip(),
+                                "",
                                 "（签字）",
                             )
                         ],
@@ -2078,7 +2077,7 @@ def _fill_paragraphs(
                         [
                             (
                                 "委托代理人：",
-                                (brief.agentName or "").strip(),
+                                "",
                                 "（签字）",
                             )
                         ],
@@ -3319,26 +3318,6 @@ def build_bid_docx(
                 _bookmark_paragraph(para, "toc_commit")
                 break
         warnings.append("已附「投标承诺书」（附件五），请核对后签字盖章")
-
-    if brief.includePlaceholders:
-        attach = [s for s in slots if (s.key or "").strip() not in inlined_ids]
-        commit = None
-        for para in reversed(doc.paragraphs):
-            if _compact(para.text) == "投标承诺书" and not _is_toc_list_line(para):
-                commit = para
-                break
-        n_filled, n_boxes, insert_notes = 0, 0, []
-        if attach:
-            n_filled, n_boxes, insert_notes = append_placeholder_section(
-                doc, attach, media, before=commit
-            )
-        if n_filled:
-            warnings.append(f"附件区已处理 {n_filled} 项（证件类已嵌入，大附件多为占位加速）")
-        if n_boxes:
-            warnings.append(f"另有 {n_boxes} 处无扫描件，已用虚线框占位")
-        for note in insert_notes:
-            if note not in warnings:
-                warnings.append(note)
 
     if brief.attachQualifications:
         warnings.extend(qualification_attach_notes(doc, qualification_pdf))

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 
 from api.services.tenders.assemble import assemble_bid_docx
@@ -107,8 +108,14 @@ def test_assemble_applies_format_cover_and_page_fields(tmp_path) -> None:
     assert "厂内充电桩采购项目" in blob
     assert "招标编号：WT-2026-088" in blob
     assert "正本" in blob
+    mark = next(p for p in doc.paragraphs if (p.text or "").strip() == "正本")
+    assert mark.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    mark_i = next(i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "正本")
+    title_i = next(i for i, p in enumerate(doc.paragraphs) if "厂内充电桩采购项目" in (p.text or ""))
+    assert mark_i < title_i
     assert "（封面加盖公章）" in blob
-    assert any(t.startswith("一、授权委托书") for t in texts)
+    assert any(t.startswith("一、投标函") for t in texts)
+    assert any("授权委托书" in t for t in texts)
     cover = doc.sections[0]
     rest = doc.sections[1]
     assert abs(float(cover.left_margin.cm) - 2.5) < 0.05
