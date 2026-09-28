@@ -90,6 +90,12 @@ def _same_material_kind(left: str, right: str) -> bool:
     return bool(_kind_hits(left) & _kind_hits(right))
 
 
+def same_library_material(left: str, right: str) -> bool:
+    if _same_material_kind(left, right):
+        return True
+    return _titles_loosely_match(left, right)
+
+
 def scan_slot_key(title: str, slots: list[PlaceholderItem] | None = None) -> str:
     hits = _kind_hits(title)
     if not hits:
@@ -216,6 +222,23 @@ def slots_from_materials(
     return [*mapped, *missing]
 
 
+def _filled_same_kind(row: dict[str, Any], rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    title = str(row.get("title") or "")
+    hits = _kind_hits(title)
+    if not hits:
+        return None
+    want = str(row.get("key") or "")
+    for other in rows:
+        ok = str(other.get("key") or "")
+        if not ok or ok == want or int(other.get("fileCount") or 0) <= 0:
+            continue
+        if _kind_hits(str(other.get("title") or "")) & hits:
+            return other
+        if _titles_loosely_match(title, str(other.get("title") or "")):
+            return other
+    return None
+
+
 def build_attachment_match(
     catalog_rows: list[dict[str, Any]],
     *,
@@ -236,17 +259,34 @@ def build_attachment_match(
         if row is None or key in seen:
             continue
         seen.add(key)
+        nfile = int(row.get("fileCount") or 0)
+        if nfile <= 0:
+            alias = _filled_same_kind(row, catalog_rows)
+            if alias is not None:
+                ak = str(alias.get("key") or "")
+                if ak and ak not in seen:
+                    seen.add(ak)
+                    matched.append(
+                        {
+                            "key": ak,
+                            "title": str(alias.get("title") or ak),
+                            "fileCount": int(alias.get("fileCount") or 0),
+                            "required": key in required or ak in required,
+                            "created": False,
+                        }
+                    )
+                continue
         item = {
             "key": key,
             "title": str(row.get("title") or key),
-            "fileCount": int(row.get("fileCount") or 0),
+            "fileCount": nfile,
             "required": key in required,
             "created": key in created,
         }
-        if key in created:
+        if nfile > 0:
+            matched.append({**item, "created": False})
+        elif key in created:
             created_items.append(item)
-        elif item["fileCount"] > 0:
-            matched.append(item)
         else:
             missing_files.append(item)
     return {

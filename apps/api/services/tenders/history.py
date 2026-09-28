@@ -154,6 +154,32 @@ async def latest_company_profile(db: AsyncSession, *, limit: int = 8) -> dict[st
     return {}
 
 
+async def latest_agent_profile(db: AsyncSession, *, limit: int = 8) -> dict[str, str]:
+    """最近一次启用过授权委托的姓名/证号，打开开关时回填。"""
+    stmt = (
+        select(TenderRecord)
+        .where(TenderRecord.brief_json.is_not(None))
+        .order_by(TenderRecord.id.desc())
+        .limit(max(1, min(limit, 20)))
+    )
+    rows = (await db.execute(stmt)).scalars().all()
+    for row in rows:
+        raw = row.brief_json if isinstance(row.brief_json, dict) else {}
+        name = str(raw.get("agentName") or "").strip()
+        id_no = str(raw.get("agentIdNo") or "").strip()
+        if not name and not id_no:
+            continue
+        if contains_foreign_bidder(name):
+            continue
+        out: dict[str, str] = {}
+        if name:
+            out["agentName"] = name
+        if id_no:
+            out["agentIdNo"] = id_no
+        return out
+    return {}
+
+
 async def load_history_playbooks(db: AsyncSession, *, limit: int = _HISTORY_LIMIT) -> list[HistoryPlaybook]:
     stmt = (
         select(TenderRecord)

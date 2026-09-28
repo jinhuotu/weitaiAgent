@@ -26,6 +26,7 @@ from api.services.tenders.quote import (
 from api.services.tenders.history import (
     BIDDER_LOCK,
     contains_foreign_bidder,
+    latest_agent_profile,
     latest_company_profile,
     load_history_playbooks,
     playbooks_prompt_block,
@@ -70,6 +71,16 @@ _PATCHABLE = frozenset(
         "omPlan",
         "schedulePlan",
         "techPlanNote",
+        "controlPriceYuan",
+        "safetyFeeYuan",
+        "provisionalYuan",
+        "primeCostYuan",
+        "bidBondYuan",
+        "pmName",
+        "pmCertNo",
+        "pmGrade",
+        "defectPeriod",
+        "perfBond",
     }
 )
 _INT_FIELDS = frozenset(
@@ -81,6 +92,16 @@ _INT_FIELDS = frozenset(
         "arrivalPct",
         "settlementPct",
         "warrantyPct",
+    }
+)
+_MONEY_FIELDS = frozenset(
+    {
+        "bidPriceYuan",
+        "controlPriceYuan",
+        "safetyFeeYuan",
+        "provisionalYuan",
+        "primeCostYuan",
+        "bidBondYuan",
     }
 )
 
@@ -99,6 +120,8 @@ JSON 字段：
 projectName, tenderer, bidContent, quality,
 deliveryDays, warrantyYears, bidValidityDays, bidPriceYuan,
 prepaidPct, arrivalPct, settlementPct, warrantyPct, extraNote,
+controlPriceYuan, safetyFeeYuan, provisionalYuan, primeCostYuan, bidBondYuan,
+pmName, pmCertNo, pmGrade, defectPeriod, perfBond,
 quoteTitle, quoteTaxRate,
 quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
 notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
@@ -160,12 +183,14 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
             data[key] = num
             applied.append(key)
             continue
-        if key == "bidPriceYuan":
+        if key in _MONEY_FIELDS:
             try:
                 num = float(str(value).replace(",", "").replace("元", "").strip())
             except (TypeError, ValueError):
                 continue
-            if num <= 0:
+            if key == "bidPriceYuan" and num <= 0:
+                continue
+            if num < 0:
                 continue
             data[key] = num
             applied.append(key)
@@ -178,6 +203,9 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
     data["bidderName"] = _BIDDER_LOCK if not (data.get("bidderName") or "").strip() else data["bidderName"]
     if _BIDDER_LOCK not in str(data.get("bidderName") or ""):
         data["bidderName"] = _BIDDER_LOCK
+    from api.services.tenders.outline import _clean_pm_name
+
+    data["pmName"] = _clean_pm_name(str(data.get("pmName") or ""))
     deviations = deviation_lines_from_payload(patch)
     if deviations:
         data["deviationLines"] = [item.model_dump() for item in deviations]
@@ -361,6 +389,83 @@ def notes_from_payload(patch: dict[str, Any]) -> list[str]:
     return out
 
 
+_YUAN_NUM = r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"
+
+
+def apply_invite_letter_fields(brief: BidBrief, invitation: str) -> BidBrief:
+    """从招标书正文抽工期/有效期/控制价栏目，各标通用，不改投标人。"""
+    text = invitation or ""
+    data = brief.model_dump()
+
+    def _days(pat: str) -> int | None:
+        hit = re.search(pat, text)
+        if not hit:
+            return None
+        n = int(hit.group(1))
+        return n if 1 <= n <= 3650 else None
+
+    duration = _days(r"(?:计划工期|施工工期|工期|交货期)[^\d]{0,8}(\d{1,4})\s*(?:日历天|天)")
+    if duration:
+        data["deliveryDays"] = duration
+    valid = _days(r"投标有效期[^\d]{0,8}(\d{1,4})\s*(?:日历天|天)")
+    if valid:
+        cur = int(data.get("bidValidityDays") or 0)
+        data["bidValidityDays"] = max(cur, valid) if cur else valid
+    q = re.search(r"质量(?:要求|标准)[：:为是]?\s*([合格优良优质][^\s，。；;]{0,10})", text)
+    if q:
+        data["quality"] = q.group(1).strip()
+
+    def _yuan(*labels: str) -> float | None:
+        for lab in labels:
+            m = re.search(
+                lab + r"[^\d万¥￥]{0,16}(?:人民币)?[¥￥]?\s*" + _YUAN_NUM + r"\s*元",
+                text,
+            )
+            if m:
+                return float(m.group(1).replace(",", ""))
+            m2 = re.search(lab + r"[^\d]{0,12}(\d+(?:\.\d+)?)\s*万元", text)
+            if m2:
+                return float(m2.group(1)) * 10000
+        return None
+
+    mapping = (
+        ("controlPriceYuan", ("招标控制价", "最高投标限价")),
+        ("safetyFeeYuan", ("安全生产措施费", "安全文明施工费")),
+        ("provisionalYuan", ("暂列金额",)),
+        ("primeCostYuan", ("专业工程暂估价",)),
+        ("bidBondYuan", ("投标保证金",)),
+    )
+    for key, labels in mapping:
+        if data.get(key) is not None:
+            continue
+        val = _yuan(*labels)
+        if val is not None and val >= 0:
+            data[key] = val
+    pm = re.search(r"项目经理[：:]\s*([\u4e00-\u9fff]{2,4})", text)
+    if pm and not str(data.get("pmName") or "").strip():
+        from api.services.tenders.outline import _clean_pm_name
+
+        name = _clean_pm_name(pm.group(1))
+        if name:
+            data["pmName"] = name
+    cert = re.search(r"(?:注册证号|证书编号)[：:]\s*([A-Za-z0-9\-_]{6,32})", text)
+    if cert and not str(data.get("pmCertNo") or "").strip():
+        data["pmCertNo"] = cert.group(1)
+    defect = re.search(r"缺陷责任期[^\d]{0,10}(\d{1,3})\s*(个月|月|年|日历天)", text)
+    if defect and not str(data.get("defectPeriod") or "").strip():
+        data["defectPeriod"] = defect.group(1) + defect.group(2)
+    pct = re.search(r"履约担保(?:金|金额)?[^\d%]{0,16}(\d+(?:\.\d+)?)\s*%", text)
+    if pct and not str(data.get("perfBond") or "").strip():
+        data["perfBond"] = f"中标合同价的{pct.group(1)}%"
+    elif not str(data.get("perfBond") or "").strip():
+        bond = _yuan("履约担保金额", "履约保证金")
+        if bond is not None and bond >= 0:
+            from api.services.tenders.money import rmb_pair
+
+            data["perfBond"] = rmb_pair(bond)
+    return BidBrief.model_validate(data)
+
+
 async def parse_invitation(
     db: AsyncSession,
     upload: UploadFile,
@@ -458,6 +563,7 @@ async def parse_invitation(
                 status_code=422,
             ) from second
     brief, filled = apply_extract_patch(current or default_brief(), patch)
+    brief = apply_invite_letter_fields(brief, invitation)
     brief.invitationId = invitation_id
     company_profile = await latest_company_profile(db)
     brief, company_filled = fill_empty_company_fields(brief, current, company_profile)
@@ -470,7 +576,7 @@ async def parse_invitation(
         extras = await persist_parsed_materials(db, extras, created_by=created_by)
     created_keys = [item.key for item in extras if item.key and item.key not in before_keys]
     catalog = await catalog_placeholders(db)
-    has_agent = bool((brief.agentName or "").strip() or (brief.agentIdNo or "").strip())
+    has_agent = bool(brief.authEnabled)
     required_keys, include_keys = this_bid_keys(
         extra=extras,
         catalog=catalog,
@@ -483,12 +589,14 @@ async def parse_invitation(
         extract_tender_no,
         format_brief_notes,
     )
+    from api.services.tenders.classifier import apply_bid_requirements, extract_requirements
     from api.services.tenders.outline import (
         apply_auth_outline,
         choose_layout_mode,
         extract_auth_need,
         extract_outline,
         ensure_biz_essentials,
+        unmash_invitation_text,
     )
     from api.services.tenders.performance import (
         extract_performance_requirement,
@@ -500,10 +608,12 @@ async def parse_invitation(
 
     chapter, outline_items = extract_outline(invitation)
     brief.authNeed = extract_auth_need(invitation, outline_items)
+    brief.authEnabled = bool(brief.authEnabled)
     outline_items = apply_auth_outline(
         outline_items,
         has_agent=has_agent,
         auth_need=brief.authNeed,
+        auth_enabled=brief.authEnabled,
     )
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
     if (brief.layoutMode or "").strip() == "outline":
@@ -512,6 +622,7 @@ async def parse_invitation(
             outline_items,
             has_agent=has_agent,
             auth_need=brief.authNeed,
+            auth_enabled=brief.authEnabled,
         )
     brief.outlineChapter = chapter
     brief.outlineItems = outline_items
@@ -524,6 +635,7 @@ async def parse_invitation(
         requirement_from_payload(patch),
         invitation=invitation,
     )
+    req_notes = apply_bid_requirements(brief, extract_requirements(unmash_invitation_text(invitation)))
     brief.extraPlaceholders = extras
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
@@ -574,6 +686,7 @@ async def parse_invitation(
         *notes_from_payload(patch),
         *quote_note,
         *header_notes,
+        *req_notes,
     ]
     req_label = format_requirement(brief.performanceRequirement)
     if lib_perf:
@@ -620,15 +733,13 @@ async def parse_invitation(
     else:
         notes.append("未从招标书抽出「投标/响应文件格式」章节，生成仍用公司固定模板")
     if brief.authNeed == "required":
-        notes.append("招标书要求提供授权委托书，请填写委托代理人并上传身份证")
+        notes.append("招标书写了须授权委托；默认法人自签，要用委托人请打开「启用授权委托」")
     elif brief.authNeed == "optional":
-        if has_agent:
-            notes.append("已填委托代理人，授权委托书将写入并贴身份证")
-        else:
-            notes.append("招标书有授权委托书格式；未填委托人则默认跳过，法人自签即可")
+        notes.append("招标书有授权委托书格式；未打开「启用授权委托」则跳过该页")
     notes.extend(format_brief_notes(brief.documentFormat))
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
+    agent_hint = await latest_agent_profile(db)
     return {
         "brief": brief.model_dump(),
         "filledKeys": filled,
@@ -646,6 +757,7 @@ async def parse_invitation(
         "ocrMaxPages": max_ocr,
         "preview": preview,
         "knowledgeHits": kb_hits,
+        "agentHint": agent_hint,
     }
 
 
@@ -664,6 +776,12 @@ def _label(key: str) -> str:
         "settlementPct": "结算款",
         "warrantyPct": "质保金",
         "extraNote": "需要说明的问题",
+        "controlPriceYuan": "招标控制价",
+        "safetyFeeYuan": "安全生产措施费",
+        "provisionalYuan": "暂列金额",
+        "primeCostYuan": "专业工程暂估价",
+        "bidBondYuan": "投标保证金",
+        "pmName": "项目经理",
         "quoteLines": "分项工程量",
         "deviationLines": "技术偏差",
         "performanceLines": "类似业绩",

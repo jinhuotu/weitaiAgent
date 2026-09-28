@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -11,9 +13,7 @@ from docx.text.paragraph import Paragraph
 
 from api.services.tenders.categories import tech_plan_body
 from api.services.tenders.document import (
-    _LETTER_ADDR_KW,
-    _LETTER_CONTACT_KW,
-    _LETTER_FIELD_KW,
+    _LETTER_SIGN_RIGHT_KW,
     _SIGN_OFF_KW,
     _add_bottom_sign_spacer,
     _apply_fixed_table_widths,
@@ -38,8 +38,8 @@ from api.services.tenders.document import (
     _write_factory_commitment,
     _ymd,
 )
-from api.services.tenders.money import rmb_lowercase, rmb_uppercase
-from api.services.tenders.outline import is_seal_register
+from api.services.tenders.money import rmb_figure, rmb_pair, rmb_uppercase
+from api.services.tenders.outline import bid_is_works, compact_title, is_seal_register, letter_role
 from api.services.tenders.placeholders import (
     _insert_slot_media,
     _set_row_height,
@@ -79,43 +79,128 @@ def render_module(
 
 
 def _letter(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
-    response = "响应" in (item.title or "")
-    file_word = "采购文件" if response else "招标文件"
-    act = "响应" if response else "投标"
+    if letter_role(item.title) == "appendix":
+        return _letter_appendix(doc, brief)
     price_cn = rmb_uppercase(brief.bidPriceYuan)
-    price_en = rmb_lowercase(brief.bidPriceYuan)
+    price_en = rmb_figure(brief.bidPriceYuan)
     tenderer = (brief.tenderer or "").strip() or "　　　　"
     project = (brief.projectName or "").strip() or "（项目名称）"
-    extra = (brief.extraNote or "").strip() or "（无）"
+    extra = (brief.extraNote or "").strip() or "无"
     quality = (brief.quality or "").strip() or "合格"
-    _para_parts(doc, [("致：", False), (tenderer, True)])
+    days = str(int(brief.deliveryDays))
+    valid = str(int(brief.bidValidityDays))
+    response = "响应" in (item.title or "")
+    file_word = "采购文件" if response else "招标文件"
+    price_lab = "响应总报价" if response else "投标总价"
+    period_lab = "交货期" if response else "计划工期"
+    tight = dict(space_after=2, line_spacing=1.08)
+    _para_parts(doc, [("致：", False), (tenderer, True)], **tight)
     _para_parts(
         doc,
         [
-            ("我方已认真研究了", False),
+            ("1. 我方已仔细研究了", False),
             (project, True),
-            (f"{file_word}的全部内容，愿意以人民币{act}总报价（大写）", False),
+            (f"{file_word}（含补遗书无）的全部内容，愿意以人民币（大写）：", False),
             (price_cn, True),
-            ("（小写）", False),
-            (price_en, True),
-            (f"元参加{act}。", False),
+            (f"（小写：￥{price_en}元）的{price_lab}；{period_lab}：", False),
+            (f"{days}日历天", True),
+            ("；按合同约定实施和完成承包工程，修补工程中的任何缺陷，工程质量达到：", False)
+            if not response
+            else ("；按合同约定完成，质量要求：", False),
+            (quality, True),
+            ("。", False),
         ],
         indent=True,
+        **tight,
+    )
+    _para(doc, "2. 我方承诺在投标有效期内不修改、撤销投标文件。", indent=True, **tight)
+    if brief.bidBondYuan is not None:
+        _para_parts(
+            doc,
+            [
+                ("3. 随同本投标函提交投标保证金一份，金额人民币（大写）：", False),
+                (rmb_uppercase(brief.bidBondYuan), True),
+                (f"（小写￥{rmb_figure(brief.bidBondYuan)}元）。", False),
+            ],
+            indent=True,
+            **tight,
+        )
+    else:
+        _para(
+            doc,
+            "3. 随同本投标函提交投标保证金一份，金额人民币（大写）：　　　　元（小写￥　　　　元）。",
+            indent=True,
+            **tight,
+        )
+    _para(doc, "4. 如我方中标：", indent=True, **tight)
+    _para(doc, "（1）我方承诺在收到中标通知书后，在中标通知书规定期限内与你方签订合同。", indent=True, **tight)
+    _para(doc, "（2）随同本投标函递交的投标函附录属于合同文件的组成部分。", indent=True, **tight)
+    _para(doc, "（3）我方承诺按照招标文件规定递交履约担保。", indent=True, **tight)
+    _para(doc, "（4）我方承诺在合同约定期限内完成并移交全部合同工程。", indent=True, **tight)
+    _para(
+        doc,
+        "5. 我方在此声明，所递交投标文件及全部资料完整、真实、准确，不存在投标人须知规定禁止投标情形。",
+        indent=True,
+        **tight,
     )
     _para_parts(
         doc,
         [
-            ("交货期：", False),
-            (f"{brief.deliveryDays}天内", True),
-            ("。质量要求：", False),
-            (quality, True),
-            (f"。{act}有效期：", False),
-            (f"{brief.bidValidityDays}日历天", True),
-            (f"（从{act}截止之日算起）。", False),
+            ("6. 投标有效期：自投标截止之日起", False),
+            (f"{valid}日历天", True),
+            ("。", False),
         ],
         indent=True,
+        **tight,
     )
-    _para_parts(doc, [("其他补充说明：", False), (extra, True)], indent=True)
+    last = _para_parts(doc, [("7. 补充说明：", False), (extra, True), ("。", False)], indent=True, **tight)
+    last.paragraph_format.keep_with_next = True
+    _letter_sign_block(doc, brief)
+    return []
+
+
+def _letter_appendix(doc: Document, brief: BidBrief) -> list[str]:
+    from api.services.tenders.outline import _clean_pm_name
+
+    price_cn = rmb_uppercase(brief.bidPriceYuan)
+    price_en = rmb_figure(brief.bidPriceYuan)
+    compact = dict(line_spacing=1.15, space_before=2, space_after=1, line_em=12, keep=True)
+    _id_field(doc, "项目名称：", (brief.projectName or "").strip(), **compact)
+    _id_field(doc, "投标人：", (brief.bidderName or "").strip(), **compact)
+    _id_field(doc, "投标范围：", (brief.bidContent or "").strip(), **compact)
+    _id_field(doc, "投标总报价（大写）：", f"{price_cn}（小写：￥{price_en}元）", **compact)
+    _id_field(
+        doc,
+        "安全生产措施费：",
+        rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
+        **compact,
+    )
+    _id_field(
+        doc,
+        "暂列金额：",
+        rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
+        **compact,
+    )
+    _id_field(
+        doc,
+        "专业工程暂估价：",
+        rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "",
+        **compact,
+    )
+    pm = _clean_pm_name(brief.pmName or "")
+    cert = (brief.pmCertNo or "").strip()
+    if cert in {"/", "／", "无"}:
+        cert = ""
+    grade = (brief.pmGrade or "").strip()
+    if grade in {"", "/", "／"}:
+        grade = "无"
+    _id_field(doc, "项目经理：", pm, **compact)
+    _id_field(doc, "注册证号：", cert, **compact)
+    valid = str(int(brief.bidValidityDays)) if brief.bidValidityDays else ""
+    _id_field(doc, "投标有效期：", f"自投标截止之日起{valid}日历天" if valid else "", **compact)
+    _id_field(doc, "缺陷责任期：", (brief.defectPeriod or "").strip(), **compact)
+    _id_field(doc, "履约担保金额：", (brief.perfBond or "").strip(), **compact)
+    _id_field(doc, "专业等级：", grade, **compact)
     _letter_sign_block(doc, brief)
     return []
 
@@ -201,8 +286,11 @@ def _legal_id(
 
 
 def _id_field(doc: Document, label: str, value: str, **overrides) -> None:
+    keep = bool(overrides.pop("keep", False))
     para = doc.add_paragraph()
     _rewrite_labeled_underline(para, [(label, value, "")], **{**_ID_FIELD_KW, **overrides})
+    if keep:
+        para.paragraph_format.keep_with_next = True
 
 
 def _id_person_line(doc: Document, brief: BidBrief) -> None:
@@ -319,8 +407,7 @@ def _performance(
     del item
     lines = _ordered_perf_lines(brief)
     if not lines:
-        _para(doc, "【待补】请在页面填写类似业绩后再生成。")
-        return ["类似业绩为空，业绩页仅保留标题说明"]
+        return []
     notes: list[str] = []
     done = [line for line in lines if not line.ongoing]
     doing = [line for line in lines if line.ongoing]
@@ -348,8 +435,28 @@ def _factory(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
 def _company(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     if is_seal_register(item):
         return _seal_register(doc, brief)
-    _para(doc, "【待补】请按招标书本页空白稿填写。")
-    return [f"「{item.title}」招标书格式页未抽到正文"]
+    n = compact_title(item.title)
+    if "拟分包" in n:
+        _para(doc, "【本项目不进行分包】")
+        return []
+    if "项目经理" in n and "承诺" in n:
+        _para(
+            doc,
+            "我方拟派项目经理现阶段无在建工程施工项目。项目经理姓名以项目管理机构表为准。",
+            indent=True,
+        )
+        _id_sign_block(doc, brief)
+        return []
+    _kv_table(
+        doc,
+        [
+            ("投标人名称", (brief.bidderName or "").strip()),
+            ("地址", (brief.bidderAddress or "").strip()),
+            ("联系电话", (brief.bidderPhone or "").strip()),
+            ("备注", ""),
+        ],
+    )
+    return []
 
 
 def _seal_register(doc: Document, brief: BidBrief) -> list[str]:
@@ -411,17 +518,52 @@ def _merge(table, row: int, c1: int, c2: int) -> None:
     table.cell(row, c1).merge(table.cell(row, c2))
 
 
+_WORKS_PLAN = (
+    "主要施工方案与技术措施",
+    "质量管理体系与措施",
+    "安全管理体系与措施",
+    "文明施工、环境保护体系与施工现场治安措施",
+    "工期保证措施",
+    "拟投入资源配备计划",
+    "施工进度计划与网络图",
+    "施工总平面布置",
+    "建造方式的创新应用实施方案",
+    "新工艺、新技术、新设备、新材料及BIM应用",
+    "施工现场信息化监控与数据管理",
+    "风险管理措施",
+    "招标文件规定的其他内容",
+)
+
+
+def _scrub_anon(text: str, brief: BidBrief) -> str:
+    out = text or ""
+    for name in (brief.bidderName, brief.legalPersonName, brief.agentName):
+        n = (name or "").strip()
+        if len(n) >= 2:
+            out = out.replace(n, "")
+    return re.sub(r"\n{3,}", "\n\n", out).strip()
+
+
 def _tech_plan(
     doc: Document, brief: BidBrief, item: OutlineItem, media: dict | None = None
 ) -> list[str]:
-    del item
-    body = tech_plan_body(brief)
-    for block in _split_blocks(body):
-        _para(doc, block, indent=True)
+    works = "施工组织" in compact_title(item.title) or bid_is_works(brief)
+    body = _scrub_anon(tech_plan_body(brief), brief)
+    notes: list[str] = []
+    if works:
+        _para(doc, "本部分按技术暗标编制，不出现投标人名称、徽标和人员姓名。", indent=True)
+        hint = body if body and "【待响应】" not in body else "按招标文件及现场情况组织实施，图纸另附。"
+        for i, head in enumerate(_WORKS_PLAN, start=1):
+            _para(doc, f"{i}. {head}", bold=True)
+            _para(doc, hint if i == 1 else "按招标文件要求实施，详见图纸及附表。", indent=True)
+        _para(doc, "附表：劳动力计划表、主要施工设备表、临时用地表另附，施工进度采用横道图、总平面按现场绘制。")
+    else:
+        for block in _split_blocks(body):
+            _para(doc, block, indent=True)
     title = _para(doc, "图纸", bold=True)
-    notes = _embed_tech_drawings(doc, title, media)
-    if "【待响应】" in body:
-        notes.insert(0, "实施方案文字未写，已插入待响应说明")
+    notes.extend(_embed_tech_drawings(doc, title, media))
+    if "【待响应】" in (tech_plan_body(brief) or ""):
+        notes.insert(0, "实施方案文字未写，已按招标文件章节列出待响应说明")
     return notes
 
 
@@ -504,40 +646,25 @@ def _add_sign_line(doc: Document, rows: list[tuple[str, str, str]], kw: dict, **
 
 
 def _letter_sign_block(doc: Document, brief: BidBrief) -> None:
-    spacer = _add_bottom_sign_spacer(doc, sign_cm=7.4)
-    kw = {**_LETTER_CONTACT_KW, "nowrap": True}
+    spacer = _add_bottom_sign_spacer(doc, sign_cm=2.4)
+    kw = _LETTER_SIGN_RIGHT_KW
     agent = (brief.agentName or "").strip()
     lines = [
         _add_sign_line(
             doc,
             [("投　标　人：", (brief.bidderName or "").strip(), "（盖单位公章）")],
             kw,
-            space_before=4,
+            space_before=16,
         ),
         _add_sign_line(
             doc,
             [("法定代表人或其委托代理人：", agent, "（签字或盖章）")],
             kw,
         ),
-        _add_sign_line(
-            doc,
-            [("地　址：", (brief.bidderAddress or "").strip(), "")],
-            _LETTER_ADDR_KW,
-        ),
     ]
-    website = (brief.bidderWebsite or "").strip()
-    if website:
-        lines.append(_add_sign_line(doc, [("网　　址：", website, "")], _LETTER_FIELD_KW))
-    lines.append(_add_sign_line(doc, [("电　　话：", (brief.bidderPhone or "").strip(), "")], _LETTER_FIELD_KW))
-    fax = (brief.bidderFax or "").strip()
-    if fax:
-        lines.append(_add_sign_line(doc, [("传　　真：", fax, "")], _LETTER_FIELD_KW))
-    post = (brief.bidderPostcode or "").strip()
-    if post:
-        lines.append(_add_sign_line(doc, [("邮政编码：", post, "")], _LETTER_FIELD_KW))
     year, month, day = _ymd(brief.bidDate)
     date_para = doc.add_paragraph()
-    _rewrite_date_line(date_para, year, month, day, **{**_LETTER_FIELD_KW, "label": "日　　期："})
+    _rewrite_date_line(date_para, year, month, day, **{**kw, "label": "日　　期："})
     lines.append(date_para)
     _glue_sign_off(doc, spacer, lines)
 
@@ -631,8 +758,18 @@ def _para(
     size: float = 12,
     bold: bool = False,
     indent: bool = False,
+    space_after: float = 6,
+    line_spacing: float = 1.5,
 ) -> Paragraph:
-    return _para_parts(doc, [(text, False)], size=size, bold=bold, indent=indent)
+    return _para_parts(
+        doc,
+        [(text, False)],
+        size=size,
+        bold=bold,
+        indent=indent,
+        space_after=space_after,
+        line_spacing=line_spacing,
+    )
 
 
 def _para_parts(
@@ -642,12 +779,14 @@ def _para_parts(
     size: float = 12,
     bold: bool = False,
     indent: bool = False,
+    space_after: float = 6,
+    line_spacing: float = 1.5,
 ) -> Paragraph:
     para = doc.add_paragraph()
     pf = para.paragraph_format
     pf.space_before = Pt(0)
-    pf.space_after = Pt(6)
-    pf.line_spacing = 1.5
+    pf.space_after = Pt(space_after)
+    pf.line_spacing = line_spacing
     if indent:
         pf.first_line_indent = Cm(0.74)
     for text, under in parts:

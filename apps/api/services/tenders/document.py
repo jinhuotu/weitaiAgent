@@ -31,7 +31,7 @@ from api.services.tenders.format_rules import (
     toc_page_cache,
 )
 from api.services.tenders.outline import tech_chapter_titles
-from api.services.tenders.money import rmb_lowercase, rmb_uppercase
+from api.services.tenders.money import rmb_figure, rmb_lowercase, rmb_pair, rmb_uppercase
 from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
     TECH_DRAWING_SLOT,
@@ -445,7 +445,7 @@ def _line_em_budget(para: Paragraph, label: str, suffix: str, *, size_pt: float 
     if pf.right_indent:
         usable -= float(pf.right_indent.cm)
     em_cm = max(0.32, size_pt * 2.54 / 72.0)
-    remain = max(12.0, usable / em_cm) - _em_len(label) - _em_len(suffix) - 0.4
+    remain = usable / em_cm - _em_len(label) - _em_len(suffix) - 2.5
     return max(4, int(remain))
 
 
@@ -456,6 +456,17 @@ _LETTER_CONTACT_KW: dict = {
     "space_before": 6,
     "space_after": 4,
     "line_em": 8,
+}
+
+_LETTER_SIGN_RIGHT_KW: dict = {
+    "align": WD_ALIGN_PARAGRAPH.RIGHT,
+    "left_indent_cm": 0,
+    "right_indent_cm": 1.2,
+    "line_spacing": 1.15,
+    "space_before": 2,
+    "space_after": 1,
+    "nowrap": True,
+    "line_em": 6,
 }
 
 # 投标函网址/电话/传真/邮编：四字标签对齐，下划线拉到同一右缘
@@ -542,7 +553,12 @@ def _rewrite_labeled_underline(
         display = _align_sign_label(label, label_width) if label_width else label
         _form_run(para, display, underline=False)
         fill = "" if any(k in f"{label}{suffix}{value}" for k in ("签字", "签名", "手签")) else value
-        _underline_value(para, fill, min(target, _line_em_budget(para, display, suffix)))
+        room = _line_em_budget(para, display, suffix)
+        cap = target
+        if suffix:
+            room = min(room, max(4, int(26 - _em_len(display) - _em_len(suffix))))
+            cap = min(cap, 8)
+        _underline_value(para, fill, min(cap, room))
         if suffix:
             _form_run(para, suffix, underline=False)
 
@@ -745,7 +761,7 @@ def _sign_spacer_cm(
     if remain < sign_cm + _SIGN_MIN_GAP_CM:
         return 0.0
     budget = remain - sign_cm - pad
-    if used > page * 0.62 or budget < 0.35:
+    if used > page * 0.55 or budget < 0.35:
         return 0.0
     return min(budget, 8.0)
 
@@ -823,6 +839,16 @@ def _insert_bottom_sign_spacer_before(para: Paragraph, *, sign_cm: float) -> Par
         return None
     spacer = doc.add_paragraph()
     _apply_sign_spacer_paragraph(spacer, height)
+    para._element.addprevious(spacer._element)
+    spacer.paragraph_format.keep_with_next = True
+    return spacer
+
+
+def _insert_min_sign_gap(para: Paragraph, *, height_cm: float = 0.45) -> Paragraph:
+    """弹性留白不够时，至少跟正文留一点空隙。"""
+    doc = para.part.document
+    spacer = doc.add_paragraph()
+    _apply_sign_spacer_paragraph(spacer, max(0.35, height_cm))
     para._element.addprevious(spacer._element)
     spacer.paragraph_format.keep_with_next = True
     return spacer
@@ -1683,8 +1709,8 @@ def _fill_paragraphs(
     inlined: set[str] | None = None,
 ) -> Paragraph | None:
     price_cn = rmb_uppercase(brief.bidPriceYuan)
-    price_en = rmb_lowercase(brief.bidPriceYuan)
-    extra = (brief.extraNote or "").strip() or "（无）"
+    price_en = rmb_figure(brief.bidPriceYuan)
+    extra = (brief.extraNote or "").strip() or "无"
     year, month, day = _ymd(brief.bidDate)
     section = "cover"
     drop: list[Paragraph] = []
@@ -1790,13 +1816,13 @@ def _fill_paragraphs(
         if section == "letter":
             if "招标人名称" in n:
                 _write_tenderer_line(para, brief.tenderer)
-            elif "愿意以人民币投标总报价" in n or "我方已认真研究了" in n:
+            elif "愿意以人民币投标总报价" in n or "我方已认真研究了" in n or "我方已仔细研究了" in n:
                 _fill_blanks(
                     para,
                     brief.projectName,
                     price_cn,
                     price_en,
-                    f"{brief.deliveryDays}天内",
+                    f"{brief.deliveryDays}日历天",
                     brief.quality,
                 )
                 _scrub_hints(para, hints_project)
@@ -1808,15 +1834,15 @@ def _fill_paragraphs(
                     _write_para(para, extra, size=12)
             elif n.startswith("投标人") and "盖单位公章" in n:
                 if not letter_sign_gapped:
-                    _insert_bottom_sign_spacer_before(para, sign_cm=7.4)
+                    _insert_bottom_sign_spacer_before(para, sign_cm=2.4)
                     letter_sign_gapped = True
                 _rewrite_labeled_underline(
                     para,
                     [("投　标　人：", brief.bidderName, "（盖单位公章）")],
-                    **{**_LETTER_CONTACT_KW, "space_before": 4, "nowrap": True},
+                    **{**_LETTER_SIGN_RIGHT_KW, "space_before": 16},
                 )
+                para.paragraph_format.keep_with_next = True
             elif "法定代表人或其委托代理人" in n:
-                mashed_addr = "地址" in n
                 _rewrite_labeled_underline(
                     para,
                     [
@@ -1826,71 +1852,26 @@ def _fill_paragraphs(
                             "（签字或盖章）",
                         )
                     ],
-                    **_LETTER_CONTACT_KW,
+                    **_LETTER_SIGN_RIGHT_KW,
                 )
-                if mashed_addr:
-                    addr_para = _insert_paragraph_after(para)
-                    _rewrite_labeled_underline(
-                        addr_para,
-                        [("地　址：", (brief.bidderAddress or "").strip(), "")],
-                        **_LETTER_ADDR_KW,
-                    )
-            elif n.startswith("地址"):
-                _rewrite_labeled_underline(
-                    para,
-                    [("地　址：", (brief.bidderAddress or "").strip(), "")],
-                    **_LETTER_ADDR_KW,
+                para.paragraph_format.keep_with_next = True
+            elif n in {"签字或盖章", "签字", "盖章"} or n.startswith("签字或盖章"):
+                drop.append(para)
+            elif n.startswith(
+                (
+                    "地址",
+                    "网址",
+                    "电话",
+                    "传真",
+                    "邮政编码",
+                    "邮编",
+                    "邮箱",
+                    "电子信箱",
+                    "电子邮箱",
+                    "项目联系人",
                 )
-            elif n.startswith("网址"):
-                _rewrite_labeled_underline(
-                    para,
-                    [("网　　址：", (brief.bidderWebsite or "").strip(), "")],
-                    **_LETTER_FIELD_KW,
-                )
-            elif n.startswith("电话"):
-                _rewrite_labeled_underline(
-                    para,
-                    [("电　　话：", (brief.bidderPhone or "").strip(), "")],
-                    **_LETTER_FIELD_KW,
-                )
-            elif "传真" in n:
-                mashed_post = "邮政编码" in n
-                _rewrite_labeled_underline(
-                    para,
-                    [("传　　真：", (brief.bidderFax or "").strip(), "")],
-                    **_LETTER_FIELD_KW,
-                )
-                cursor = para
-                if mashed_post:
-                    post_para = _insert_paragraph_after(para)
-                    _rewrite_labeled_underline(
-                        post_para,
-                        [("邮政编码：", (brief.bidderPostcode or "").strip(), "")],
-                        **_LETTER_FIELD_KW,
-                    )
-                    cursor = post_para
-                _rewrite_date_line(
-                    _insert_paragraph_after(cursor),
-                    year,
-                    month,
-                    day,
-                    **{**_LETTER_FIELD_KW, "label": "日　　期："},
-                )
-                letter_date_done = True
-            elif n.startswith("邮政编码"):
-                _rewrite_labeled_underline(
-                    para,
-                    [("邮政编码：", (brief.bidderPostcode or "").strip(), "")],
-                    **_LETTER_FIELD_KW,
-                )
-                _rewrite_date_line(
-                    _insert_paragraph_after(para),
-                    year,
-                    month,
-                    day,
-                    **{**_LETTER_FIELD_KW, "label": "日　　期："},
-                )
-                letter_date_done = True
+            ):
+                drop.append(para)
             elif n.startswith("日期") or n == "年月日":
                 if letter_date_done:
                     drop.append(para)
@@ -1900,7 +1881,7 @@ def _fill_paragraphs(
                         year,
                         month,
                         day,
-                        **{**_LETTER_FIELD_KW, "label": "日　　期："},
+                        **{**_LETTER_SIGN_RIGHT_KW, "label": "日　　期："},
                     )
                     letter_date_done = True
             continue
@@ -1913,7 +1894,7 @@ def _fill_paragraphs(
                 _rewrite_labeled_underline(
                     para,
                     [(label, brief.bidderName, seal)],
-                    **_LETTER_CONTACT_KW,
+                    **_LETTER_SIGN_RIGHT_KW,
                 )
                 if mashed_legal:
                     legal_p = _insert_paragraph_after(para)
@@ -1921,10 +1902,10 @@ def _fill_paragraphs(
                     _rewrite_labeled_underline(
                         legal_p,
                         [("法定代表人或委托代理人：", "", sign_hint)],
-                        **_LETTER_CONTACT_KW,
+                        **_LETTER_SIGN_RIGHT_KW,
                     )
             elif n == "年月日" or n.startswith("日期"):
-                _rewrite_date_line(para, year, month, day, **_LETTER_CONTACT_KW)
+                _rewrite_date_line(para, year, month, day, **_LETTER_SIGN_RIGHT_KW)
             continue
 
         if section == "quote":
@@ -2115,7 +2096,7 @@ def _fill_paragraphs(
 
 def _fill_tables(doc: Document, brief: BidBrief) -> None:
     price_cn = rmb_uppercase(brief.bidPriceYuan)
-    price_en = rmb_lowercase(brief.bidPriceYuan)
+    price_en = rmb_figure(brief.bidPriceYuan)
     perf_iter = iter(_ordered_perf_lines(brief))
     for table in doc.tables:
         kind = _table_kind(table)
@@ -2202,9 +2183,6 @@ def _apply_fixed_table_widths(table: Table, widths_twips: list[int]) -> None:
     for row in table.rows:
         for cell, width in zip(row.cells, widths_twips, strict=False):
             cell.width = Twips(width)
-            tc_pr = cell._tc.get_or_add_tcPr()
-            for old in tc_pr.findall(qn("w:noWrap")):
-                tc_pr.remove(old)
 
 
 def _pin_cjk_fonts(doc: Document) -> None:
@@ -2464,24 +2442,75 @@ def _quote_row_values(line, roles: list[str], *, traffic_note: str) -> list[str]
 
 
 def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en: str) -> None:
+    from api.services.tenders.outline import _clean_pm_name
+
+    pm = _clean_pm_name(brief.pmName or "") or "________"
+    cert = (brief.pmCertNo or "").strip()
+    if cert in {"", "/", "／", "无"}:
+        cert = "________"
+    grade = (brief.pmGrade or "").strip()
+    if grade in {"", "/", "／"}:
+        grade = "无"
+    valid = ""
+    if brief.bidValidityDays:
+        valid = f"自投标截止之日起{int(brief.bidValidityDays)}日历天"
     mapping = {
-        "项目名称": brief.projectName,
-        "投标人": brief.bidderName,
-        "投标总报价": f"（大写）{price_cn}\n（小写）{price_en}元",
-        "投标内容": brief.bidContent,
+        "项目名称": brief.projectName or "________",
+        "投标人": brief.bidderName or "________",
+        "投标总报价": f"（大写）{price_cn}（¥{price_en}元）",
+        "投标范围": (brief.bidContent or "").strip() or "________",
+        "投标内容": (brief.bidContent or "").strip() or "________",
         "投标质量": brief.quality,
-        "交货期": f"{brief.deliveryDays}日历天内",
-        "投标工期": f"{brief.deliveryDays}日历天内",
+        "交货期": f"{brief.deliveryDays}日历天",
+        "工期": f"{brief.deliveryDays}日历天",
+        "投标工期": f"{brief.deliveryDays}日历天",
         "质保期": f"基础要求{brief.warrantyYears}年",
-        "投标有效期": f"{brief.bidValidityDays} 日历天（从投标截止之日算起）",
-        "需要说明的问题": (brief.extraNote or "").strip() or "投标人自行填写。（可另加附页）",
+        "投标有效期": valid or "________",
+        "安全生产措施费": rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
+        "暂列金额": rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
+        "专业工程暂估价": rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "",
+        "项目经理": pm,
+        "注册证号": cert,
+        "专业等级": grade,
+        "缺陷责任期": (brief.defectPeriod or "").strip() or "________",
+        "履约担保金额": (brief.perfBond or "").strip() or "________",
+        "履约担保": (brief.perfBond or "").strip() or "________",
+        "需要说明的问题": (brief.extraNote or "").strip() or "无",
     }
+    seen: set[str] = set()
     for row in table.rows:
         label = _compact(row.cells[0].text)
         for key, value in mapping.items():
             if key in label:
                 _write_cell(row.cells[-1], value, underline=False)
+                seen.add(key)
                 break
+    need = (
+        "项目名称",
+        "投标人",
+        "投标范围",
+        "投标总报价",
+        "安全生产措施费",
+        "暂列金额",
+        "专业工程暂估价",
+        "项目经理",
+        "注册证号",
+        "投标有效期",
+        "缺陷责任期",
+        "履约担保金额",
+        "专业等级",
+    )
+    for key in need:
+        if key in seen:
+            continue
+        if key == "投标范围" and "投标内容" in seen:
+            continue
+        if key == "履约担保金额" and "履约担保" in seen:
+            continue
+        row = table.add_row()
+        _write_cell(row.cells[0], key, underline=False, bold=True, center=True, bottom_line=False)
+        if len(row.cells) > 1:
+            _write_cell(row.cells[-1], mapping.get(key, "________"), underline=False)
 
 
 def _fill_payment_table(table: Table, brief: BidBrief) -> None:
@@ -3040,10 +3069,36 @@ def _count_blank_paras_before(para: Paragraph, *, limit: int = 6) -> int:
     return n
 
 
+def _sign_follows_letter_body(para: Paragraph) -> bool:
+    """投标函/附录正文已经很长，再垫空段会把落款挤到下一页。"""
+    el = para._p.getprevious()
+    for _ in range(36):
+        if el is None:
+            break
+        if el.tag == qn("w:p"):
+            t = "".join(n.text or "" for n in el.iter(qn("w:t")))
+            if any(
+                k in t
+                for k in (
+                    "我方已仔细研究",
+                    "我方已认真研究",
+                    "承包工程",
+                    "不撤销投标",
+                    "投标函附录",
+                    "愿意以人民币",
+                )
+            ):
+                return True
+        el = el.getprevious()
+    return False
+
+
 def _pad_signature_blocks(doc: Document, *, blanks: int = 3) -> None:
-    """签字盖章行前插入空段，避免正文顶住签章区。"""
+    """签字盖章行前插入空段，避免正文顶住签章区。投标函不够高时不再垫。"""
     for para in list(doc.paragraphs):
         if not _is_signature_block_start(para.text):
+            continue
+        if _sign_follows_letter_body(para):
             continue
         have = _count_blank_paras_before(para)
         for _ in range(max(0, blanks - have)):

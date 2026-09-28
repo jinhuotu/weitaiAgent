@@ -168,12 +168,30 @@ def this_bid_keys(
             if key not in include:
                 include.append(key)
     include = [key for key in include if key in known]
-    for key in ("license", "bank_permit", "iso"):
-        if key in known and key not in include:
+    for item in catalog if catalog is not None else DEFAULT_SLOTS:
+        key = (item.key or "").strip()
+        if not key or key not in known or key in include:
+            continue
+        if _always_in_bid_scan(item):
             include.append(key)
     if not has_agent:
         include = [key for key in include if key != "id_agent"]
     return required, include
+
+
+_ALWAYS_SCAN_MARKS = (
+    ("license", ("营业执照",)),
+    ("bank_permit", ("开户许可", "开户许可证", "基本账户", "基本户")),
+    ("iso", ("ISO", "iso", "质量体系", "体系认证", "资质证书")),
+)
+
+
+def _always_in_bid_scan(item: PlaceholderItem) -> bool:
+    key = (item.key or "").strip()
+    if key in {"license", "bank_permit", "iso"}:
+        return True
+    blob = f"{item.title or ''}{item.hint or ''}"
+    return any(any(m in blob for m in marks) for _, marks in _ALWAYS_SCAN_MARKS)
 
 
 def collect_slots(

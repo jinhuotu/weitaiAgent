@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.services.layouts.parse import extract_json_object
 from api.services.tenders.assets import load_invitation_text, tenders_output_dir
 from api.services.tenders.categories import HIGH_DISQUALIFY_KEYS, tech_plan_text
+from api.services.tenders.outline import bid_is_works
 from api.services.tenders.schema import BidBrief, OutlineItem
 from common.errors import AppError, ErrorCode
 from common.times import to_epoch_ms
@@ -236,6 +237,210 @@ def _score_bucket(found: int, total: int) -> dict[str, int]:
     if total <= 0:
         return {"found": 0, "total": 0, "score": 100}
     return {"found": found, "total": total, "score": round(100 * found / total)}
+
+
+def _letter_gaps(brief: BidBrief, bid_text: str) -> list[dict[str, str]]:
+    raw = bid_text or ""
+    gaps: list[dict[str, str]] = []
+    if "以投标函为准" in raw:
+        gaps.append(
+            _gap(
+                "擅自增加条款",
+                "投标函不得自行增加「文件不一致以投标函为准」等模板没有的句子，属于擅自修改投标函格式",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    if re.search(r"(投标有效期|有效期)[^\n]{0,20}满足招标", raw):
+        gaps.append(
+            _gap(
+                "投标有效期",
+                "有效期须填具体日历天数，不能只写满足招标文件，否则可能被判定未实质响应",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    if re.search(r"(安全生产措施费|暂列金额|专业工程暂估价)[^\n]{0,16}无", raw):
+        gaps.append(
+            _gap(
+                "措施费/暂列金额",
+                "安全生产措施费、暂列金额、专业工程暂估价须按招标控制价填写金额，不能写无",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    days = int(brief.deliveryDays or 0)
+    if days and not re.search(
+        rf"(计划工期|施工工期|工期|交货期|供货期)[^\n]{{0,24}}{days}\s*(?:日历天|天)",
+        raw,
+    ):
+        gaps.append(
+            _gap(
+                "工期",
+                f"招标文件工期 {days} 日历天未写入投标函，工期负偏离会被否决",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    valid = int(brief.bidValidityDays or 0)
+    if valid and not re.search(
+        rf"(投标有效期|有效期)[^\n]{{0,24}}{valid}\s*(?:日历天|天)",
+        raw,
+    ):
+        gaps.append(
+            _gap(
+                "投标有效期天数",
+                f"投标有效期须填写 {valid} 日历天，不能缩短",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    quality = (brief.quality or "").strip()
+    if quality and quality not in raw:
+        gaps.append(
+            _gap(
+                "质量标准",
+                f"质量标准须响应招标文件「{quality}」，不得降低",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    blob = re.sub(r"\s+", "", raw)
+    letter_like = "我方已仔细研究" in blob or "承包工程" in blob or "安全生产措施费" in blob
+    if bid_is_works(brief, raw) and letter_like:
+        if "修补工程" not in blob and "工程质量达到" not in blob:
+            gaps.append(
+                _gap(
+                    "工程质量承诺",
+                    "施工投标函须写明修补工程缺陷及招标文件要求的质量等级，省略或模糊描述可能被否决",
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+        if "投标保证金" not in blob:
+            gaps.append(
+                _gap(
+                    "投标保证金",
+                    "投标函须有保证金承诺条款并填写大小写金额，缺失属于未实质响应",
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+        if "投标函附录属于合同文件的组成部分" not in blob:
+            gaps.append(
+                _gap(
+                    "附录组成合同",
+                    "投标函须保留固定原文：随同本投标函递交的投标函附录属于合同文件的组成部分",
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+        if valid and "自投标截止之日起" not in blob:
+            gaps.append(
+                _gap(
+                    "有效期表述",
+                    f"投标有效期须写明自投标截止之日起{valid}日历天，不能只写满足招标文件",
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+        if "投标函附录" in blob or "附录" in blob:
+            for lab in (
+                "投标范围",
+                "安全生产措施费",
+                "暂列金额",
+                "专业工程暂估价",
+                "项目经理",
+                "注册证号",
+                "投标有效期",
+                "缺陷责任期",
+                "履约担保",
+                "专业等级",
+            ):
+                if lab not in blob:
+                    gaps.append(
+                        _gap(
+                            f"附录缺{lab}",
+                            f"投标函附录缺少「{lab}」，属于未按第八章范本完整响应",
+                            severity=SEVERITY_DISQUALIFY,
+                            category="commercial",
+                        )
+                    )
+                    break
+    if float(brief.bidPriceYuan or 0) > 0:
+        fig = str(int(brief.bidPriceYuan)) if float(brief.bidPriceYuan).is_integer() else str(brief.bidPriceYuan)
+        fig2 = fig.replace(".0", "")
+        blob = raw.replace(",", "")
+        if fig not in blob and fig2 not in blob:
+            gaps.append(
+                _gap(
+                    "投标总价",
+                    "投标函、附录与报价表总价须大小写一致",
+                    severity=SEVERITY_DISQUALIFY,
+                    category="commercial",
+                )
+            )
+    if re.search(r"项目经理[^\n]{0,12}无", raw):
+        gaps.append(
+            _gap(
+                "项目经理",
+                "投标函附录项目经理须填姓名、注册证号、专业等级，不能写无",
+                severity=SEVERITY_DISQUALIFY,
+                category="commercial",
+            )
+        )
+    elif re.search(r"项目经理", raw) and not (brief.pmName or "").strip():
+        gaps.append(
+            _gap(
+                "项目经理",
+                "投标函附录项目经理姓名、注册证号、专业等级尚未填写，生成稿已留空待补",
+                severity=SEVERITY_DEDUCT,
+                category="commercial",
+            )
+        )
+    return gaps
+
+
+def letter_checklist(brief: BidBrief) -> list[str]:
+    days = int(brief.deliveryDays or 0)
+    valid = int(brief.bidValidityDays or 0)
+    quality = (brief.quality or "").strip() or "（未抽到，请核对原文）"
+    price = float(brief.bidPriceYuan or 0)
+    rows = [
+        f"招标人全称：{(brief.tenderer or '').strip() or '（核对原文）'}",
+        f"项目名称：{(brief.projectName or '').strip() or '（核对原文）'}",
+        f"工期：{days}日历天（不得短于招标文件）" if days else "工期：请按招标文件填具体日历天",
+        f"质量标准：{quality}",
+        f"投标有效期：{valid}日历天" if valid else "投标有效期：请填具体日历天",
+        f"投标总价：{price:.2f} 元（函、附录、开标一览表、清单须一致）" if price else "投标总价：请核对大小写",
+        "补遗书：无补遗填无，有几份填几份，括号要闭合",
+        "补充说明：无则填无，不要删该行，不要自行加「以投标函为准」",
+        "模板：只填空白下划线/单元格，不增删改原条款",
+        "签章：单位电子签章 + 法定代表人电子签章",
+        "固定句：修补工程缺陷、附录属合同文件、保证金承诺、自投标截止之日起N日历天",
+        "落款：投标人、法定代表人在正文右下角",
+    ]
+    if brief.safetyFeeYuan is not None:
+        rows.append(f"安全生产措施费：{brief.safetyFeeYuan:.2f} 元")
+    if brief.provisionalYuan is not None:
+        rows.append(f"暂列金额：{brief.provisionalYuan:.2f} 元")
+    if brief.primeCostYuan is not None:
+        rows.append(f"专业工程暂估价：{brief.primeCostYuan:.2f} 元")
+    if brief.bidBondYuan is not None:
+        rows.append(f"投标保证金：{brief.bidBondYuan:.2f} 元（大写+小写）")
+    else:
+        rows.append("投标保证金：预留下划线，填大小写金额")
+    rows.append(
+        "项目经理："
+        + ((brief.pmName or "").strip() or "________")
+        + " / "
+        + ((brief.pmCertNo or "").strip() or "________")
+        + " / "
+        + ((brief.pmGrade or "").strip() or "无")
+    )
+    rows.append(f"缺陷责任期：{(brief.defectPeriod or '').strip() or '________'}")
+    rows.append(f"履约担保金额：{(brief.perfBond or '').strip() or '________'}")
+    return rows
 
 
 def _outline_severity(item: OutlineItem) -> str:
@@ -487,6 +692,9 @@ def rule_inspect(
             )
         )
 
+    if vol != "technical":
+        gaps.extend(_letter_gaps(brief, bid_text or ""))
+
     coverage = {
         "outline": _score_bucket(outline_found, outline_total),
         "commercial": _score_bucket(commercial_found, commercial_total),
@@ -610,6 +818,7 @@ def build_report(
     source: str = _SOURCE_GENERATED,
     upload_name: str | None = None,
     volume: str | None = None,
+    brief: BidBrief | None = None,
 ) -> dict[str, Any]:
     llm_score = int(llm["similarityScore"]) if llm and "similarityScore" in llm else None
     score = combine_score(int(rule.get("score") or 0), llm_score)
@@ -642,6 +851,7 @@ def build_report(
         "llmUsed": llm is not None,
         "coverage": rule.get("coverage") or {},
         "missing": missing,
+        "letterChecklist": letter_checklist(brief) if brief is not None and vol != "technical" else [],
         "checkedAt": to_epoch_ms(datetime.now(UTC)),
         "source": src,
     }
@@ -720,7 +930,7 @@ async def _missing_slot_titles(
         from api.services.tenders.placeholders import collect_slots, this_bid_keys
 
         catalog = await catalog_placeholders(db)
-        has_agent = bool((brief.agentName or "").strip() or (brief.agentIdNo or "").strip())
+        has_agent = bool(brief.authEnabled)
         required_keys, include_keys = this_bid_keys(
             extra=brief.extraPlaceholders,
             catalog=catalog,
@@ -794,6 +1004,7 @@ async def inspect_bid(
         source=src,
         upload_name=upload_name,
         volume=vol,
+        brief=brief,
     )
     save_qa_report(public_id, report, volume=vol)
     return report

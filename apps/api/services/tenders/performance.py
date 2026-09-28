@@ -262,6 +262,20 @@ _SCOPE_WORDS = (
     "EPC",
 )
 _CHARGER_SCOPE = frozenset({"充电桩", "充电设施", "充电机", "直流桩", "交流桩", "群充"})
+_SCOPE_JUNK = (
+    "所要求",
+    "相符",
+    "指标项",
+    "招标文件",
+    "投标人",
+    "须提供",
+    "资格审查",
+    "证明材料",
+    "与牵引",
+    "响应情况",
+    "填写",
+    "详见",
+)
 _CN_COUNT = {
     "一": 1,
     "二": 2,
@@ -316,6 +330,40 @@ def _word_in(blob: str, word: str) -> bool:
     return bool(word.isascii() and len(word) >= 2 and word.upper() in blob.upper())
 
 
+def _clean_scope(text: str) -> str:
+    s = re.sub(r"\s+", "", text or "")
+    if len(s) < 2:
+        return ""
+    if any(j in s for j in _SCOPE_JUNK):
+        hits = [w for w in _SCOPE_WORDS if _word_in(s, w)]
+        return "、".join(hits[:3])
+    if len(s) > 16:
+        hits = [w for w in _SCOPE_WORDS if _word_in(s, w)]
+        return "、".join(hits[:3])
+    return s[:80]
+
+
+def _type_tokens(req: PerformanceRequirement | None) -> list[str]:
+    if req is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        cleaned = _clean_scope(raw)
+        for part in re.split(r"[、,，;；/]", cleaned):
+            word = (part or "").strip()
+            if not word or word in seen:
+                continue
+            seen.add(word)
+            out.append(word)
+
+    for item in req.keywords or []:
+        add(str(item))
+    add(req.similarScope or "")
+    return out
+
+
 def extract_performance_requirement(text: str) -> PerformanceRequirement:
     """从招标/邀请书抽出业绩门槛。找不到则空对象，不套用默认 20 万。"""
     windows = _perf_windows(text)
@@ -329,9 +377,12 @@ def extract_performance_requirement(text: str) -> PerformanceRequirement:
     for window in windows:
         for match in _SCOPE_PAT.finditer(window):
             scope = (match.group("scope") or "").strip("的 ")
-            if scope and scope not in {"项目", "工程", "合同"} and len(scope) <= 16:
-                scopes.append(scope)
-    similar = scopes[0] if scopes else ("、".join(keywords[:3]) if keywords else "")
+            cleaned = _clean_scope(scope)
+            if cleaned and cleaned not in {"项目", "工程", "合同"}:
+                scopes.append(cleaned)
+    similar = _clean_scope(scopes[0] if scopes else "") or (
+        "、".join(keywords[:3]) if keywords else ""
+    )
     if similar:
         for word in _SCOPE_WORDS:
             if _word_in(similar, word) and word not in keywords:
@@ -366,12 +417,13 @@ def requirement_from_payload(patch: dict[str, Any] | None) -> PerformanceRequire
         for item in (raw.get("keywords") or [])
         if isinstance(item, str) and str(item).strip()
     ]
-    similar = str(raw.get("similarScope") or raw.get("scope") or "").strip()[:80]
+    similar = _clean_scope(str(raw.get("similarScope") or raw.get("scope") or "").strip())
     for word in _SCOPE_WORDS:
         if word in similar and word not in keywords:
             keywords.append(word)
+    keywords = [w for w in keywords if _clean_scope(w)]
     return PerformanceRequirement(
-        similarScope=similar,
+        similarScope=similar[:80],
         keywords=keywords[:8],
         minAmountYuan=max(0.0, amount),
         minCount=max(0, min(count, 20)),
@@ -396,7 +448,10 @@ def merge_performance_requirement(
     if count <= 0 and 0 < right.minCount <= 20:
         count = right.minCount
     keywords = list(dict.fromkeys([*(left.keywords or []), *(right.keywords or [])]))[:8]
-    similar = (left.similarScope or "").strip() or (right.similarScope or "").strip()
+    keywords = [w for w in keywords if _clean_scope(w)][:8]
+    similar = _clean_scope((left.similarScope or "").strip()) or _clean_scope(
+        (right.similarScope or "").strip()
+    )
     if not similar and keywords:
         similar = "、".join(keywords[:3])
     note = (left.note or "").strip() or (right.note or "").strip()
@@ -429,7 +484,7 @@ def match_performance_line(
         elif float(line.amountYuan or 0) + 0.5 < req.minAmountYuan:
             amount_ok = False
             reasons.append("金额不足")
-    if req.keywords or (req.similarScope or "").strip():
+    if _type_tokens(req):
         similar_ok = _similar_hit(line, blob, req)
         if not similar_ok:
             reasons.append("类型不符")
@@ -450,7 +505,8 @@ def format_requirement(req: PerformanceRequirement | None) -> str:
         return ""
     assert req is not None
     parts: list[str] = []
-    scope = (req.similarScope or "").strip() or "、".join(req.keywords[:3])
+    tokens = _type_tokens(req)
+    scope = _clean_scope(req.similarScope or "") or "、".join(tokens[:3])
     if scope:
         parts.append(f"同类「{scope}」")
     if req.minAmountYuan > 0:
@@ -497,14 +553,14 @@ def compact_perf_text(line: PerformanceLine) -> str:
 
 
 def _similar_hit(line: PerformanceLine, blob: str, req: PerformanceRequirement) -> bool:
-    for word in req.keywords or []:
+    tokens = _type_tokens(req)
+    if not tokens:
+        return True
+    for word in tokens:
         if _word_in(blob, word):
             return True
         if word in _CHARGER_SCOPE and is_charger_line(line):
             return True
-    scope = re.sub(r"\s+", "", req.similarScope or "")
-    if len(scope) >= 2 and (scope in blob or _word_in(blob, scope)):
-        return True
     return False
 
 

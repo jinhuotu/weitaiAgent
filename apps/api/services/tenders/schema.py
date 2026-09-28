@@ -134,6 +134,18 @@ class DocumentFormat(BaseModel):
     pageNumberStart: str = Field(default="body", max_length=12)
 
 
+class BidRequirement(BaseModel):
+    """招标书里的资格/评分/佐证要求，用于生成对照，不进组卷目录。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = ""
+    text: str = ""
+    category: str = "qualification"
+    targetKind: str = ""
+    targetTitle: str = ""
+
+
 class OutlineItem(BaseModel):
     """招标书「投标/响应文件格式」里的一条组卷要求。"""
 
@@ -193,10 +205,23 @@ class BidBrief(BaseModel):
     agentAuthUntil: str = Field(default="")
     # required=招标书强制委托；optional=有格式页但法人可自签；空=未抽出
     authNeed: str = Field(default="")
+    # 经办人开关：默认关，关着不校验委托人；打开才入卷并要填姓名/证号
+    authEnabled: bool = Field(default=False)
 
     trafficFeeNote: str = Field(default="质保期外流量年收费标准：7元/年")
     extraNote: str = Field(default="")
     factoryRole: str = Field(default="")
+    # 邀请书抽出的控制价/保证金；None=未抽出，0 也要按原文填写。
+    controlPriceYuan: float | None = Field(default=None)
+    safetyFeeYuan: float | None = Field(default=None)
+    provisionalYuan: float | None = Field(default=None)
+    primeCostYuan: float | None = Field(default=None)
+    bidBondYuan: float | None = Field(default=None)
+    pmName: str = Field(default="")
+    pmCertNo: str = Field(default="")
+    pmGrade: str = Field(default="")
+    defectPeriod: str = Field(default="")
+    perfBond: str = Field(default="")
     attachQualifications: bool = Field(default=False)
     includePlaceholders: bool = Field(default=False)
     includeCommitment: bool = Field(default=True)
@@ -230,6 +255,7 @@ class BidBrief(BaseModel):
     generateVolume: str = Field(default="business")
     outlineChapter: str = Field(default="")
     outlineItems: list[OutlineItem] = Field(default_factory=list)
+    bidRequirements: list[BidRequirement] = Field(default_factory=list)
     documentFormat: DocumentFormat = Field(default_factory=DocumentFormat)
     # 解析邀请书时写入，供生成后对照原文做 AI 质检。
     invitationId: str = Field(default="", max_length=16)

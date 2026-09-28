@@ -161,11 +161,9 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
         issues.append("年龄")
     if not (brief.legalPersonIdNo or "").strip():
         issues.append("法人身份证号")
-    if (brief.agentName or "").strip() and not (brief.agentIdNo or "").strip():
-        issues.append("代理人身份证号")
-    if (brief.authNeed or "").strip() == "required" and not (brief.agentName or "").strip():
-        issues.append("委托代理人（招标书要求授权委托）")
-    if (brief.authNeed or "").strip() == "required" and not (brief.agentIdNo or "").strip():
+    if bool(brief.authEnabled) and not (brief.agentName or "").strip():
+        issues.append("委托代理人")
+    if bool(brief.authEnabled) and not (brief.agentIdNo or "").strip():
         issues.append("代理人身份证号")
     if not any((ln.name or "").strip() for ln in (brief.quoteLines or [])):
         issues.append("报价清单")
@@ -223,6 +221,14 @@ async def _prepare_and_generate(
     t0 = time.perf_counter()
     if not (brief.bidDate or "").strip():
         brief.bidDate = date.today().isoformat()
+    if brief.authEnabled:
+        from api.services.tenders.history import latest_agent_profile
+
+        hint = await latest_agent_profile(db)
+        if not (brief.agentName or "").strip() and hint.get("agentName"):
+            brief.agentName = hint["agentName"]
+        if not (brief.agentIdNo or "").strip() and hint.get("agentIdNo"):
+            brief.agentIdNo = hint["agentIdNo"]
     issues = _brief_generate_issues(brief)
     if issues:
         raise AppError(
@@ -242,7 +248,7 @@ async def _prepare_and_generate(
             requirement=brief.performanceRequirement,
             preserve_flags=True,
         )
-    has_agent = bool((brief.agentName or "").strip() or (brief.agentIdNo or "").strip())
+    has_agent = bool(brief.authEnabled)
     required_keys, include_keys = this_bid_keys(
         extra=brief.extraPlaceholders,
         catalog=catalog,

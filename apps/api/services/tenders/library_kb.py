@@ -28,6 +28,7 @@ from api.services.tenders.performance import (
     load_perf_meta,
     rank_performance_lines,
 )
+from api.services.tenders.match import find_catalog_item, same_library_material
 from api.services.tenders.placeholders import DEFAULT_SLOTS, TECH_DRAWING_KEY, collect_slots
 from api.services.tenders.schema import PerformanceLine, PlaceholderItem
 from api.services.tenders.slots import (
@@ -150,10 +151,14 @@ async def _list_docs(db: AsyncSession, base_id: int) -> list[KnowledgeDocument]:
 
 async def _seed_defaults_if_empty(db: AsyncSession, base: KnowledgeBase) -> None:
     docs = await _list_docs(db, base.id)
-    existing = {key_from_tags(d.tags) for d in docs if _is_material_parent(d)}
+    parents = [d for d in docs if _is_material_parent(d)]
+    existing = {key_from_tags(d.tags) for d in parents}
+    titles = [d.name or "" for d in parents]
     added = False
     for item in DEFAULT_SLOTS:
         if not item.key or item.key in existing:
+            continue
+        if any(same_library_material(item.title, t) for t in titles if t):
             continue
         db.add(
             _new_parent(
@@ -500,6 +505,20 @@ def item_to_slot(
 ) -> dict[str, object]:
     key = key_from_tags(parent.tags) or f"m{parent.public_id}"
     files = [_file_entry(doc, path) for doc, path in _iter_file_docs(parent, children)]
+    if not files and key and _KEY_RE.match(key):
+        for path in list_slot_files(key):
+            ext = path.suffix.lstrip(".").lower()
+            files.append(
+                {
+                    "id": "",
+                    "fileId": "",
+                    "name": path.stem or path.name,
+                    "fileName": path.name,
+                    "sizeBytes": path.stat().st_size,
+                    "fileType": ext,
+                    "kind": library_file_kind(ext),
+                }
+            )
     return {
         "key": key,
         "docId": parent.public_id,
@@ -728,10 +747,30 @@ async def persist_parsed_materials(
     created_by: int | None = None,
 ) -> list[PlaceholderItem]:
     """邀请书多出来的资料项写入资料库空项，便于当场上传。不复制其他资料项或历史项目的扫描件。"""
-    existing = {str(it.get("key") or "") for it in await list_library_items(db)}
+    rows = await list_library_items(db)
+    catalog = [
+        PlaceholderItem(
+            key=str(it.get("key") or ""),
+            title=str(it.get("title") or ""),
+            hint=str(it.get("hint") or ""),
+        )
+        for it in rows
+        if str(it.get("key") or "")
+    ]
+    existing = {item.key for item in catalog}
     out: list[PlaceholderItem] = []
     for item in extras:
         key = (item.key or "").strip()
+        found = find_catalog_item(catalog, key=key, title=item.title, hint=item.hint)
+        if found is not None:
+            out.append(
+                PlaceholderItem(
+                    key=found.key,
+                    title=found.title or item.title,
+                    hint=item.hint or found.hint,
+                )
+            )
+            continue
         if key and key in existing:
             out.append(item)
             continue
@@ -746,6 +785,9 @@ async def persist_parsed_materials(
         next_key = str(created.get("key") or "")
         if next_key:
             existing.add(next_key)
+            catalog.append(
+                PlaceholderItem(key=next_key, title=item.title, hint=item.hint or "")
+            )
         out.append(
             PlaceholderItem(
                 key=next_key or key,
@@ -839,9 +881,20 @@ async def resolve_attachments(
         paths: list[Path] = []
         if parent is not None:
             paths = _files_of(parent, children.get(parent.public_id, []))
-        # 只允许同一 key 的扫描件；禁止拿其他资料项或历史项目文件顶替。
         if not paths and _KEY_RE.match(key):
             paths = list_slot_files(key)
+        if not paths:
+            # 资料库里同名/同类项已有扫描件时用那份，不另建空槽
+            for pkey, other in parents.items():
+                if pkey == key:
+                    continue
+                if not same_library_material(item.title, other.name or ""):
+                    continue
+                paths = _files_of(other, children.get(other.public_id, []))
+                if not paths and pkey and _KEY_RE.match(pkey):
+                    paths = list_slot_files(pkey)
+                if paths:
+                    break
         if paths:
             out[key] = paths
     return out

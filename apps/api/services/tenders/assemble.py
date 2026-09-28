@@ -20,9 +20,12 @@ from api.services.tenders.document import (
     _bookmark_paragraph,
     _ensure_header,
     _estimate_bookmark_pages,
+    _insert_bottom_sign_spacer_before,
+    _insert_min_sign_gap,
     _p_sectpr,
     _paragraph_has_page_break,
     _pin_cjk_fonts,
+    _LETTER_SIGN_RIGHT_KW,
     _rewrite_date_line,
     _rewrite_labeled_underline,
     _sect_starts_new_page,
@@ -41,17 +44,29 @@ from api.services.tenders.format_rules import (
     toc_page_cache,
 )
 from api.services.tenders.modules import COPY_KINDS, MODULE_KINDS, is_seal_register, render_module
+from api.services.tenders.money import rmb_figure, rmb_pair, rmb_uppercase
 from api.services.tenders.outline import (
+    bid_is_works,
     bid_item_title,
     build_outline_toc_tree,
     compact_title,
+    dedupe_letter_items,
     dedupe_outline_items,
+    is_invite_pack_title,
+    is_policy_statement_title,
+    cut_invite_pack_body,
+    letter_role,
+    slice_copied_letter_body,
     drop_ocr_junk_lines,
+    ensure_appendix_fields,
     ensure_biz_essentials,
+    ensure_works_letter_fixed,
     fill_copy_blanks,
     is_outline_junk,
     items_for_volume,
+    can_copy_invite_body,
     looks_like_form_template,
+    looks_like_bid_copy_body,
     looks_like_quote_form,
     split_mashed_zhi_line,
     split_zhi_company_body,
@@ -78,11 +93,13 @@ _SIGN_LABEL = re.compile(
     r"^(投标人名称|供应商名称|投标人|供应商|承诺单位|投标单位|"
     r"法定代表人或授权代表|"
     r"法定代表人或其委托代理人|法定代表人或委托代理人|法定代表人|"
-    r"委托代理人|授权代表|联系人|联系电话|电话|地址|住址)"
+    r"委托代理人|授权代表|联系电话|联系人|项目联系人电话|项目联系人|"
+    r"电话|传真|地址|住址|网址|邮箱|电子信箱|电子邮箱|邮政编码)"
     r"(?:[（(]([^)）]*)[)）])?[：:]*(.*)$"
 )
 _SIGN_TOKEN = re.compile(
-    r"(投标人|供应商|法定代表人|授权代表|委托代理人|联系人|联系电话|电话|地址|日期|"
+    r"(投标人|供应商|法定代表人|授权代表|委托代理人|联系人|联系电话|电话|传真|"
+    r"地址|网址|邮箱|电子信箱|邮政编码|日期|"
     r"（章）|\(章\)|签字|签名|盖章|公章)"
 )
 _DATE_YMD = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
@@ -96,8 +113,69 @@ _SIGN_KW = dict(
     nowrap=True,
     line_em=16,
 )
+_FIELD_FILL_KW = dict(
+    align=WD_ALIGN_PARAGRAPH.LEFT,
+    left_indent_cm=0,
+    right_indent_cm=0.4,
+    line_spacing=1.15,
+    space_before=2,
+    space_after=1,
+    nowrap=True,
+    line_em=10,
+)
+_SIGN_SUF = re.compile(r"^[（(](签字或盖章|签字|盖章|盖单位公章|盖单位章)[)）]\s*$")
+_LETTER_CONTACT_FILL = re.compile(
+    r"^(地址|住址|网址|电话|传真|邮政编码|邮编|项目联系人|电子信箱|电子邮箱|邮箱)"
+)
 _ATTACH_LINE = re.compile(
     r"^(附(?:件)?[（(]?[一二三四五六七八九十0-9]+[)）]?[：:]?)(.*)$"
+)
+_FORM_TITLE = re.compile(
+    r"^[（(][一二三四五六七八九十0-9]+[)）]\s*.{0,20}"
+    r"(?:投标函附录|响应函附录|投标函|响应函|承诺函|承诺书)$"
+)
+_FIELD_HEADS = (
+    "法定代表人或其委托代理人",
+    "法定代表人或委托代理人",
+    "措施项目费用合计",
+    "专业工程暂估价",
+    "安全生产措施费",
+    "项目联系人电话",
+    "缺陷责任期",
+    "履约担保金额",
+    "投标有效期",
+    "项目经理",
+    "注册证号",
+    "专业等级",
+    "投标总报价",
+    "邮政编码",
+    "电子信箱",
+    "电子邮箱",
+    "项目联系人",
+    "投标范围",
+    "项目名称",
+    "暂列金额",
+    "投标工期",
+    "备注投标人",
+    "工程质量",
+    "增值税",
+    "投标人",
+    "传真",
+    "网址",
+    "邮箱",
+    "地址",
+    "电话",
+    "日期",
+)
+_FIELD_LINE = re.compile(
+    r"^(?P<label>"
+    r"项目名称|投标范围|安全生产措施费(?:[（(]元[)）])?(?:大写)?|"
+    r"暂列金额|专业工程暂估价|"
+    r"投标总报价|增值税|措施项目费用合计|投标工期|工程质量|缺陷责任期|"
+    r"履约担保金额|投标有效期|项目经理|注册证号|专业等级|"
+    r"备注投标人|邮政编码|项目联系人电话|项目联系人|电子信箱|电子邮箱|"
+    r"网址|传真|邮箱|大写|小写"
+    r")\s*(?P<paren>[（(][^)）]*[)）])?[：:；;]?(?P<rest>.*)$"
 )
 _QUAL_PACK_MARKS = ("企业资质", "资质证明", "资质文件", "资格审查资料", "资格证明资料")
 _SECTION_HEAD = re.compile(r"^[(（][0-9一二三四五六七八九十]+[)）]")
@@ -137,9 +215,9 @@ def assemble_bid_docx(
             for item in (brief.outlineItems or [])
             if not item.skipped and (item.kind or "").strip() != "" and not is_outline_junk(item)
         ]
-        items = dedupe_outline_items(items)
+        items = dedupe_letter_items(dedupe_outline_items(items))
         if (brief.layoutMode or "").strip() == "outline":
-            items = ensure_biz_essentials(items)
+            items = dedupe_letter_items(ensure_biz_essentials(items))
             items = [item for item in items if not item.skipped]
     if not items:
         warnings.append("组卷大纲为空或已全部跳过，未按大纲生成")
@@ -175,16 +253,31 @@ def assemble_bid_docx(
     media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
     inlined_ids: set[str] = set()
     qual_tried = False
+    letter_done = False
+    appendix_done = False
+    works = bid_is_works(brief)
     for i, item in enumerate(items):
         kind = (item.kind or "unknown").strip() or "unknown"
+        if is_policy_statement_title(item.title) or is_invite_pack_title(item.title):
+            continue
         if kind == "quote" and quote_done:
             continue
         if kind == "quote":
             quote_done = True
+        if kind == "letter":
+            role = letter_role(item.title)
+            if role == "appendix":
+                if appendix_done:
+                    continue
+                appendix_done = True
+            else:
+                if letter_done and role != "appendix":
+                    continue
+                letter_done = True
+            item = item.model_copy(update={"body": slice_copied_letter_body(item.body, item.title)})
         if not (i == 0 and fmt.pageNumberStart == "body"):
             _chapter_break(doc)
-        source = (item.source or "").strip() or "copy"
-        raw_body = (item.body or "").strip()
+        raw_body = cut_invite_pack_body((item.body or "").strip())
         if brief.attachQualifications and not qual_tried and _is_qual_pack_item(item) and vol != "technical":
             from api.services.tenders.document import qualification_attach_notes
 
@@ -204,7 +297,7 @@ def assemble_bid_docx(
             continue
         if kind == "scan":
             _write_heading(doc, item.title, fmt, bookmarks[i])
-            if not _try_write_scan_media(doc, item, media):
+            if not _try_write_scan_media(doc, item, media, slots=slots):
                 draw_placeholder_box(
                     doc,
                     PlaceholderItem(
@@ -214,20 +307,14 @@ def assemble_bid_docx(
                     ),
                 )
             continue
-        keep_form = kind in _FORM_LAYOUT_KINDS and looks_like_form_template(raw_body)
+        keep_form = kind in _FORM_LAYOUT_KINDS and looks_like_bid_copy_body(raw_body)
         has_body = bool(raw_body)
         quote_form = kind == "quote" and has_body and looks_like_quote_form(raw_body)
-        # 扫描件不当正文抄须知；身份证明用模块排版
+        # 只抄空白稿/表格；须知 OCR 和身份证明走模块
         use_copy = (
             kind not in {"legal_id", "scan", "performance"}
-            and (not is_seal_register(item) or has_body)
-            and (
-                source == "copy"
-                or kind in COPY_KINDS
-                or keep_form
-                or quote_form
-                or (kind in _COPY_BODY_KINDS and has_body)
-            )
+            and can_copy_invite_body(kind, raw_body)
+            and (keep_form or quote_form or kind in COPY_KINDS or kind in _COPY_BODY_KINDS)
         )
         use_module = (not use_copy) and kind in MODULE_KINDS
         bm = bookmarks[i]
@@ -238,27 +325,75 @@ def assemble_bid_docx(
                     warnings.append(note)
             generated += 1
             continue
-        contact = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
-        filled = fill_copy_blanks(
-            raw_body,
-            bidder=brief.bidderName,
-            project=brief.projectName,
-            tenderer=brief.tenderer,
-            legal=brief.legalPersonName,
-            bid_date=brief.bidDate,
-            phone=brief.bidderPhone,
-            address=brief.bidderAddress,
-            contact=contact,
-            delivery_days=brief.deliveryDays,
-            validity_days=brief.bidValidityDays,
-            quality=brief.quality,
-        ).strip()
+        filled = ""
+        if use_copy:
+            contact = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
+            filled = fill_copy_blanks(
+                raw_body,
+                bidder=brief.bidderName,
+                project=brief.projectName,
+                tenderer=brief.tenderer,
+                legal=brief.legalPersonName,
+                bid_date=brief.bidDate,
+                phone=brief.bidderPhone,
+                address=brief.bidderAddress,
+                contact=contact,
+                delivery_days=brief.deliveryDays,
+                validity_days=brief.bidValidityDays,
+                quality=brief.quality,
+                price_cn=rmb_uppercase(brief.bidPriceYuan) if brief.bidPriceYuan else "",
+                price_en=rmb_figure(brief.bidPriceYuan) if brief.bidPriceYuan else "",
+                extra_note=(brief.extraNote or "").strip() or "无",
+                website=brief.bidderWebsite or "",
+                fax=brief.bidderFax or "",
+                postcode=brief.bidderPostcode or "",
+                email=brief.bidderEmail or "",
+                works=works,
+                safety_fee=rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
+                provisional=rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
+                prime_cost=rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "",
+                bid_bond=rmb_pair(brief.bidBondYuan) if brief.bidBondYuan is not None else "",
+                pm_name=brief.pmName or "",
+                pm_cert=brief.pmCertNo or "",
+                pm_grade=brief.pmGrade or "",
+                defect_period=(brief.defectPeriod or "").strip(),
+                perf_bond=(brief.perfBond or "").strip(),
+            ).strip()
+            role = letter_role(item.title) if kind == "letter" else ""
+            if filled and kind == "letter" and works and role != "appendix":
+                filled = ensure_works_letter_fixed(
+                    filled,
+                    quality=brief.quality or "",
+                    valid_days=brief.bidValidityDays,
+                    bid_bond=rmb_pair(brief.bidBondYuan) if brief.bidBondYuan is not None else "",
+                ).strip()
+            if filled and kind == "letter" and role == "appendix":
+                valid = ""
+                if brief.bidValidityDays:
+                    valid = f"自投标截止之日起{int(brief.bidValidityDays)}日历天"
+                filled = ensure_appendix_fields(
+                    filled,
+                    project=brief.projectName,
+                    bidder=brief.bidderName,
+                    scope=brief.bidContent or "",
+                    price=rmb_pair(brief.bidPriceYuan) if brief.bidPriceYuan else "",
+                    safety_fee=rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
+                    provisional=rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
+                    prime_cost=rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "",
+                    pm_name=brief.pmName or "",
+                    pm_cert=brief.pmCertNo or "",
+                    valid=valid,
+                    defect=(brief.defectPeriod or "").strip(),
+                    perf_bond=(brief.perfBond or "").strip(),
+                    grade=(brief.pmGrade or "").strip(),
+                ).strip()
+            filled = cut_invite_pack_body(filled)
         if filled:
             copied_ok = False
-            if keep_form or looks_like_form_template(filled):
+            if keep_form or looks_like_form_template(filled) or kind in _FORM_LAYOUT_KINDS:
                 before = _visible_text_len(doc)
                 start = len(doc.paragraphs)
-                _write_copied_form(doc, filled, fmt, bid_date=brief.bidDate)
+                _write_copied_form(doc, filled, fmt, bid_date=brief.bidDate, title=item.title)
                 copied_ok = _visible_text_len(doc) - before >= 20
                 if copied_ok:
                     _bookmark_first_new(doc, start, bm)
@@ -270,7 +405,7 @@ def assemble_bid_docx(
                         key="id_agent",
                         media=media,
                         inlined=inlined_ids,
-                        has_agent=bool((brief.agentName or "").strip()),
+                        has_agent=bool(brief.authEnabled),
                     )
                 copied += 1
                 continue
@@ -300,7 +435,7 @@ def assemble_bid_docx(
                     warnings.append(note)
             generated += 1
         elif kind == "commitment_copy":
-            if not _try_write_scan_media(doc, item, media):
+            if not _try_write_scan_media(doc, item, media, slots=slots):
                 draw_placeholder_box(
                     doc,
                     PlaceholderItem(
@@ -405,25 +540,53 @@ def _slot_key_for_item(item: OutlineItem) -> str:
     return ""
 
 
-def _media_keys_for_item(item: OutlineItem) -> list[str]:
-    key = _slot_key_for_item(item)
+def _alive_scan_files(raw) -> list[Path]:
+    out: list[Path] = []
+    for p in raw or []:
+        path = p if isinstance(p, Path) else Path(str(p))
+        try:
+            if path.is_file():
+                out.append(path)
+        except OSError:
+            continue
+    return out
+
+
+def _media_keys_for_item(item: OutlineItem, slots: list | None = None) -> list[str]:
+    from api.services.tenders.match import _kind_hits, _same_material_kind, scan_slot_key
+
     keys: list[str] = []
-    if key:
-        keys.append(key)
-    if key == "commitment" and "credit" not in keys:
+    mapped = scan_slot_key(item.title or "", list(slots or []))
+    kind = _slot_key_for_item(item)
+    for key in (mapped, kind, (item.id or "").strip()):
+        if key and key not in keys:
+            keys.append(key)
+    hits = _kind_hits(item.title or "")
+    for slot in slots or []:
+        key = (getattr(slot, "key", None) or "").strip()
+        if not key or key in keys:
+            continue
+        title = getattr(slot, "title", None) or ""
+        if kind and (key == kind or _same_material_kind(item.title or "", title)):
+            keys.append(key)
+        elif hits and (_kind_hits(title) & hits):
+            keys.append(key)
+    if kind == "commitment" and "credit" not in keys:
         keys.append("credit")
     return keys
 
 
-def _try_write_scan_media(doc: Document, item: OutlineItem, media: dict | None) -> bool:
-    files = []
+def _try_write_scan_media(
+    doc: Document, item: OutlineItem, media: dict | None, slots: list | None = None
+) -> bool:
+    files: list[Path] = []
     if isinstance(media, dict):
-        for key in _media_keys_for_item(item):
-            files = [p for p in (media.get(key) or []) if getattr(p, "is_file", lambda: False)()]
+        for key in _media_keys_for_item(item, slots):
+            files = _alive_scan_files(media.get(key))
             if files:
                 break
         if not files:
-            files = [p for p in (media.get(item.id) or []) if getattr(p, "is_file", lambda: False)()]
+            files = _alive_scan_files(media.get(item.id))
     if not files:
         return False
     n = _insert_slot_media(doc, files[:4], max_pages=2)
@@ -690,26 +853,25 @@ def _write_heading(doc: Document, title: str, fmt: DocumentFormat, bookmark: str
 
 def _write_copied_salute(doc: Document, block: str) -> None:
     n = compact_title(block)
-    if not n.startswith("致"):
-        _form_para(doc, block, size=12, align="left", space_after=8)
-        return
-    rest = n[1:].lstrip("：:")
+    rest = n[1:].lstrip("：:") if n.startswith("致") else n
+    rest = rest.strip("：: ")
     co, body = split_zhi_company_body(rest)
     if not body:
         co = re.sub(r"[＿_—\-－]+", "", rest)
         body = ""
+    co = (co or "").strip("：: ")
     para = doc.add_paragraph()
     _rewrite_labeled_underline(
         para,
-        [("致：", co, "")],
+        [("致：", co, "：")],
         align=WD_ALIGN_PARAGRAPH.LEFT,
         left_indent_cm=0,
         right_indent_cm=0.4,
-        line_spacing=1.5,
-        space_before=6,
-        space_after=10,
+        line_spacing=1.08,
+        space_before=2,
+        space_after=6,
         nowrap=True,
-        line_em=22,
+        line_em=max(18, min(len(co) + 2, 28)),
     )
     if body:
         _form_para(
@@ -718,8 +880,8 @@ def _write_copied_salute(doc: Document, block: str) -> None:
             size=12,
             align="justify",
             indent=True,
-            space_after=6,
-            line_spacing=1.5,
+            space_after=2,
+            line_spacing=1.08,
         )
 
 
@@ -737,9 +899,74 @@ def _is_date_sign_line(text: str) -> bool:
     return bool(_DATE_YMD.search(text or "")) and len(n) <= 22
 
 
+_APPENDIX_FIELD_MARKS = (
+    "项目名称",
+    "投标人",
+    "投标范围",
+    "投标内容",
+    "投标总报价",
+    "安全生产",
+    "暂列金额",
+    "专业工程暂估价",
+    "项目经理",
+    "注册证号",
+    "投标有效期",
+    "缺陷责任期",
+    "履约担保",
+    "专业等级",
+)
+
+
+def _copied_sign_kw(label: str, suffix: str = "") -> dict:
+    blob = f"{label}{suffix}"
+    if any(k in label for k in _APPENDIX_FIELD_MARKS) and not any(k in blob for k in ("盖", "章", "签字")):
+        return _FIELD_FILL_KW
+    if "法定代表人" in blob:
+        return {**_LETTER_SIGN_RIGHT_KW, "line_em": 4, "space_before": 1}
+    if "投标人" in label and any(k in blob for k in ("盖", "章", "签字")):
+        return {**_LETTER_SIGN_RIGHT_KW, "line_em": 8, "space_before": 16}
+    if label.startswith("日期") or any(k in label for k in ("联系人", "联系电话")):
+        return {**_LETTER_SIGN_RIGHT_KW, "line_em": 8, "space_before": 1}
+    return _SIGN_KW
+
+
+def _is_letter_contact_filler(line: str) -> bool:
+    n = compact_title(line)
+    if n.startswith(("联系人", "联系电话")):
+        return False
+    if _LETTER_CONTACT_FILL.match(n):
+        return True
+    return n.startswith("项目联系人")
+
+
+def _absorb_sign_suffix(lines: list[str], i: int, block: str) -> tuple[str, int]:
+    if i + 1 >= len(lines):
+        return block, 0
+    nxt = (lines[i + 1] or "").strip()
+    if not _SIGN_SUF.match(nxt):
+        return block, 0
+    if any(k in compact_title(block) for k in ("签字", "盖章")):
+        return block, 1
+    return f"{block.rstrip()}{nxt}", 1
+
+
+def _letter_like_form(title: str) -> bool:
+    n = compact_title(title or "")
+    return any(k in n for k in ("投标函", "响应函"))
+
+
+def _keep_sign_line(para, *, date: bool = False) -> None:
+    if not date:
+        para.paragraph_format.keep_with_next = True
+
+
 def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") -> None:
     raw = (block or "").strip()
+    if _is_letter_contact_filler(raw):
+        return
     n = compact_title(raw)
+    if _SIGN_SUF.match(n) or n in {"签字或盖章", "（签字或盖章）"}:
+        return
     if _is_date_sign_line(raw):
         para = doc.add_paragraph()
         ymd = _ymd_in(raw)
@@ -753,7 +980,7 @@ def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") ->
                 ymd[0],
                 ymd[1],
                 ymd[2],
-                **_SIGN_KW,
+                **_copied_sign_kw("日期："),
                 label="日期：",
                 label_width=5,
             )
@@ -761,13 +988,29 @@ def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") ->
         _rewrite_labeled_underline(
             para,
             [("日期：", "", "")],
-            **_SIGN_KW,
+            **_copied_sign_kw("日期："),
             label_width=5,
         )
         return
     matched = _SIGN_LABEL.match(n)
     if not matched:
-        _form_para(doc, block, size=12, align="left", space_after=2, line_spacing=1.15)
+        field = _FIELD_LINE.match(n) or _FIELD_LINE.match(raw)
+        if not field:
+            _form_para(doc, block, size=12, align="left", space_after=2, line_spacing=1.15)
+            return
+        label = field.group("label")
+        paren = field.group("paren") or ""
+        rest = (field.group("rest") or "").strip("：: ")
+        label = f"{label}{paren}："
+        value = re.sub(r"[＿_—\-－]+", "", rest)
+        para = doc.add_paragraph()
+        _rewrite_labeled_underline(
+            para,
+            [(label, value, "")],
+            **_copied_sign_kw(label),
+            label_width=None,
+        )
+        _keep_sign_line(para)
         return
     label = matched.group(1) + "："
     rest = (matched.group(3) or "").lstrip("：:")
@@ -785,15 +1028,52 @@ def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") ->
         suf_m = re.search(r"([（(][^)）]*[)）])\s*$", rest)
         if suf_m:
             rest = rest[: suf_m.start()]
+    if "法定代表人" in label and not suffix:
+        suffix = "（签字或盖章）"
     blob = f"{label}{suffix}{rest}"
     value = "" if any(k in blob for k in ("签字", "签名", "手签")) else re.sub(r"[＿_—\-－\s：:]+", "", rest)
     para = doc.add_paragraph()
     _rewrite_labeled_underline(
         para,
         [(label, value, suffix)],
-        **_SIGN_KW,
+        **_copied_sign_kw(label, suffix),
         label_width=5 if len(matched.group(1)) <= 4 else None,
     )
+    _keep_sign_line(para)
+
+
+def _unglue_form_text(text: str) -> str:
+    """把 OCR 粘在一起的标题、致函行、附录填空拆开。"""
+    s = text or ""
+    s = re.sub(
+        r"([）)](?:投标函附录|响应函附录|投标函|响应函|承诺函))"
+        r"(?=项目名称|投标人|法定代表人)",
+        r"\1\n",
+        s,
+    )
+    s = re.sub(
+        r"([）)](?:签字或盖章|签字|盖章))(地址|电话|网址|邮箱|邮政编码)",
+        r"\1\n\2",
+        s,
+    )
+    s = re.sub(r"(电话[：:][^\n]{0,24}?)(传真)", r"\1\n\2", s)
+    s = re.sub(r"(传真[：:][^\n]{0,24}?)(邮政编码)", r"\1\n\2", s)
+    s = re.sub(r"(地址[：:][^\n]{0,80}?)(电话|网址)", r"\1\n\2", s)
+    s = re.sub(r"(网址[：:][^\n]{0,80}?)(电话)", r"\1\n\2", s)
+    heads = "|".join("(?<!联系)电话" if h == "电话" else h for h in _FIELD_HEADS)
+    s = re.sub(
+        rf"(?<![。；;\d])({heads})(?={heads}|[：:；;]|[（(]元[)）]|大写|小写|$)",
+        r"\n\1",
+        s,
+    )
+    s = re.sub(
+        r"(投标范围|安全生产措施费|暂列金额|专业工程暂估价|投标总报价|增值税|措施项目费用合计)"
+        r"([（(]元[)）])?(大写)",
+        r"\1\2\n\3",
+        s,
+    )
+    s = re.sub(r"(安全生产措施费)\s*\n\s*([（(]元[)）])\s*(大写)", r"\1\2\3", s)
+    return s
 
 
 def _absorb_date_follow(lines: list[str], i: int, block: str) -> tuple[str, int]:
@@ -807,25 +1087,101 @@ def _absorb_date_follow(lines: list[str], i: int, block: str) -> tuple[str, int]
     return f"{block.rstrip('：: ')}：{nxt.strip()}", 1
 
 
-def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat, *, bid_date: str = "") -> None:
+def _is_appendix_form_title(line: str) -> bool:
+    n = compact_title(line or "")
+    return any(k in n for k in ("投标函附录", "响应函附录")) and len(n) <= 24
+
+
+def _drop_orphan_sign_suffix(doc: Document, start: int) -> None:
+    paras = list(doc.paragraphs[start:])
+    i = 0
+    while i < len(paras):
+        raw = (paras[i].text or "").strip()
+        n = compact_title(raw)
+        orphan = bool(_SIGN_SUF.match(raw) or n in {"签字或盖章", "（签字或盖章）"})
+        if orphan and i:
+            prev = paras[i - 1]
+            if "法定代表人" in compact_title(prev.text):
+                if "签字或盖章" not in (prev.text or ""):
+                    _rewrite_labeled_underline(
+                        prev,
+                        [("法定代表人或其委托代理人：", "", "（签字或盖章）")],
+                        **{**_LETTER_SIGN_RIGHT_KW, "line_em": 6},
+                    )
+                paras[i]._element.getparent().remove(paras[i]._element)
+                paras.pop(i)
+                continue
+        i += 1
+
+
+def _glue_copied_signoff(doc: Document, start: int) -> None:
+    """把落款钉在正文末段后面，避免投标人/法定代表人单独翻页。"""
+    _drop_orphan_sign_suffix(doc, start)
+    paras = list(doc.paragraphs[start:])
+    chunks: list[list] = []
+    cur: list = []
+    for p in paras:
+        n = compact_title(p.text)
+        if _FORM_TITLE.match(n) and cur:
+            chunks.append(cur)
+            cur = [p]
+        else:
+            cur.append(p)
+    if cur:
+        chunks.append(cur)
+    for chunk in chunks:
+        idx = None
+        for i, p in enumerate(chunk):
+            n = compact_title(p.text)
+            if ("投标人" in n or "供应商" in n) and any(k in n for k in ("盖单位", "盖章", "（章）", "(章)")):
+                idx = i
+                break
+        if idx is None:
+            continue
+        for p in chunk[max(0, idx - 2) : idx]:
+            p.paragraph_format.keep_with_next = True
+        for p in chunk[idx:-1]:
+            p.paragraph_format.keep_with_next = True
+            p.paragraph_format.keep_together = True
+        first = chunk[idx]
+        spacer = _insert_bottom_sign_spacer_before(first, sign_cm=2.4)
+        if spacer is None:
+            _insert_min_sign_gap(first, height_cm=0.45)
+
+
+def _write_copied_form(
+    doc: Document, text: str, fmt: DocumentFormat, *, bid_date: str = "", title: str = ""
+) -> None:
     """按招标书空白稿的行角色还原标题、缩进和落款，而不是整页同一缩进。"""
     body = fmt.bodySizePt
     font = fmt.fontName
+    letter = _letter_like_form(title)
+    body_after = 2 if letter else 6
+    body_ls = 1.08 if letter else 1.15
+    start = len(doc.paragraphs)
     lines = [_strip_inline_format_head(b) for b in _paragraphs_from_body(text)]
+    glued = _unglue_form_text("\n".join(ln for ln in lines if ln))
+    lines = [_strip_inline_format_head(ln) for ln in glued.splitlines() if ln.strip()]
     i = 0
     while i < len(lines):
         block = lines[i]
+        if letter and _is_letter_contact_filler(block):
+            i += 1
+            continue
+        if _SIGN_SUF.match((block or "").strip()):
+            i += 1
+            continue
         if _is_invite_attach_label(block):
             i += 1
             continue
-        nxt = _try_write_pipe_table(doc, lines, i, fmt=fmt)
+        nxt = _try_write_pipe_table(doc, lines, i, fmt=fmt, title=title)
         if nxt is not None:
             i = nxt
             continue
         cells = _header_cells(block)
         if cells:
             rows, i = _collect_table_rows(lines, i + 1, len(cells))
-            _write_simple_table(doc, cells, rows, font=font)
+            _write_simple_table(doc, cells, rows, font=font, title=title)
             continue
         role = _form_line_role(block)
         if role == "skip":
@@ -857,14 +1213,16 @@ def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat, *, bid_dat
             i += 1
             continue
         if role == "title":
+            if letter and i > 0 and _is_appendix_form_title(block):
+                _chapter_break(doc)
             _form_para(
                 doc,
                 _spaced_title(block),
                 size=fmt.headingSizePt,
                 bold=True,
                 align="center",
-                space_before=10,
-                space_after=14,
+                space_before=6 if letter else 10,
+                space_after=8 if letter else 14,
                 font=font,
             )
             i += 1
@@ -880,6 +1238,8 @@ def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat, *, bid_dat
             continue
         if role == "sign":
             merged, extra = _absorb_date_follow(lines, i, block)
+            merged, skip_suf = _absorb_sign_suffix(lines, i + extra, merged)
+            extra += skip_suf
             _write_copied_sign_line(doc, merged, bid_date=bid_date)
             i += 1 + extra
             continue
@@ -895,11 +1255,13 @@ def _write_copied_form(doc: Document, text: str, fmt: DocumentFormat, *, bid_dat
             size=body,
             align="justify" if indent else "left",
             indent=indent,
-            space_after=6,
-            line_spacing=1.15,
+            space_after=body_after,
+            line_spacing=body_ls,
             font=font,
         )
         i += 1
+    if letter:
+        _glue_copied_signoff(doc, start)
 
 
 def _strip_inline_format_head(text: str) -> str:
@@ -932,6 +1294,8 @@ def _form_line_role(line: str) -> str:
     if attach and len(n) <= 48:
         return "attach"
     compact = compact_title(raw)
+    if _FORM_TITLE.match(compact) or _FORM_TITLE.match(raw.replace(" ", "")):
+        return "title"
     if (
         "：" not in raw
         and ":" not in raw
@@ -954,6 +1318,10 @@ def _form_line_role(line: str) -> str:
         len(compact) <= 48
         or compact.startswith(("投标人", "供应商", "法定代表人", "日期", "委托代理人"))
     ):
+        return "sign"
+    if _FIELD_LINE.match(compact) or _FIELD_LINE.match(raw):
+        return "sign"
+    if _SIGN_LABEL.match(compact):
         return "sign"
     if re.search(r"年\S{0,6}月\S{0,6}日", compact) and len(compact) <= 28:
         return "sign"
@@ -1183,26 +1551,92 @@ def _cell_text(
         cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
 
 
+_STRETCH_HEAD = (
+    "建设要求",
+    "实现目标",
+    "项目内容",
+    "规格型号",
+    "规格",
+    "偏离内容",
+    "响应内容",
+    "条款内容",
+    "概况",
+)
+
+
+def _should_wrap_cell(text: str, *, header: bool) -> bool:
+    em = _em_len((text or "").replace("\n", "").replace("\r", ""))
+    return em > (16 if header else 12)
+
+
+def _col_header_min_twips(text: str) -> int:
+    em = max(_em_len(compact_title(text or "")), 1.6)
+    return int(round(em * 250)) + 220
+
+
 def _copied_col_ratios(kind: str, cols: int, table) -> tuple[int, ...]:
-    if kind == "focus" and cols >= 3:
-        return (14, 22, 64)[:cols]
-    if kind == "mom" and cols >= 3:
-        return (10, 16, 74)[:cols]
-    if kind == "quote" and cols == 5:
-        return (10, 30, 18, 18, 24)
-    if kind == "quote" or cols == 4:
-        return (10, 42, 24, 24)
-    if cols == 2:
-        return (28, 72)
-    cap = 18.0 if kind == "quote_matrix" else 36.0
-    ems: list[float] = []
+    _ = kind
+    heads = [(c.text or "").strip() for c in table.rows[0].cells] if table.rows else []
+    need: list[float] = []
+    stretch: list[bool] = []
     for c in range(cols):
-        m = 4.0
-        for row in table.rows:
+        head = heads[c] if c < len(heads) else ""
+        h_em = _em_len(compact_title(head))
+        body_max = 0.0
+        for row in list(table.rows)[1:]:
             if c < len(row.cells):
-                m = max(m, _em_len((row.cells[c].text or "").strip()) + 2.0)
-        ems.append(min(m, cap))
-    return tuple(max(1, int(round(x * 10))) for x in ems)
+                body_max = max(body_max, _em_len((row.cells[c].text or "").strip()))
+        floor = max(2.6, h_em + 2.8)
+        if 0 < body_max <= 10:
+            floor = max(floor, body_max + 2.2)
+        named = any(k in compact_title(head) for k in _STRETCH_HEAD)
+        stretch.append(body_max > 12 or named)
+        need.append(floor)
+    extra = max(cols * 3.0, 12.0)
+    idxs = [i for i, on in enumerate(stretch) if on]
+    if idxs:
+        add = extra / len(idxs)
+        for i in idxs:
+            need[i] += add
+    else:
+        add = extra / cols
+        for i in range(cols):
+            need[i] += add
+    return tuple(max(1, int(round(x * 10))) for x in need)
+
+
+def _lift_header_min_widths(table, widths: list[int], total: int) -> list[int]:
+    from api.services.tenders.document import _distribute_twips
+
+    if not table.rows or not widths:
+        return widths
+    heads = table.rows[0].cells
+    mins = [
+        _col_header_min_twips(heads[i].text if i < len(heads) else "")
+        for i in range(len(widths))
+    ]
+    if sum(mins) > total:
+        return _distribute_twips(total, tuple(max(1, m) for m in mins))
+    out = list(widths)
+    gap = 0
+    for i, m in enumerate(mins):
+        if out[i] < m:
+            gap += m - out[i]
+            out[i] = m
+    if gap <= 0:
+        return out
+    slack = [(i, out[i] - mins[i]) for i in range(len(out)) if out[i] > mins[i]]
+    slack.sort(key=lambda x: -x[1])
+    for i, extra in slack:
+        take = min(extra, gap)
+        out[i] -= take
+        gap -= take
+        if gap <= 0:
+            break
+    drift = total - sum(out)
+    if drift:
+        out[-1] += drift
+    return out
 
 
 def _tight_tbl_margins(table) -> None:
@@ -1231,17 +1665,16 @@ def _cell_set_nowrap(cell, on: bool) -> None:
         tc_pr.append(el)
 
 
-def _lock_copied_cell_wrap(table, kind: str) -> None:
+def _lock_copied_cell_wrap(table, kind: str = "") -> None:
+    header_row = 0
+    if table.rows:
+        texts = [(c.text or "").strip() for c in table.rows[0].cells]
+        if any(_em_len(t) > 14 for t in texts if t):
+            header_row = -1
     for r_i, row in enumerate(table.rows):
-        for c_i, cell in enumerate(row.cells):
-            long = _em_len(cell.text or "") > 10
-            wrap = bool(long)
-            if kind == "quote_matrix":
-                wrap = False
-            elif kind == "quote" and c_i == 1 and r_i > 0:
-                wrap = True
-            elif kind in {"focus", "mom"} and c_i >= 1 and r_i > 0:
-                wrap = long
+        is_head = r_i == header_row
+        for cell in row.cells:
+            wrap = _should_wrap_cell(cell.text or "", header=is_head)
             _cell_set_nowrap(cell, not wrap)
             for p in cell.paragraphs:
                 _set_word_wrap(p, enabled=wrap)
@@ -1255,7 +1688,10 @@ def _fit_copied_table(doc: Document, table, *, kind: str = "") -> None:
     ratios = _copied_col_ratios(kind, cols, table)
     if len(ratios) < cols:
         ratios = ratios + (1,) * (cols - len(ratios))
-    _apply_fixed_table_widths(table, _distribute_twips(total, ratios[:cols]))
+    widths = _lift_header_min_widths(
+        table, _distribute_twips(total, ratios[:cols]), total
+    )
+    _apply_fixed_table_widths(table, widths)
     table.alignment = WD_TABLE_ALIGNMENT.CENTER
     _tight_tbl_margins(table)
     _lock_copied_cell_wrap(table, kind)
@@ -1350,7 +1786,7 @@ def _write_unit_caption(doc: Document, title: str, unit: str, fmt: DocumentForma
 
 
 def _try_write_pipe_table(
-    doc: Document, lines: list[str], i: int, fmt: DocumentFormat | None = None
+    doc: Document, lines: list[str], i: int, fmt: DocumentFormat | None = None, title: str = ""
 ) -> int | None:
     first = _pipe_cells(lines[i] if i < len(lines) else "")
     if not first:
@@ -1407,7 +1843,7 @@ def _try_write_pipe_table(
     padded = [(r + [""] * (ncols - len(r)))[:ncols] for r in rows]
     font = (fmt.fontName if fmt else _SONG) or _SONG
     if _pipe_header_row(padded[0]):
-        table = _write_simple_table(doc, padded[0], padded[1:], font=font)
+        table = _write_simple_table(doc, padded[0], padded[1:], font=font, title=title)
     else:
         table = doc.add_table(rows=len(padded), cols=ncols)
         table.style = "Table Grid"
@@ -1422,6 +1858,7 @@ def _try_write_pipe_table(
                     wrap=False,
                 )
         _merge_platform_col(table)
+        _fill_blank_table(table, title)
     _fit_copied_table(doc, table, kind=kind)
     _allow_row_split(table)
     return j
@@ -1605,8 +2042,38 @@ def _collect_table_rows(lines: list[str], start: int, ncols: int) -> tuple[list[
     return rows, i
 
 
+_APPENDIX_FEE_MARK = ("安全生产措施费", "暂列金额", "暂估价", "投标保证金", "保证金")
+_APPENDIX_UNDER_MARK = ("项目经理", "注册证号", "证书编号", "履约担保", "缺陷责任期")
+
+
+def _fill_blank_table(table, title: str = "") -> None:
+    n = compact_title(title)
+    if "附录" not in n:
+        return
+    for ri, row in enumerate(table.rows):
+        if ri == 0:
+            continue
+        label = compact_title(row.cells[0].text) if row.cells else ""
+        if any(k in label for k in _APPENDIX_FEE_MARK):
+            continue
+        fill = "/"
+        if any(k in label for k in _APPENDIX_UNDER_MARK):
+            fill = "________"
+        elif "专业等级" in label or "注册专业" in label:
+            fill = "无"
+        for cell in row.cells:
+            if (cell.text or "").strip():
+                continue
+            cell.text = ""
+            para = cell.paragraphs[0]
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            run = para.add_run(fill)
+            run.font.size = Pt(10.5)
+            run.font.name = _SONG
+
+
 def _write_simple_table(
-    doc: Document, headers: list[str], rows: list[list[str]], font: str = _SONG
+    doc: Document, headers: list[str], rows: list[list[str]], font: str = _SONG, title: str = ""
 ):
     cols = max(len(headers), 1)
     data = rows or [[""] * cols]
@@ -1621,7 +2088,6 @@ def _write_simple_table(
     elif "序号" in blob and any(k in blob for k in ("项目内容", "金额", "单价", "品牌")):
         kind = "quote"
     face = font or _SONG
-    matrix = kind == "quote_matrix"
     table = doc.add_table(rows=1 + len(data), cols=cols)
     table.style = "Table Grid"
     for i, h in enumerate(headers[:cols]):
@@ -1631,7 +2097,7 @@ def _write_simple_table(
             bold=True,
             center=True,
             font=face,
-            wrap=not matrix,
+            wrap=_should_wrap_cell(h, header=True),
         )
     for r_i, row in enumerate(data):
         for c_i in range(cols):
@@ -1649,8 +2115,9 @@ def _write_simple_table(
                 center=center,
                 items=(kind == "focus" and c_i == 1),
                 font=face,
-                wrap=not matrix,
+                wrap=_should_wrap_cell(val, header=False),
             )
+    _fill_blank_table(table, title)
     _fit_copied_table(doc, table, kind=kind)
     _allow_row_split(table)
     return table

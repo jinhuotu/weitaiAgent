@@ -70,3 +70,13 @@ def rmb_uppercase(amount: float | int | str | Decimal) -> str:
 def rmb_lowercase(amount: float | int | str | Decimal) -> str:
     q = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     return f"{q:,.2f}"
+
+
+def rmb_figure(amount: float | int | str | Decimal) -> str:
+    """标书小写：不带千分逗号，末尾不写元。"""
+    q = Decimal(str(amount)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{q:.2f}"
+
+
+def rmb_pair(amount: float | int | str | Decimal) -> str:
+    return f"{rmb_uppercase(amount)}（¥{rmb_figure(amount)}元）"

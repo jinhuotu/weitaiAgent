@@ -8,6 +8,7 @@ from api.services.tenders.qa import (
     combine_score,
     compact_text,
     grade_for,
+    letter_checklist,
     merge_gaps,
     parse_qa_payload,
     rule_inspect,
@@ -64,6 +65,8 @@ def test_rule_inspect_lists_missing_outline_and_quote() -> None:
     招标人：某市热电有限公司
     投标总价 518800 元
     供货期 30 天
+    质量合格
+    投标有效期 60 日历天
     交流充电桩
     技术偏离表
     实施方案
@@ -97,7 +100,7 @@ def test_rule_inspect_complete_bid_scores_high() -> None:
         ],
         requiredSlotKeys=[],
     )
-    bid = "投标函 园区充电桩 甲方公司 10000 15天 直流桩 技术偏离表 实施方案"
+    bid = "投标函 园区充电桩 甲方公司 投标总价10000 工期15天 直流桩 技术偏离表 实施方案 质量合格 投标有效期60日历天"
     result = rule_inspect(brief, bid, missing_slot_titles=[])
     assert result["missing"] == []
     assert result["score"] >= 85
@@ -278,3 +281,54 @@ def test_rule_inspect_technical_skips_quote_and_letter() -> None:
     assert "立柱" not in titles
     assert "投标函" not in titles
     assert result["coverage"]["quote"]["total"] == 0
+
+
+def test_letter_gaps_flags_wu_and_invented_clause() -> None:
+    brief = BidBrief(
+        projectName="充电站",
+        tenderer="甲方公司",
+        bidPriceYuan=897733,
+        deliveryDays=90,
+        bidValidityDays=90,
+        quality="合格",
+        outlineItems=[OutlineItem(id="o01", title="投标函", kind="letter", required=True)],
+    )
+    bid = """
+    投标函
+    工期：60日历天
+    质量优良
+    投标有效期：满足招标文件要求
+    安全生产措施费：无
+    暂列金额：无
+    项目经理：无
+    投标文件的上述组成部分如存在内容不一致的，以投标函为准。
+    """
+    result = rule_inspect(brief, bid, missing_slot_titles=[])
+    titles = [g["title"] for g in result["missing"]]
+    assert "擅自增加条款" in titles
+    assert "投标有效期" in titles
+    assert "措施费/暂列金额" in titles
+    assert "工期" in titles
+    assert "质量标准" in titles
+    assert "项目经理" in titles
+    assert any(g["severity"] == SEVERITY_DISQUALIFY and g["title"] == "擅自增加条款" for g in result["missing"])
+
+
+def test_letter_checklist_lists_control_price_fields() -> None:
+    rows = letter_checklist(
+        BidBrief(
+            deliveryDays=90,
+            bidValidityDays=90,
+            quality="合格",
+            bidPriceYuan=897733,
+            safetyFeeYuan=37023.13,
+            provisionalYuan=75000,
+            primeCostYuan=0,
+        )
+    )
+    blob = "\n".join(rows)
+    assert "90日历天" in blob
+    assert "37023.13" in blob
+    assert "75000.00" in blob
+    assert "0.00" in blob
+    assert "以投标函为准" in blob

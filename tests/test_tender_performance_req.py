@@ -230,3 +230,37 @@ def test_match_mes_case_insensitive() -> None:
     other = PerformanceLine(projectName="充电桩供货", chargerRelated=True, amountYuan=800000)
     assert match_performance_line(ok, req).passed
     assert "类型不符" in match_performance_line(other, req).reasons
+
+
+def test_junk_similar_scope_does_not_mark_charger_mismatch() -> None:
+    req = PerformanceRequirement(
+        similarScope="业绩所要求的与牵引指标项相符",
+        keywords=[],
+        minCount=3,
+        requireCompleted=True,
+    )
+    line = PerformanceLine(
+        projectName="某充电站供货",
+        chargerRelated=True,
+        amountYuan=32000001,
+        summary="桩数、场站、EPC/供货",
+        ongoing=False,
+    )
+    got = match_performance_line(line, req)
+    assert got.similar_ok
+    assert got.passed
+    assert "类型不符" not in got.reasons
+    label = format_requirement(req)
+    assert "业绩所要求" not in label
+    assert "至少3个" in label
+
+
+def test_extract_skips_boilerplate_similar_scope() -> None:
+    text = """
+第三章 资格审查
+投标人须提供近三年类似的业绩所要求的与牵引指标项相符项目不少于3个，须已竣工验收。
+"""
+    req = extract_performance_requirement(text)
+    assert req.minCount >= 3
+    assert "所要求" not in (req.similarScope or "")
+    assert "牵引" not in (req.similarScope or "")

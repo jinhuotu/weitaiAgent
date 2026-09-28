@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from api.services.tenders.classifier import is_chapter_title
 from api.services.tenders.schema import BidBrief, OUTLINE_KINDS, OutlineItem
 
 _FORMAT_HEAD = re.compile(
@@ -60,7 +61,7 @@ _SKIP_SUB = re.compile(
 _FIELD_KV = re.compile(r"[：:]")
 _CLAUSE_START = re.compile(r"^(具有|具备|应当|必须|不得|需具备)")
 _CONTACT = re.compile(r"(监督人|联系人|联系电话|联系方式|手机号|传真|经办人)")
-_PAGE_MARK = re.compile(r"^\[?第\s*\d+\s*页\]?$")
+_PAGE_MARK = re.compile(r"^\[?第\s*\d+\s*页\]?$|^-?\d{2,4}-$")
 _COMPANY_ONLY = re.compile(
     r"^[\u4e00-\u9fff]{2,24}(?:有限责任公司|股份有限公司|有限公司)$"
 )
@@ -111,10 +112,38 @@ _ORG_TAIL = re.compile(r"(有限公司|股份有限公司|集团有限公司|集
 _FORMAT_IN_TITLE = re.compile(r"(投标文件格式|响应文件格式|投标文件组成|响应文件组成)")
 # 空白稿表头常把「商务偏离表」和「招标项目：」粘成一行
 _FORM_TITLE_TAIL = re.compile(r"(招标项目|采购项目|投标项目|项目名称|货物名称)$")
-_ONCE_KINDS = frozenset({"biz_dev", "tech_dev"})
+_ONCE_KINDS = frozenset({"biz_dev", "tech_dev", "legal_id", "auth"})
+_LETTER_NUM = re.compile(r"^[（(]?[一二三四五六七八九十0-9]+[)）]?[、.．]?")
+_SKIP_STMT = re.compile(r"(中小企业声明|残疾人福利)")
+# 招标书第八章空白稿/须知：不是商务标要交的填好的页
+_PACK_SKIP = re.compile(
+    r"(中小企业声明|残疾人福利|"
+    r"资格审查资料|资格审查其他|"
+    r"投标人基本情况表|近年财务状况表|"
+    r"正在施工.{0,12}新承接|"
+    r"国家企业信用信息公示|"
+    r"主要项目管理人员简历|项目经理简历表|项目经理主要工作经历|"
+    r"项目管理机构组成表|^项目管理机构$|"
+    r"拟分包项目情况|^拟分包$|"
+    r"施工组织设计|暗标|装订要求|"
+    r"劳动力计划表|临时用地|"
+    r"其他有必要提供|^其他资料$|^其他材料$)"
+)
+_PACK_CUT = re.compile(
+    r"(?:^|\n)\s*[（(]?[一二三四五六七八九十0-9]*[)）]?[、.．]?\s*"
+    r"(?:资格审查资料|资格审查其他材料|其他资料|"
+    r"中小企业声明|残疾人福利|施工组织设计|"
+    r"主要项目管理人员简历|拟分包项目情况|项目管理机构|"
+    r"暗标|编制及装订|劳动力计划表)"
+)
+_WORKS_MARK = ("施工组织", "项目管理机构", "拟分包", "承包工程", "日历天")
+_APP_SPLIT = re.compile(
+    r"(?:^|\n)\s*[（(]?[二2][)）]?\s*[、.．]?\s*(?:投标函附录|响应函附录)"
+    r"|(?:^|\n)\s*(?:投标函附录|响应函附录)"
+)
 _QUOTE_DEBRIS = re.compile(r"(报价表说明|报价表单位|人民币元)")
 _INSTR_TITLE = re.compile(
-    r"(满足第|按照.{0,12}格式|格式自拟|须对所提供|详见下表|提供详细的技术文件)"
+    r"(满足第|按照.{0,12}格式|格式自拟|须对所提供|详见下表|计分规则|共计\d+分|的评审|提供详细的技术文件)"
 )
 _SEAL_KIND = "seal_reg"
 
@@ -153,6 +182,9 @@ def bid_item_title(title: str) -> str:
     t = (title or "").strip()
     t = re.sub(r"^附(?:件)?[（(]?[一二三四五六七八九十0-9]+[)）]?[：:、.\s]*", "", t)
     t = _DOC_TAIL.sub("", t).strip(" ：:、")
+    n = compact_title(t)
+    if "营业执照" in n and ("注册地址" in n or "注册住所" in n):
+        return "营业执照"
     return t or (title or "").strip()
 
 
@@ -181,6 +213,21 @@ def classify_kind(title: str) -> str:
     if not n:
         return "unknown"
     if _is_clause_title(n):
+        return "unknown"
+    if any(
+        k in n
+        for k in (
+            "指定的接收人",
+            "发包人指定",
+            "承包人指定",
+            "监理人指定",
+            "发包人授权",
+            "承包人授权",
+            "监理人授权",
+        )
+    ):
+        return "unknown"
+    if re.search(r"\.html|操作手册|电子保函操作", n, re.I):
         return "unknown"
     if "商务" in n and ("偏离" in n or "偏差" in n) and "技术" not in n:
         return "biz_dev"
@@ -282,8 +329,7 @@ def looks_like_quote_form(text: str) -> bool:
 
 
 def _keep_unknown_title(title: str) -> bool:
-    n = compact_title(title)
-    return bool(n) and any(k in n for k in ("清单", "模板", "功能需求"))
+    return _is_bidder_submit_title(title)
 
 
 def source_for_kind(kind: str, *, skipped: bool = False) -> str:
@@ -312,14 +358,18 @@ def apply_auth_outline(
     *,
     has_agent: bool,
     auth_need: str = "",
+    auth_enabled: bool | None = None,
 ) -> list[OutlineItem]:
-    """未填委托人且招标书未强制委托时，默认跳过授权委托书。"""
+    """授权委托书是否入卷：表单开关优先；没开则跳过。"""
     out: list[OutlineItem] = []
     for item in items:
         if (item.kind or "").strip() != "auth":
             out.append(item)
             continue
-        skip = not has_agent and (auth_need or "").strip() != "required"
+        if auth_enabled is None:
+            skip = not has_agent and (auth_need or "").strip() != "required"
+        else:
+            skip = not bool(auth_enabled)
         out.append(
             item.model_copy(update={"skipped": skip, "source": source_for_kind("auth", skipped=skip)})
         )
@@ -386,11 +436,46 @@ def _is_invite_notice(title: str) -> bool:
     n = compact_title(title or "")
     if not n:
         return False
+    if re.search(r"\.html", n, re.I):
+        return True
+    if any(k in n for k in ("操作手册", "下载《", "电子保函操作", "公共资源交易")):
+        return True
+    if any(k in n for k in ("招标须知", "投标须知", "投标人须知", "供应商须知", "采购须知")):
+        return True
+    if any(
+        k in n
+        for k in (
+            "指定的接收人",
+            "发包人指定",
+            "承包人指定",
+            "监理人指定",
+            "发包人授权",
+            "承包人授权",
+            "监理人授权",
+        )
+    ):
+        return True
+    if any(k in n for k in ("住房城乡", "住建部", "建设部关于", "进一步降低", "进一步加快")):
+        return True
     if any(k in n for k in ("账号", "账户", "开户", "汇款", "收款")):
         return True
     if any(k in n for k in ("评标", "退还", "视为无效", "无效标", "作废标")):
         return True
+    if any(k in n for k in ("计分规则", "计分办法", "评分细则", "基准价")):
+        return True
+    if "见下表" in n or "如下表" in n:
+        return True
+    if "评审" in n and any(k in n for k in ("分", "计分", "评分")):
+        return True
+    if "计算规则" in n and "报价表" not in n:
+        return True
+    if any(k in n for k in ("保证金的形式", "免缴保证金", "质量保证金", "履约保证金")):
+        return True
+    if "保证金" in n and any(k in n for k in ("形式", "转账", "扣留", "手册", "下载")):
+        return True
     if "保证金" in n and re.search(r"\d", n) and any(k in n for k in ("元", "万", "金额")):
+        return True
+    if "资格审查" in n and any(k in n for k in ("适用于", "预审", "特殊要求")):
         return True
     return False
 
@@ -473,9 +558,113 @@ def _order_biz_outline(items: list[OutlineItem]) -> list[OutlineItem]:
     return [item for _, item in keyed]
 
 
+def _is_bidder_submit_title(title: str) -> bool:
+    """邀请书里投标人要交的函/表/清单，不是须知条款。"""
+    t = (title or "").strip()
+    n = compact_title(t)
+    if not n or is_outline_junk(title=t):
+        return False
+    if n.endswith(("函", "表", "清单")):
+        return True
+    if n.endswith("书") and any(
+        k in n for k in ("承诺", "授权", "委托", "响应", "申请", "声明", "报告")
+    ):
+        return True
+    return any(
+        k in n
+        for k in (
+            "联合体",
+            "功能需求",
+            "报价单模板",
+            "项目组成员",
+            "发包人代表",
+        )
+    )
+
+
+def letter_role(title: str) -> str:
+    n = _LETTER_NUM.sub("", compact_title(title or ""))
+    if "附录" in n and "及" in n:
+        return "pack"
+    if "附录" in n:
+        return "appendix"
+    return "letter"
+
+
+def is_policy_statement_title(title: str) -> bool:
+    return bool(_SKIP_STMT.search(compact_title(title or "")))
+
+
+def is_invite_pack_title(title: str) -> bool:
+    n = compact_title(title or "")
+    n = _ITEM_PREFIX.sub("", n)
+    n = re.sub(r"[（(]如有[)）]", "", n)
+    return bool(_PACK_SKIP.search(n))
+
+
+def cut_invite_pack_body(text: str) -> str:
+    """函/表正文抄到资格审查、声明函、施工组织须知就停，避免整章粘进来。"""
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    for m in _PACK_CUT.finditer(raw):
+        if m.start() > 0:
+            return raw[: m.start()].rstrip()
+    return raw
+
+
+def bid_is_works(brief: BidBrief | None = None, text: str = "") -> bool:
+    blob = text or ""
+    if brief is not None:
+        blob += "".join(item.title for item in (brief.outlineItems or []))
+        blob += brief.bidContent or ""
+        blob += brief.techPlanNote or ""
+    n = compact_title(blob)
+    return any(k in n for k in _WORKS_MARK) or "工期" in n
+
+
+def slice_copied_letter_body(body: str, title: str) -> str:
+    raw = (body or "").strip()
+    if not raw:
+        return ""
+    role = letter_role(title)
+    hit = _APP_SPLIT.search(raw)
+    if role == "appendix":
+        return raw[hit.start() :].strip() if hit else raw
+    if hit:
+        return raw[: hit.start()].strip()
+    return raw
+
+
+def _keep_in_bid_outline(item: OutlineItem) -> bool:
+    if is_outline_junk(item):
+        return False
+    if is_policy_statement_title(item.title) or is_invite_pack_title(item.title):
+        return False
+    if not is_chapter_title(item.title):
+        return False
+    kind = (item.kind or "").strip()
+    if kind in {
+        "letter",
+        "legal_id",
+        "auth",
+        "quote",
+        "biz_dev",
+        "scan",
+        "performance",
+        "commitment_copy",
+        "company",
+        "factory",
+        "tech_plan",
+        "tech_dev",
+    }:
+        return True
+    return _is_bidder_submit_title(item.title)
+
+
 def ensure_biz_essentials(items: list[OutlineItem]) -> list[OutlineItem]:
-    """补商务标必备页，再按商务标顺序排；废标条款不进目录。"""
-    out = [item for item in items if not is_outline_junk(item)]
+    """必备页先铺上；邀请书只留投标人要交的函/表，须知不进目录。"""
+    out = [item for item in items if _keep_in_bid_outline(item)]
     for kind, title, marks in _BIZ_ESSENTIALS:
         if _essential_hit(out, kind, marks) is not None:
             continue
@@ -502,6 +691,7 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
         pool,
         has_agent=bool((brief.agentName or "").strip()),
         auth_need=(brief.authNeed or "").strip(),
+        auth_enabled=bool(brief.authEnabled),
     )
     out: list[OutlineItem] = []
     for item in pool:
@@ -509,21 +699,22 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
             continue
         if is_volume_label(item.title):
             continue
-        if is_outline_junk(item):
+        if not _keep_in_bid_outline(item):
             continue
         kind = (item.kind or "").strip()
         if not kind:
             continue
         if item_volume(kind=kind, title=item.title, key=item.id) == volume:
             out.append(item)
-    out = dedupe_outline_items(out)
+    out = dedupe_letter_items(dedupe_outline_items(out))
     if use_outline:
         if volume == "business":
-            out = ensure_biz_essentials(out)
+            out = dedupe_letter_items(ensure_biz_essentials(out))
             out = apply_auth_outline(
                 out,
                 has_agent=bool((brief.agentName or "").strip()),
                 auth_need=(brief.authNeed or "").strip(),
+                auth_enabled=bool(brief.authEnabled),
             )
             out = [
                 item
@@ -543,6 +734,7 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
                     _default_volume_pool(brief),
                     has_agent=bool((brief.agentName or "").strip()),
                     auth_need=(brief.authNeed or "").strip(),
+                    auth_enabled=bool(brief.authEnabled),
                 )
                 if not item.skipped
                 and item_volume(kind=item.kind, title=item.title, key=item.id) == "business"
@@ -552,17 +744,47 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
     return out
 
 
+_CANONICAL_TITLE = {
+    "legal_id": "法定代表人身份证明",
+    "auth": "授权委托书",
+    "letter": "投标函",
+}
+
+
+def _prefer_once_item(cur: OutlineItem, prev: OutlineItem) -> OutlineItem:
+    kind = (cur.kind or prev.kind or "").strip()
+    canon = _CANONICAL_TITLE.get(kind, "")
+
+    def score(it: OutlineItem) -> int:
+        n = compact_title(it.title)
+        s = 0
+        if canon and n == canon:
+            s += 24
+        elif canon and canon in n:
+            s += 8
+        s -= min(len(n), 48) // 3
+        body = (it.body or "").strip()
+        if looks_like_form_template(body) or looks_like_quote_form(body):
+            s += 14
+        return s
+
+    return cur if score(cur) > score(prev) else prev
+
+
 def dedupe_outline_items(items: list[OutlineItem]) -> list[OutlineItem]:
-    """同一张偏离/报价表只留一条；表头粘了「招标项目」的跟目录条目合并。"""
+    """同一张偏离/报价表只留一条；身份证明/授权书各留一份。"""
     seen_key: set[str] = set()
     seen_kind: set[str] = set()
     out: list[OutlineItem] = []
     for item in items:
         peeled = _peel_form_suffix((item.title or "").strip())
-        key = _outline_key(peeled)
         kind = (item.kind or "").strip()
         if peeled and peeled != item.title:
             item = item.model_copy(update={"title": peeled})
+        pretty = bid_item_title(item.title)
+        if pretty and pretty != item.title:
+            item = item.model_copy(update={"title": pretty})
+        key = _outline_key(item.title)
         if kind == "quote":
             prev_i = next(
                 (i for i, x in enumerate(out) if (x.kind or "").strip() == "quote"),
@@ -592,12 +814,75 @@ def dedupe_outline_items(items: list[OutlineItem]) -> list[OutlineItem]:
                 continue
             seen_kind.add(_SEAL_KIND)
         if kind in _ONCE_KINDS and kind in seen_kind:
+            prev_i = next(
+                (i for i, x in enumerate(out) if (x.kind or "").strip() == kind),
+                None,
+            )
+            if prev_i is not None:
+                out[prev_i] = _prefer_once_item(item, out[prev_i])
             continue
         seen_key.add(key)
         if kind in _ONCE_KINDS:
             seen_kind.add(kind)
         out.append(item)
     return out
+
+
+def dedupe_letter_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    """整套只留 1 份投标函 + 1 份附录，「函及其附录」不再另开一页。"""
+    letter: OutlineItem | None = None
+    appendix: OutlineItem | None = None
+    rest: list[OutlineItem] = []
+    letter_i = appendix_i = -1
+    for item in items:
+        if (item.kind or "").strip() != "letter":
+            rest.append(item)
+            continue
+        role = letter_role(item.title)
+        if role == "appendix":
+            if appendix is None:
+                appendix = item
+                appendix_i = len(rest)
+                rest.append(item)
+            continue
+        if role == "pack":
+            if letter is None:
+                letter = item.model_copy(update={"title": "投标函" if "响应" not in item.title else "响应函"})
+                letter_i = len(rest)
+                rest.append(letter)
+            continue
+        if letter is None:
+            letter = item
+            letter_i = len(rest)
+            rest.append(item)
+    raw = (letter.body if letter is not None else "") or ""
+    if letter is not None:
+        letter.body = slice_copied_letter_body(letter.body, "投标函")
+        if 0 <= letter_i < len(rest):
+            rest[letter_i] = letter
+    app_body = slice_copied_letter_body(raw, "投标函附录")
+    if appendix is not None:
+        src = (appendix.body or "").strip()
+        if (not src) or src == raw or "我方已" in compact_title(src):
+            appendix = appendix.model_copy(update={"body": app_body if app_body != (letter.body if letter else "") else src})
+        else:
+            appendix = appendix.model_copy(update={"body": slice_copied_letter_body(src, "投标函附录")})
+        if 0 <= appendix_i < len(rest):
+            rest[appendix_i] = appendix
+    elif letter is not None:
+        same = app_body == (letter.body or "")
+        rest.insert(
+            letter_i + 1,
+            OutlineItem(
+                id=f"{letter.id or 'o'}-app",
+                title="响应函附录" if "响应" in (letter.title or "") else "投标函附录",
+                kind="letter",
+                source="copy" if app_body and not same else "generate",
+                required=True,
+                body=app_body if app_body and not same else "",
+            ),
+        )
+    return rest
 
 
 def _same_quote_form(left: str, right: str) -> bool:
@@ -648,8 +933,14 @@ def _is_quote_blurb(n: str) -> bool:
 
 def is_outline_junk(item: OutlineItem | None = None, title: str = "") -> bool:
     t = title or (item.title if item is not None else "") or ""
+    if re.search(r"[：:]\s*[/／]\s*$", (t or "").strip()):
+        return True
     n = compact_title(t)
+    if n and not is_chapter_title(t):
+        return True
     if _is_clause_title(n):
+        return True
+    if _is_invite_notice(n):
         return True
     if _QUOTE_DEBRIS.search(n):
         return True
@@ -664,6 +955,10 @@ def is_outline_junk(item: OutlineItem | None = None, title: str = "") -> bool:
     if re.match(r"^[A-Ha-h][.．、]", t.strip()) and any(
         k in n for k in ("营业执照", "业绩", "财务", "其它文件", "其他文件")
     ):
+        return True
+    if n.startswith("资格审查资料") or n in {"资格审查", "资格审查资料"}:
+        return True
+    if is_invite_pack_title(t):
         return True
     return False
 
@@ -820,7 +1115,7 @@ def is_noise_title(title: str) -> bool:
     n = compact_title(title)
     if not n:
         return True
-    if _is_clause_title(n):
+    if is_outline_junk(title=title):
         return True
     if (
         _FIELD_KV.search(title)
@@ -897,6 +1192,8 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
         seen.add(key)
         kind = classify_kind(title)
         kind = kind if kind in OUTLINE_KINDS else "unknown"
+        if is_outline_junk(title=title) or not is_chapter_title(title):
+            continue
         if kind == "unknown" and not _keep_unknown_title(title):
             continue
         items.append(
@@ -948,6 +1245,8 @@ def looks_like_form_template(text: str) -> bool:
     raw = (text or "").strip()
     if len(raw) < 60:
         return False
+    if _looks_like_ocr_garbage(raw):
+        return False
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     markers = 0
     if re.search(r"[＿_]{3,}|_{3,}|[—－]{3,}", raw):
@@ -956,17 +1255,55 @@ def looks_like_form_template(text: str) -> bool:
         markers += 1
     if re.search(r"(投标人|供应商).{0,8}(章|公章|签字)", raw):
         markers += 1
-    if re.search(r"年\s*月\s*日", raw):
+    if re.search(r"年\s*月\s*日|\d{4}\s*年\s*\d{1,2}\s*月", raw):
         markers += 1
     if re.search(r"致[：:]|有限公司[：:]", raw):
         markers += 1
     if re.search(r"（招标人名称）|（采购人名称）|（项目名称）", raw):
+        markers += 1
+    if re.search(r"(盖单位章|盖单位公章|盖公章)", raw):
         markers += 1
     if markers < 2:
         return False
     if len(lines) >= 4:
         return True
     return len(raw) >= 80 and markers >= 3
+
+
+def looks_like_bid_copy_body(text: str) -> bool:
+    """只有空白稿或邀请书表格才抄；须知 OCR 不当模板。"""
+    raw = (text or "").strip()
+    if not raw or _looks_like_ocr_garbage(raw):
+        return False
+    if looks_like_form_template(raw) or looks_like_quote_form(raw):
+        return True
+    return raw.count("|") >= 4
+
+
+def can_copy_invite_body(kind: str, text: str) -> bool:
+    """有模块的页只抄空白稿/表；承诺函/印鉴表/功能需求清单非 OCR 垃圾就按邀请书排。"""
+    raw = (text or "").strip()
+    if not raw or _looks_like_ocr_garbage(raw):
+        return False
+    if looks_like_bid_copy_body(raw):
+        return True
+    k = (kind or "").strip()
+    if k in {"commitment_copy", "company", "unknown"}:
+        return True
+    if k in {"letter", "auth"} and re.search(
+        r"（招标人名称）|（采购人名称）|（项目名称）|有限公司[：:]|（[一二三四五六七八九十]）投标函",
+        raw,
+    ):
+        return True
+    return False
+
+
+def _looks_like_ocr_garbage(text: str) -> bool:
+    raw = text or ""
+    if len(re.findall(r"-\d{2,4}-", raw)) >= 2:
+        return True
+    n = compact_title(raw)
+    return bool(re.search(r"\.html|操作手册", n, re.I))
 
 
 def fill_copy_blanks(
@@ -983,6 +1320,23 @@ def fill_copy_blanks(
     delivery_days: int | None = None,
     validity_days: int | None = None,
     quality: str = "",
+    price_cn: str = "",
+    price_en: str = "",
+    extra_note: str = "",
+    website: str = "",
+    fax: str = "",
+    postcode: str = "",
+    email: str = "",
+    works: bool = False,
+    safety_fee: str = "",
+    provisional: str = "",
+    prime_cost: str = "",
+    bid_bond: str = "",
+    pm_name: str = "",
+    pm_cert: str = "",
+    pm_grade: str = "",
+    defect_period: str = "",
+    perf_bond: str = "",
 ) -> str:
     """只填单位/项目/日期/联系空位，不改承诺条款。"""
     out = unfold_form_sign_lines(text or "")
@@ -994,7 +1348,21 @@ def fill_copy_blanks(
     address = (address or "").strip()
     contact = (contact or "").strip()
     quality = (quality or "").strip()
+    extra_note = (extra_note or "").strip() or "无"
+    website = (website or "").strip()
+    fax = (fax or "").strip()
+    postcode = (postcode or "").strip()
+    email = (email or "").strip()
     date_cn = _date_cn(bid_date)
+    out = re.sub(r"。?计划开工日期以招标人通知为准。?", "。", out)
+    out = out.replace("【无】", "")
+    out = out.replace("无其他补充说明", "无")
+    out = re.sub(
+        r"投标文件的上述组成部分如存在内容不一致的，以投标函为准。?",
+        "",
+        out,
+    )
+    out = out.replace("。。", "。")
     pairs = (
         ("（投标人名称）", bidder),
         ("（供应商名称）", bidder),
@@ -1088,6 +1456,12 @@ def fill_copy_blanks(
         out = re.sub(r"(地址|住址)[：:]\s*[＿_—\-\s]{2,}", rf"\1：{address}", out)
     if quality:
         out = re.sub(r"(质量要求|质量标准)[：:]\s*[＿_—\-]{2,}", rf"\1：{quality}", out)
+        out = re.sub(
+            r"(质量要求|质量标准)[：:]\s*(?:满足招标文件(?:要求)?)?\s*$",
+            rf"\1：{quality}",
+            out,
+            flags=re.M,
+        )
     if delivery_days is not None:
         days = str(int(delivery_days))
         out = re.sub(
@@ -1095,6 +1469,159 @@ def fill_copy_blanks(
             rf"\g<1>{days}\2",
             out,
         )
+        out = re.sub(
+            r"(计划工期|工期)[：:；;]\s*[＿_—\-－]*\s*日历天",
+            rf"\1：{days}日历天",
+            out,
+        )
+        out = re.sub(
+            r"(计划工期|施工工期|工期)[：:]\s*[＿_—\-－]*\s*$",
+            rf"\1：{days}日历天",
+            out,
+            flags=re.M,
+        )
+        out = re.sub(
+            r"交货期[：:；;]?\s*[＿_—\-－]*\s*(?:天内|日历天)",
+            f"交货期：{days}日历天",
+            out,
+        )
+    if extra_note:
+        out = re.sub(
+            r"((?:其他)?补充说明)[：:）)\s＿_—\-－（。]*$",
+            rf"\1：{extra_note}",
+            out,
+            flags=re.M,
+        )
+        out = re.sub(
+            r"(补充说明[^\n]*（[^）\n]*)$",
+            r"\1）",
+            out,
+            flags=re.M,
+        )
+    if "补遗书" in out:
+        out = re.sub(r"（含补遗书[^）\n]{0,40}）", "（含补遗书无）", out)
+        out = re.sub(r"（含补遗书无(?!）)", "（含补遗书无）", out)
+    for lab, val in (
+        ("安全生产措施费|安全文明施工费", (safety_fee or "").strip()),
+        ("暂列金额", (provisional or "").strip()),
+        ("专业工程暂估价", (prime_cost or "").strip()),
+        ("投标保证金", (bid_bond or "").strip()),
+        ("缺陷责任期", (defect_period or "").strip()),
+        ("履约担保金额|履约担保", (perf_bond or "").strip()),
+    ):
+        if not val:
+            continue
+        out = re.sub(
+            rf"({lab})[：:]\s*(?:无|[＿_—\-－无【】大写小写（）()\s]*)\s*$",
+            rf"\1：{val}",
+            out,
+            flags=re.M,
+        )
+        out = re.sub(
+            rf"({lab})(\s*[|｜]\s*)(?:无|[＿_—\-－\s]*)\s*$",
+            rf"\1\2{val}",
+            out,
+            flags=re.M,
+        )
+    bond = (bid_bond or "").strip()
+    if bond:
+        pair = re.match(r"^(.+?)（¥([0-9.]+)元）$", bond)
+        if pair:
+            out = re.sub(
+                r"(投标保证金[^\n]{0,40}人民币（大写）[：:]?)[＿_—\-－\s　]*",
+                rf"\g<1>{pair.group(1)}",
+                out,
+                count=1,
+            )
+            out = re.sub(
+                r"(投标保证金[^\n]{0,80}小写[：:]?[￥¥]?)[＿_—\-－\s　]*(?=元)",
+                rf"\g<1>{pair.group(2)}",
+                out,
+                count=1,
+            )
+    pm_name = _clean_pm_name(pm_name)
+    pm_cert = (pm_cert or "").strip()
+    if pm_cert in {"/", "／", "无"}:
+        pm_cert = ""
+    grade = (pm_grade or "").strip()
+    if grade in {"/", "／"}:
+        grade = "无"
+    out = re.sub(
+        r"(项目经理(?:姓名)?)[：:][ \t]*(.+)$",
+        lambda m: f"{m.group(1)}：{pm_name or '________'}"
+        if not _clean_pm_name(m.group(2))
+        else (f"{m.group(1)}：{pm_name}" if pm_name else m.group(0)),
+        out,
+        flags=re.M,
+    )
+    if pm_name:
+        out = re.sub(
+            r"(项目经理(?:姓名)?)[：:][ \t]*[＿_—\-－/／]*[ \t]*$",
+            rf"\1：{pm_name}",
+            out,
+            flags=re.M,
+        )
+    else:
+        out = re.sub(
+            r"(项目经理(?:姓名)?)[：:][ \t]*[/／无]?[ \t]*$",
+            r"\1：________",
+            out,
+            flags=re.M,
+        )
+    if pm_cert:
+        out = re.sub(
+            r"(注册证号|证书编号|执业印章号)[：:][ \t]*[＿_—\-－/／]*[ \t]*$",
+            rf"\1：{pm_cert}",
+            out,
+            flags=re.M,
+        )
+    else:
+        out = re.sub(
+            r"(注册证号|证书编号|执业印章号)[：:][ \t]*[/／无]?[ \t]*$",
+            r"\1：________",
+            out,
+            flags=re.M,
+        )
+    out = re.sub(
+        r"(专业(?:等级)?|注册专业)[：:][ \t]*[/／＿_—\-－]*[ \t]*$",
+        rf"\1：{grade or '无'}",
+        out,
+        flags=re.M,
+    )
+    for lab, val in (
+        ("网\\s*址", website),
+        ("传\\s*真", fax),
+        ("邮政编码", postcode),
+        ("邮\\s*编", postcode),
+        ("电子邮箱|电子信箱|邮\\s*箱", email),
+    ):
+        if not (val or "").strip():
+            continue
+        out = re.sub(
+            rf"({lab})[：:]\s*[＿_—\-－\s]*$",
+            lambda m, v=val: f"{m.group(1)}：{v}",
+            out,
+            flags=re.M,
+        )
+    if price_cn:
+        out = re.sub(
+            r"(人民币[（(]大写[)）])(?:[\s＿_—\-－]*)(?=[（(]¥|元)",
+            rf"\1{price_cn}",
+            out,
+        )
+    if price_en:
+        fig = price_en.replace(",", "")
+        out = re.sub(
+            r"（[¥￥](?:[\s＿_—\-－]*)(?=元|\n)",
+            f"（¥{fig}",
+            out,
+            count=1,
+        )
+    out = re.sub(
+        r"[¥￥]\s*([\d,]+(?:\.\d+)?)",
+        lambda m: f"¥{m.group(1).replace(',', '')}",
+        out,
+    )
     if validity_days is not None:
         days = str(int(validity_days))
         out = re.sub(
@@ -1102,9 +1629,153 @@ def fill_copy_blanks(
             rf"\g<1>{days}\2",
             out,
         )
+        out = re.sub(
+            r"(投标有效期)[：:][^\n]*",
+            rf"\1：自投标截止之日起{days}日历天",
+            out,
+        )
     if date_cn:
         out = re.sub(r"[＿_—\-]{0,6}年[＿_—\-]{0,4}月[＿_—\-]{0,4}日", date_cn, out)
         out = re.sub(r"年\s*月\s*日(?!(?:[一二三四五六七八九十]、))", date_cn, out)
+    return out
+
+
+def _clean_pm_name(raw: str) -> str:
+    t = (raw or "").strip()
+    t = re.sub(r"[＿_—\-－/\s／]+", "", t)
+    if t in {"", "无", "暂无", "待定", "空白", "姓名"}:
+        return ""
+    if any(
+        k in t
+        for k in (
+            "是指",
+            "由承",
+            "承包",
+            "拟派",
+            "拟任",
+            "详见",
+            "如下",
+            "项目",
+            "经理",
+            "投标",
+            "招标",
+            "应当",
+            "必须",
+            "填写",
+            "注册",
+            "证书",
+        )
+    ):
+        return ""
+    if re.fullmatch(r"[\u4e00-\u9fff]{2,4}", t):
+        return t
+    return ""
+
+
+def _insert_before_sign(text: str, sentence: str) -> str:
+    raw = text or ""
+    if not sentence or sentence in raw:
+        return raw
+    hit = re.search(
+        r"^(?:投标人|供应商).{0,24}(?:盖单位公章|盖单位章|盖章)|^(?:法定代表人)",
+        raw,
+        flags=re.M,
+    )
+    if hit:
+        return raw[: hit.start()].rstrip() + "\n" + sentence + "\n" + raw[hit.start() :]
+    return raw.rstrip() + "\n" + sentence + "\n"
+
+
+def ensure_works_letter_fixed(text: str, *, quality: str = "", valid_days: int | None = None, bid_bond: str = "") -> str:
+    """施工投标函缺固定句时补上，不删原文。"""
+    out = text or ""
+    blob = re.sub(r"\s+", "", out)
+    if "我方已仔细研究" not in blob and "愿意以人民币" not in blob:
+        return out
+    if "投标函附录属于合同文件的组成部分" not in blob:
+        out = _insert_before_sign(out, "随同本投标函递交的投标函附录属于合同文件的组成部分。")
+    if "投标保证金" not in blob:
+        if bid_bond:
+            line = f"随同本投标函提交投标保证金一份，金额人民币（大写）：{bid_bond}。"
+        else:
+            line = "随同本投标函提交投标保证金一份，金额人民币（大写）：________元（小写￥________元）。"
+        out = _insert_before_sign(out, line)
+    q = (quality or "").strip()
+    if q and "修补工程" not in re.sub(r"\s+", "", out) and "工程质量达到" not in re.sub(r"\s+", "", out):
+        if re.search(r"质量要求[：:]", out):
+            out = re.sub(r"(质量要求[：:][^\n]*)", rf"\1；修补工程中的任何缺陷，工程质量达到：{q}。", out, count=1)
+        else:
+            out = _insert_before_sign(
+                out,
+                f"按合同约定实施和完成承包工程，修补工程中的任何缺陷，工程质量达到：{q}。",
+            )
+    if valid_days is not None and "自投标截止之日起" not in re.sub(r"\s+", "", out):
+        days = str(int(valid_days))
+        if re.search(r"投标有效期", out):
+            out = re.sub(
+                r"投标有效期[：:][^\n]*",
+                f"投标有效期：自投标截止之日起{days}日历天。",
+                out,
+                count=1,
+            )
+        else:
+            out = _insert_before_sign(out, f"我方承诺投标有效期为自投标截止之日起{days}日历天。")
+    return out
+
+
+def ensure_appendix_fields(
+    text: str,
+    *,
+    project: str = "",
+    bidder: str = "",
+    scope: str = "",
+    price: str = "",
+    safety_fee: str = "",
+    provisional: str = "",
+    prime_cost: str = "",
+    pm_name: str = "",
+    pm_cert: str = "",
+    valid: str = "",
+    defect: str = "",
+    perf_bond: str = "",
+    grade: str = "",
+) -> str:
+    out = text or ""
+    blob = re.sub(r"\s+", "", out)
+    rows = (
+        ("项目名称", (project or "").strip() or "________"),
+        ("投标人", (bidder or "").strip() or "________"),
+        ("投标范围", (scope or "").strip() or "________"),
+        ("投标总报价", (price or "").strip() or "________"),
+        ("安全生产措施费", (safety_fee or "").strip() or "________"),
+        ("暂列金额", (provisional or "").strip() or "________"),
+        ("专业工程暂估价", (prime_cost or "").strip() or "________"),
+        ("项目经理", _clean_pm_name(pm_name) or "________"),
+        ("注册证号", (pm_cert or "").strip() or "________"),
+        ("投标有效期", (valid or "").strip() or "________"),
+        ("缺陷责任期", (defect or "").strip() or "________"),
+        ("履约担保金额", (perf_bond or "").strip() or "________"),
+        ("专业等级", (grade or "").strip() or "无"),
+    )
+    for lab, val in rows:
+        if lab in blob:
+            continue
+        out = _insert_before_sign(out, f"{lab}：{val}")
+        blob = re.sub(r"\s+", "", out)
+    out = re.sub(
+        r"(专业(?:等级)?|注册专业)[：:]\s*[/／]\s*$",
+        rf"\1：{(grade or '').strip() or '无'}",
+        out,
+        flags=re.M,
+    )
+    out = re.sub(
+        r"(项目经理(?:姓名)?)[：:][ \t]*(.+)$",
+        lambda m: f"{m.group(1)}：{_clean_pm_name(pm_name) or '________'}"
+        if not _clean_pm_name(m.group(2))
+        else m.group(0),
+        out,
+        flags=re.M,
+    )
     return out
 
 
@@ -1130,6 +1801,8 @@ def _attach_item_bodies(items: list[OutlineItem], chapter_body: str) -> None:
         end = min(end, _next_attach_cut(chapter_body, start, item.title))
         chunk = chapter_body[start:end]
         item.body = _clean_copied_body(chunk, item.title)
+        if (item.kind or "").strip() == "letter":
+            item.body = slice_copied_letter_body(item.body, item.title)
 
 
 def _template_starts(body: str, items: list[OutlineItem]) -> list[int]:
@@ -1156,6 +1829,10 @@ def _next_attach_cut(body: str, start: int, title: str) -> int:
     nl = body.find("\n", start)
     skip = (nl - start + 1) if 0 <= nl < start + 80 else min(24, max(4, len(title or "")))
     tail = body[start + skip :]
+    cut = len(body)
+    pack = _PACK_CUT.search(tail)
+    if pack and pack.start() > 0:
+        cut = start + skip + pack.start()
     for m in re.finditer(
         r"(?:附(?:件)?[（(]?[一二三四五六七八九十0-9]+"
         r"|(?:^|\n)[一二三四五六七八九十]{1,2}、\s*(?:合同|偏差|偏离|报价|响应方案|响应书|承诺|授权|身份))",
@@ -1169,8 +1846,9 @@ def _next_attach_cut(body: str, start: int, title: str) -> int:
         pos = m.start()
         if other.startswith("\n"):
             pos += 1
-        return start + skip + pos
-    return len(body)
+        cut = min(cut, start + skip + pos)
+        break
+    return cut
 
 
 def _core_doc_name(text: str) -> str:
@@ -1375,7 +2053,7 @@ def _clean_copied_body(chunk: str, title: str) -> str:
     compact = compact_title(text)
     if "\n" not in text and len(compact) <= 28 and classify_kind(text) != "unknown":
         return ""
-    return text[:_BODY_MAX]
+    return cut_invite_pack_body(text)[:_BODY_MAX]
 
 
 def _format_section(text: str) -> tuple[str, str]:
@@ -1436,6 +2114,8 @@ def _candidate_lines(body: str, *, whole_doc: bool) -> list[tuple[str, str]]:
         for piece in raw.split("|"):
             title = _clean_item(piece)
             if not title or is_noise_title(title):
+                continue
+            if not is_chapter_title(title):
                 continue
             if not _is_catalog_item(piece, title, whole_doc=whole_doc):
                 continue
@@ -1509,6 +2189,15 @@ def _is_mashed_form_title(title: str) -> bool:
     return False
 
 
+def _is_doc_title_len(text: str) -> bool:
+    n = text or ""
+    if "功能需求" in n:
+        return True
+    return n.endswith(
+        ("函", "表", "清单", "书", "证明", "简历", "执照", "保函", "方案", "承诺", "保证金", "业绩", "模板")
+    )
+
+
 def _clean_item(raw: str) -> str:
     text = (raw or "").strip().strip("·•-—_ ")
     text = _PAGE_TAIL.sub("", text).strip()
@@ -1519,7 +2208,10 @@ def _clean_item(raw: str) -> str:
     text = _peel_form_suffix(text)
     if not text or _SKIP_SUB.search(text):
         return ""
-    if len(text) > 48 or len(text) < 2:
+    if len(text) < 2:
+        return ""
+    cap = 24 if _is_doc_title_len(text) else 22
+    if len(text) > cap:
         return ""
     if text.isdigit():
         return ""

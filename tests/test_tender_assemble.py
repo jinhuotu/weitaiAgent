@@ -93,6 +93,213 @@ def test_fill_copy_blanks_only_placeholders() -> None:
     assert "（招标人名称）" not in filled
 
 
+def test_fill_copy_blanks_price_and_duration() -> None:
+    raw = (
+        "愿意以人民币（大写）                    （¥\n"
+        "元）的投标总报价，工期；\n"
+        "日历天，按合同约定完成承包工程。"
+    )
+    filled = fill_copy_blanks(
+        raw,
+        bidder="河南伟泰光电科技有限公司",
+        project="充电桩项目",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-24",
+        delivery_days=90,
+        price_cn="捌拾玖万柒仟柒佰叁拾叁元整",
+        price_en="897733.00",
+    )
+    assert "人民币（大写）捌拾玖万柒仟柒佰叁拾叁元整" in filled
+    assert "¥897733.00元" in filled
+    assert "工期：90日历天" in filled
+    messy = fill_copy_blanks(
+        "愿意以人民币（大写）叁佰万元整（¥3,000,000.00 元）参加投标。交货期：30天内。\n其他补充说明：",
+        bidder="河南伟泰光电科技有限公司",
+        project="郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-28",
+        delivery_days=30,
+        price_cn="叁佰万元整",
+        price_en="3000000.00",
+        works=True,
+    )
+    assert "（¥3000000.00 元）" in messy or "（¥3000000.00元）" in messy
+    assert "3,000,000" not in messy
+    assert "交货期：30天内" in messy
+    assert "计划开工日期" not in messy
+    assert "其他补充说明：无" in messy
+
+
+def test_fill_copy_fees_from_control_price() -> None:
+    from api.services.tenders.money import rmb_pair
+
+    raw = "安全生产措施费：\n暂列金额：\n专业工程暂估价：\n项目经理：\n"
+    filled = fill_copy_blanks(
+        raw,
+        bidder="河南伟泰光电科技有限公司",
+        project="充电桩项目",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-28",
+        safety_fee=rmb_pair(37023.13),
+        provisional=rmb_pair(75000),
+        prime_cost=rmb_pair(0),
+    )
+    assert "37023.13" in filled
+    assert "75000.00" in filled
+    assert "0.00" in filled
+    assert "安全生产措施费：无" not in filled
+    assert "项目经理：________" in filled
+
+
+def test_fill_copy_letter_generic_rules() -> None:
+    from api.services.tenders.money import rmb_pair
+
+    raw = (
+        "我方已仔细研究了招标文件（含补遗书第___号至第___号）的全部内容。\n"
+        "质量标准：\n"
+        "投标有效期：满足招标文件要求\n"
+        "安全生产措施费：无\n"
+        "暂列金额：无\n"
+        "专业工程暂估价：无\n"
+        "项目经理：\n"
+        "7. 补充说明（\n"
+        "投标文件的上述组成部分如存在内容不一致的，以投标函为准。\n"
+    )
+    filled = fill_copy_blanks(
+        raw,
+        bidder="河南伟泰光电科技有限公司",
+        project="充电桩项目",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-28",
+        delivery_days=90,
+        validity_days=90,
+        quality="合格",
+        extra_note="无",
+        safety_fee=rmb_pair(37023.13),
+        provisional=rmb_pair(75000),
+        prime_cost=rmb_pair(0),
+    )
+    assert "（含补遗书无）" in filled
+    assert "质量标准：合格" in filled
+    assert "投标有效期：自投标截止之日起90日历天" in filled
+    assert "满足招标文件要求" not in filled
+    assert "以投标函为准" not in filled
+    assert "37023.13" in filled
+    assert "75000.00" in filled
+    assert "0.00" in filled
+    assert "安全生产措施费：无" not in filled
+    assert "专业工程暂估价：无" not in filled
+    assert "项目经理：________" in filled
+    assert "补充说明：无" in filled
+
+
+def test_fill_copy_pm_junk_and_grade() -> None:
+    filled = fill_copy_blanks(
+        "项目经理：是指由承\n注册证号：/\n专业等级：/\n投标有效期：90日历天\n",
+        bidder="河南伟泰光电科技有限公司",
+        project="充电桩项目",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        legal="郭志伟",
+        bid_date="2026-09-28",
+        validity_days=90,
+        pm_grade="/",
+        pm_name="是指由承",
+    )
+    assert "是指由承" not in filled
+    assert "乱码" not in filled
+    assert "项目经理：________" in filled
+    assert "注册证号：________" in filled
+    assert "专业等级：无" in filled
+    assert "自投标截止之日起90日历天" in filled
+
+
+def test_ensure_works_letter_and_appendix_fields() -> None:
+    from api.services.tenders.outline import ensure_appendix_fields, ensure_works_letter_fixed
+    from api.services.tenders.money import rmb_pair
+
+    raw = (
+        "1. 我方已仔细研究了某某项目招标文件（含补遗书无）的全部内容，"
+        "愿意以人民币（大写）：捌拾万元整（小写：￥800000.00元）的投标总价；"
+        "计划工期：90日历天；质量要求：合格。\n"
+        "投标人：河南伟泰光电科技有限公司（盖单位公章）\n"
+    )
+    out = ensure_works_letter_fixed(raw, quality="合格", valid_days=90, bid_bond="")
+    assert "修补工程中的任何缺陷" in out
+    assert "投标函附录属于合同文件的组成部分" in out
+    assert "随同本投标函提交投标保证金一份" in out
+    assert "自投标截止之日起90日历天" in out
+    app = ensure_appendix_fields(
+        "项目名称：郑州高新区项目\n投标人：河南伟泰光电科技有限公司\n专业等级：/\n",
+        project="郑州高新区项目",
+        bidder="河南伟泰光电科技有限公司",
+        scope="施工图范围内工程",
+        price=rmb_pair(800000),
+        safety_fee=rmb_pair(37023.13),
+        provisional=rmb_pair(75000),
+        prime_cost=rmb_pair(0),
+        valid="自投标截止之日起90日历天",
+        grade="无",
+    )
+    for lab in (
+        "投标范围",
+        "投标总报价",
+        "安全生产措施费",
+        "暂列金额",
+        "专业工程暂估价",
+        "项目经理",
+        "注册证号",
+        "投标有效期",
+        "缺陷责任期",
+        "履约担保金额",
+        "专业等级",
+    ):
+        assert lab in app
+    assert "37023.13" in app
+    assert "项目经理：________" in app
+
+
+def test_letter_module_appendix_fields() -> None:
+    from docx import Document
+
+    from api.services.tenders.modules import render_module
+    from api.services.tenders.schema import BidBrief, OutlineItem
+
+    brief = BidBrief(
+        projectName="郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        bidderName="河南伟泰光电科技有限公司",
+        bidPriceYuan=800000,
+        deliveryDays=90,
+        bidValidityDays=90,
+        quality="合格",
+        safetyFeeYuan=37023.13,
+        provisionalYuan=75000,
+        primeCostYuan=0,
+        bidContent="施工图范围内工程",
+        defectPeriod="",
+        perfBond="",
+    )
+    doc = Document()
+    render_module(doc, brief, OutlineItem(id="l1", title="投标函", kind="letter"))
+    render_module(doc, brief, OutlineItem(id="a1", title="投标函附录", kind="letter"))
+    text = "\n".join(p.text or "" for p in doc.paragraphs)
+    assert "修补工程中的任何缺陷" in text
+    assert "工程质量达到" in text
+    assert "合格" in text
+    assert "自投标截止之日起" in text
+    assert "90日历天" in text
+    assert "投标保证金" in text
+    assert "投标函附录属于合同文件的组成部分" in text
+    assert "缺陷责任期" in text
+    assert "履约担保金额" in text
+    assert "专业等级" in text
+    assert "专业等级：/" not in text.replace(" ", "")
+
+
 def test_fill_copy_blanks_empty_zhi_and_bidder_not_sign() -> None:
     raw = (
         "投标承诺书致：\n"
@@ -402,9 +609,11 @@ def test_assemble_letter_keeps_invitation_form_layout(tmp_path) -> None:
     title = next(p for p in paras if compact_title(p.text) == "投标函")
     assert title.alignment == WD_ALIGN_PARAGRAPH.CENTER
     assert title.runs and title.runs[0].bold and title.runs[0].font.size >= Pt(16)
-    salute = next(p for p in paras if p.text.strip().startswith("某热电有限公司"))
+    salute = next(p for p in paras if "某热电有限公司" in p.text and p.text.strip().startswith("致"))
     assert salute.alignment == WD_ALIGN_PARAGRAPH.LEFT
     assert not salute.paragraph_format.first_line_indent
+    assert "w:u" in salute._p.xml
+    assert salute.text.strip().endswith("：")
     body_p = next(p for p in paras if "阅读和研究了" in p.text)
     assert not body_p.paragraph_format.first_line_indent
     texts = [p.text.strip() for p in paras]
@@ -422,6 +631,9 @@ def test_assemble_letter_keeps_invitation_form_layout(tmp_path) -> None:
     assert "：：" not in texts[phone_i]
     assert "w:u" in paras[bidder_i]._p.xml
     assert "w:u" in paras[legal_i]._p.xml
+    assert paras[contact_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert paras[phone_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert paras[bidder_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
 
 
 def test_assemble_letter_without_body_still_writes_module(tmp_path) -> None:
@@ -830,6 +1042,7 @@ def _run_underlined(run) -> bool:
 
 def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     from api.services.tenders.assemble import assemble_bid_docx
 
@@ -878,19 +1091,25 @@ def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     )
     assert any(_run_underlined(run) for run in name_line.runs if "伟泰" in (run.text or ""))
 
-    auth_sign = next(
+    stamped = [
         p
         for p in doc.paragraphs
-        if p.text.startswith("投") and "盖单位公章" in p.text and "河南伟泰" in p.text and "投标人" in "".join(p.text.split())
+        if "盖单位公章" in (p.text or "")
+        and "河南伟泰" in (p.text or "")
+        and "投标人" in "".join((p.text or "").split())
+    ]
+    assert stamped
+    auth_sign = next(
+        p
+        for p in stamped
+        if p.alignment != WD_ALIGN_PARAGRAPH.RIGHT
+        and (float(p.paragraph_format.left_indent.cm) if p.paragraph_format.left_indent else 0) >= 3.0
     )
     indent = float(auth_sign.paragraph_format.left_indent.cm) if auth_sign.paragraph_format.left_indent else 0
     assert indent >= 3.0
     assert any(_run_underlined(run) for run in auth_sign.runs if "河南伟泰" in (run.text or ""))
-    letter_sign = next(p for p in doc.paragraphs if p.text.startswith("投　标　人："))
-    letter_indent = (
-        float(letter_sign.paragraph_format.left_indent.cm) if letter_sign.paragraph_format.left_indent else 0
-    )
-    assert letter_indent >= 3.0
+    letter_sign = next(p for p in stamped if p.text.startswith("投　标　人：") or p.alignment == WD_ALIGN_PARAGRAPH.RIGHT)
+    assert letter_sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
     assert any(_run_underlined(run) for run in letter_sign.runs if "河南伟泰" in (run.text or ""))
     spacers = []
     for para in doc.paragraphs:
@@ -1501,6 +1720,47 @@ def test_assemble_business_volume_excludes_tech(tmp_path) -> None:
     assert "实施方案" not in blob
     assert "技术偏差" not in blob
     assert "技 术 标 投 标 文 件" not in blob
+
+
+def test_assemble_skips_invite_format_pack_pages(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.generateVolume = "business"
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="投标函",
+            kind="letter",
+            source="copy",
+            body=(
+                "致：（招标人名称）\n我方已仔细研究招标文件。\n"
+                "八、资格审查资料\n投标人：基本情况表\n"
+                "（一）中小企业声明函（如有）\n本公司郑重声明\n"
+                "十、施工组织设计\n暗标装订要求\n"
+            ),
+        ),
+        OutlineItem(id="o02", title="主要项目管理人员简历表", kind="unknown", source="copy", body="应附注册资格证书"),
+        OutlineItem(id="o03", title="中小企业声明函（如有）", kind="commitment_copy", source="copy", body="本公司郑重声明"),
+        OutlineItem(id="o04", title="十、施工组织设计", kind="unknown", source="copy", body="编制施工组织设计"),
+        OutlineItem(id="o05", title="投标人基本情况表", kind="company", source="copy", body="投标人：________"),
+    ]
+    path, _ = assemble_bid_docx(brief, tmp_path / "pack.docx", volume="business")
+    blob = compact_title(_docx_text(Document(str(path))))
+    assert "我方已仔细研究" in blob
+    assert "中小企业声明" not in blob
+    assert "残疾人" not in blob
+    assert "施工组织设计" not in blob
+    assert "管理人员简历" not in blob
+    assert "基本情况表" not in blob
+    assert "暗标" not in blob
+
 
 
 def test_assemble_technical_volume_excludes_quote(tmp_path) -> None:
@@ -2122,6 +2382,16 @@ def test_assemble_quote_matrix_keeps_sites_and_hardware_apart(tmp_path) -> None:
     assert len(matrix.columns) <= 8
     widths = [int(c.width) for c in matrix.rows[0].cells]
     assert min(widths[1:]) * 4 > widths[0]
+    from api.services.tenders.document import _em_len
+
+    for cell in matrix.rows[0].cells:
+        h = (cell.text or "").strip()
+        if not h or _em_len(h) > 16:
+            continue
+        tc_pr = cell._tc.get_or_add_tcPr()
+        assert tc_pr.find(qn("w:noWrap")) is not None
+        need = int(_em_len(compact_title(h)) * 210) + 160
+        assert int(cell.width) >= need - 80
     heads = [(c.text or "").strip() for c in matrix.rows[0].cells]
     assert "数据采集" in heads
     assert heads.count("数据采集") == 1
@@ -2166,6 +2436,35 @@ def test_assemble_quote_matrix_keeps_sites_and_hardware_apart(tmp_path) -> None:
     assert "元" in (cap.text or "")
 
 
+def test_copied_tables_keep_short_headers_horizontal() -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import _write_simple_table
+    from api.services.tenders.document import _em_len
+
+    doc = Document()
+    cases = [
+        ["", "数据采集", "TPM", "WMS", "MES", "QMS", "合计（元）", "备注"],
+        ["模块", "建设要求", "实现目标"],
+        ["序号", "项目内容", "品牌", "型号", "单价（元）"],
+        ["甲项", "乙项名称", "丙", "丁丁"],
+    ]
+    tables = []
+    for heads in cases:
+        tables.append(_write_simple_table(doc, heads, [["x"] * len(heads)]))
+    for table, heads in zip(tables, cases, strict=True):
+        got = [(c.text or "").strip() for c in table.rows[0].cells]
+        assert got == [h.strip() for h in heads]
+        for cell, h in zip(table.rows[0].cells, heads, strict=True):
+            assert "\n" not in (cell.text or "")
+            if not h.strip() or _em_len(h) > 16:
+                continue
+            tc_pr = cell._tc.get_or_add_tcPr()
+            assert tc_pr.find(qn("w:noWrap")) is not None, h
+            need = int(_em_len(compact_title(h)) * 210) + 160
+            assert int(cell.width) >= need - 80, (h, int(cell.width), need)
+
+
 def test_assemble_biz_essentials_use_title_and_box(tmp_path) -> None:
     from docx import Document
 
@@ -2203,5 +2502,258 @@ def test_assemble_biz_essentials_use_title_and_box(tmp_path) -> None:
     assert "在此粘贴扫描件" in blob
     assert "附件：资料库扫描件" not in blob
     assert "我方确认收到贵方提供的招标文件" in blob
+
+
+def test_assemble_embeds_library_license_by_title(tmp_path) -> None:
+    from PIL import Image
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    png = tmp_path / "license.png"
+    Image.new("RGB", (400, 280), (240, 240, 250)).save(png)
+    iso_png = tmp_path / "iso.png"
+    Image.new("RGB", (320, 240), (250, 240, 230)).save(iso_png)
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="投标函", kind="letter", source="generate"),
+        OutlineItem(id="o02", title="营业执照", kind="scan", source="generate"),
+        OutlineItem(id="o03", title="资质证书", kind="scan", source="generate"),
+    ]
+    dest = tmp_path / "license-scan.docx"
+    assemble_bid_docx(
+        brief,
+        dest,
+        qualification_pdf=None,
+        catalog_slots=[
+            PlaceholderItem(key="id_legal", title="法定代表人身份证正反面"),
+            PlaceholderItem(key="mlic01", title="营业执照", hint="经营范围含新能源充电"),
+            PlaceholderItem(key="iso_cert", title="ISO体系证书"),
+        ],
+        catalog_media={"mlic01": [png], "iso_cert": [iso_png]},
+    )
+    doc = Document(str(dest))
+    texts = [p.text or "" for p in doc.paragraphs]
+    lic_i = next(i for i, t in enumerate(texts) if t.strip() == "营业执照")
+    iso_i = next(i for i, t in enumerate(texts) if t.strip() == "资质证书")
+
+    def _blip_after(start: int, stop: int | None = None) -> bool:
+        el = doc.paragraphs[start]._element.getnext()
+        end = doc.paragraphs[stop]._element if stop is not None else None
+        while el is not None and el is not end:
+            if el.findall(".//" + qn("a:blip")) or el.findall(".//" + qn("pic:blipFill")):
+                return True
+            el = el.getnext()
+        return False
+
+    assert _blip_after(lic_i, iso_i)
+    assert _blip_after(iso_i)
+    assert "在此粘贴扫描件" not in "".join(texts[lic_i:iso_i])
+
+
+def test_this_bid_keys_includes_scan_slots_by_title() -> None:
+    from api.services.tenders.placeholders import this_bid_keys
+    from api.services.tenders.schema import PlaceholderItem
+
+    catalog = [
+        PlaceholderItem(key="id_legal", title="法定代表人身份证正反面"),
+        PlaceholderItem(key="mlic01", title="营业执照", hint="经营范围含新能源充电"),
+        PlaceholderItem(key="acct01", title="基本账户开户许可证"),
+        PlaceholderItem(key="finance", title="近三年财务"),
+    ]
+    required, include = this_bid_keys(
+        extra=[],
+        catalog=catalog,
+        required_keys=["id_legal"],
+        include_keys=["id_legal"],
+        has_agent=False,
+    )
+    assert required == ["id_legal"]
+    assert "mlic01" in include
+    assert "acct01" in include
+    assert "finance" not in include
+
+
+def test_assemble_messy_letter_uses_module_not_ocr(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="投标函",
+            kind="letter",
+            source="copy",
+            body=(
+                "投标函\n-189-\n致某某建设集团我方郑重承诺按招标文件参加投标。"
+                "\n发包人指定的接收人：张三\n-190-\n"
+            ),
+        ),
+        OutlineItem(
+            id="o02",
+            title="法定代表人身份证明",
+            kind="legal_id",
+            source="copy",
+            body="三、法定代表人身份证明\n投标人名称：________\n",
+        ),
+        OutlineItem(
+            id="o03",
+            title="法定代表人身份证明书",
+            kind="legal_id",
+            source="copy",
+            body="四、法定代表人身份证明书\n姓名：________\n",
+        ),
+        OutlineItem(
+            id="o04",
+            title="招标产品功能需求清单及说明",
+            kind="unknown",
+            source="copy",
+            body=(
+                "附二：招标产品功能需求清单及说明\n"
+                "一、MOM生产运营管理平台：\n"
+                "设备数采 1.多类型数据采集；2数据传输与存储功能\n"
+                "TPM系统 1.设备档案管理\n"
+            ),
+        ),
+    ]
+    dest = tmp_path / "messy-ocr.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    blob = _docx_text(doc)
+    assert "-189-" not in blob
+    assert "-190-" not in blob
+    assert "发包人指定的接收人" not in blob
+    assert "我方已仔细研究了" in blob
+    assert blob.count("特此证明。") == 1
+    assert "设备数采" in blob
+    assert "招标产品功能需求清单" in blob
+
+
+def test_assemble_copied_letter_title_salute_and_fields(tmp_path) -> None:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Pt
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    body = (
+        "（一）投标函\n"
+        "郑州天健智慧园区运营管理有限公司：\n"
+        "1.我方已仔细研究了郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）"
+        "施工招标项目招标文件的全部内容，愿意以人民币（大写）                    （¥\n"
+        "元）的投标总报价（其中，增值税税率按照国家有关规定执行），工期；\n"
+        "日历天，按合同约定完成承包工程。\n"
+        "2. 我方的投标文件包括下列内容：\n"
+        "（1）投标函及投标函附录；\n"
+        "（2）法定代表人身份证明或授权委托书；\n"
+        "3. 我方承诺在招标文件规定的投标有效期内不撤销投标文件。\n"
+        "4. 如我方中标，我方承诺：\n"
+        "（1）在收到中标通知书后签订合同；\n"
+        "5. 我方在此声明，所递交的投标文件内容完整、真实和准确。\n"
+        "6. 其他补充说明：无\n"
+        "投标人：河南伟泰光电科技有限公司（盖单位章）\n"
+        "法定代表人或其委托代理人：\n"
+        "（签字或盖章）\n"
+        "地址：\n"
+        "电话：17630567052传真\n"
+        "邮政编码：\n"
+        "项目联系人电话（手机）：\n"
+        "邮箱：\n"
+        "日期：2026年09月24日\n"
+        "（二）投标函附录项目名称投标人投标范围大写：\n"
+        "小写：\n"
+        "安全生产措施费\n"
+        "（元）大写：\n"
+        "小写：\n"
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.tenderer = "郑州天健智慧园区运营管理有限公司"
+    brief.projectName = "郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）"
+    brief.bidDate = "2026-09-24"
+    brief.bidPriceYuan = 897733
+    brief.deliveryDays = 90
+    brief.bidderPhone = "17630567052"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="投标函",
+            kind="letter",
+            source="copy",
+            body=body,
+        ),
+    ]
+    dest = tmp_path / "letter-layout.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    paras = [p for p in doc.paragraphs if (p.text or "").strip()]
+    texts = [p.text.strip() for p in paras]
+    title = next(p for p in paras if compact_title(p.text) == "（一）投标函")
+    assert title.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert title.runs and title.runs[0].bold and title.runs[0].font.size >= Pt(16)
+    salute = next(p for p in paras if p.text.strip().startswith("致"))
+    assert "郑州天健智慧园区运营管理有限公司" in salute.text
+    assert salute.text.strip().endswith("：")
+    assert "w:u" in salute._p.xml
+    blob = "\n".join(texts)
+    assert "人民币（大写）捌拾玖万柒仟柒佰叁拾叁元整" in blob
+    assert "897733.00" in blob
+    assert "工期：90日历天" in blob
+    legal = next(
+        p
+        for p in paras
+        if "法定代表人" in compact_title(p.text) and "签字或盖章" in (p.text or "")
+    )
+    assert "（签字或盖章）" in (legal.text or "")
+    assert legal.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert "\n" not in (legal.text or "").replace("\u3000", "")
+    assert not any(
+        compact_title(p.text) in {"签字或盖章", "（签字或盖章）"} for p in paras if p is not legal
+    )
+    assert legal.paragraph_format.keep_with_next is True
+    letter_sign = next(
+        p
+        for p in paras
+        if "投标人" in compact_title(p.text) and ("盖单位章" in (p.text or "") or "盖单位公章" in (p.text or ""))
+    )
+    assert letter_sign.paragraph_format.keep_with_next is True
+    body_hit = next(p for p in paras if "承包工程" in (p.text or "") or "我方已仔细研究" in (p.text or ""))
+    after = body_hit.paragraph_format.space_after
+    if after is not None:
+        assert after <= Pt(4)
+    li = next(i for i, t in enumerate(texts) if t == legal.text.strip())
+    nearby = texts[li : li + 8]
+    assert not any(
+        compact_title(t).startswith(("地址", "网址", "电话", "传真", "邮政编码", "项目联系人", "邮箱"))
+        for t in nearby
+    )
+    appendix = next(p for p in paras if compact_title(p.text) == "（二）投标函附录")
+    assert appendix.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert appendix.runs and appendix.runs[0].font.size >= Pt(16)
+    from api.services.tenders.document import _paragraph_has_page_break
+
+    prev = appendix._p.getprevious()
+    assert appendix.paragraph_format.page_break_before or (
+        prev is not None and _paragraph_has_page_break(prev)
+    )
+    name_i = next(i for i, t in enumerate(texts) if compact_title(t).startswith("项目名称"))
+    bidder_i = next(i for i, t in enumerate(texts) if i > name_i and compact_title(t).startswith("投标人"))
+    assert name_i != bidder_i
+    assert any(compact_title(t).startswith("大写") or "大写" in compact_title(t) for t in texts)
+    assert any("安全生产措施费" in compact_title(t) for t in texts)
+
 
 

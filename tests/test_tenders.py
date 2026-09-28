@@ -78,6 +78,42 @@ def test_rmb_lowercase() -> None:
     assert rmb_lowercase(Decimal("1000.5")) == "1,000.50"
 
 
+def test_rmb_figure_no_comma() -> None:
+    from api.services.tenders.money import rmb_figure
+
+    assert rmb_figure(3000000) == "3000000.00"
+    assert "," not in rmb_figure(518800)
+
+
+def test_rmb_pair_upper_and_figure() -> None:
+    from api.services.tenders.money import rmb_pair
+
+    assert rmb_pair(897733) == "捌拾玖万柒仟柒佰叁拾叁元整（¥897733.00元）"
+    assert rmb_pair(0) == "零元整（¥0.00元）"
+    assert rmb_pair(37023.13).startswith("叁万柒仟零贰拾叁元")
+    assert "37023.13" in rmb_pair(37023.13)
+
+
+def test_apply_invite_letter_fields_generic() -> None:
+    from api.services.tenders.extract import apply_invite_letter_fields
+    from api.services.tenders.schema import BidBrief
+
+    text = """
+工期：90日历天。质量要求：合格。投标有效期：90日历天。
+招标控制价：5870581.86元；安全生产措施费：37023.13元；暂列金额：75000.00元；专业工程暂估价：0元。
+投标保证金：人民币伍万元整。
+"""
+    brief = apply_invite_letter_fields(BidBrief(deliveryDays=30, bidValidityDays=60), text)
+    assert brief.deliveryDays == 90
+    assert brief.bidValidityDays == 90
+    assert brief.quality == "合格"
+    assert brief.safetyFeeYuan == 37023.13
+    assert brief.provisionalYuan == 75000.0
+    assert brief.primeCostYuan == 0.0
+    assert brief.controlPriceYuan == 5870581.86
+
+
+
 def test_build_bid_docx_fills_company(tmp_path) -> None:
     brief = BidBrief(
         projectName="高途智成港（一期）汽车充电桩采购安装项目",
@@ -521,19 +557,6 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
         if "地址" in (p.text or "") and "梧桐街" in (p.text or "")
     )
     assert float(legal_addr.paragraph_format.line_spacing or 0) >= 1.9
-    web = next(p for p in doc.paragraphs if "".join((p.text or "").split()).startswith("网址"))
-    assert _has_blank_u(web)
-    assert (web.text or "").count("\u3000") >= 18
-    assert web._p.find(".//" + qn("w:tab")) is None
-    assert "─" not in (web.text or "")
-    assert "---" not in (web.text or "")
-    phone = next(
-        p
-        for p in doc.paragraphs
-        if "17630567052" in (p.text or "") and "电话" in "".join((p.text or "").split())
-    )
-    assert any(r.underline is True and "17630567052" in (r.text or "") for r in phone.runs)
-    assert (phone.text or "").count("\u3000") >= 10
     letter_rep = next(
         p
         for p in doc.paragraphs
@@ -550,21 +573,21 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     if letter_rpr is not None and letter_rpr.find(qn("w:rFonts")) is not None:
         letter_east = letter_rpr.find(qn("w:rFonts")).get(qn("w:eastAsia"))
     assert letter_east not in {"微软雅黑", "黑体", "Microsoft YaHei", "SimHei"}
-    fax = next(p for p in doc.paragraphs if "".join((p.text or "").split()).startswith("传真"))
-    assert _has_blank_u(fax)
-    assert "邮政编码" not in (fax.text or "")
-    assert (fax.text or "").count("\u3000") >= 18
-    post_i = next(i for i, p in enumerate(doc.paragraphs) if "邮政编码" in (p.text or ""))
-    post = doc.paragraphs[post_i]
-    assert (post.text or "").count("\u3000") >= 18
+    letter_i = next(
+        i
+        for i, p in enumerate(doc.paragraphs)
+        if "法定代表人或其委托代理人" in (p.text or "") and "签字或盖章" in (p.text or "")
+    )
+    letter_rep = doc.paragraphs[letter_i]
+    letter_blob = "\n".join((p.text or "") for p in doc.paragraphs[:letter_i + 8])
+    assert "项目联系人" not in letter_blob
     letter_date = next(
         p
-        for p in doc.paragraphs[post_i:]
+        for p in doc.paragraphs[letter_i:]
         if "".join((p.text or "").split()).startswith("日期") and "2026" in (p.text or "")
     )
     assert "2026年" in (letter_date.text or "").replace(" ", "").replace("\u3000", "")
-    assert (letter_date.text or "").count("\u3000") >= 10
-    assert float(letter_date.paragraph_format.left_indent or 0) > 0
+    assert letter_date.alignment == WD_ALIGN_PARAGRAPH.RIGHT
     pay_bidder = next(
         p for p in doc.paragraphs if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
     )
@@ -1235,10 +1258,12 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     assert "投标总价" in issues
     assert "报价清单" in issues
     assert "委托代理人（招标书要求授权委托）" not in issues
-    assert "委托代理人（招标书要求授权委托）" in _brief_generate_issues(
+    assert "委托代理人" not in _brief_generate_issues(
         BidBrief(projectName="x", authNeed="required")
     )
-    assert "代理人身份证号" in _brief_generate_issues(BidBrief(projectName="x", authNeed="required"))
+    assert "代理人身份证号" not in _brief_generate_issues(BidBrief(projectName="x", authNeed="required"))
+    assert "委托代理人" in _brief_generate_issues(BidBrief(projectName="x", authEnabled=True))
+    assert "代理人身份证号" in _brief_generate_issues(BidBrief(projectName="x", authEnabled=True))
     from api.services.tenders.schema import PerformanceRequirement
 
     perf_issues = _brief_generate_issues(
@@ -1357,6 +1382,24 @@ def test_invitation_materials_intersect_catalog_by_title() -> None:
     assert "投标保证金缴存回单" in joined
     assert "不会用其他项目" in joined
     assert "安全生产许可证" in joined
+
+
+def test_attachment_match_reuses_same_kind_library_file() -> None:
+    from api.services.tenders.match import build_attachment_match
+
+    report = build_attachment_match(
+        [
+            {"key": "license", "title": "营业执照", "fileCount": 0},
+            {"key": "mlic01", "title": "企业法人营业执照副本", "fileCount": 1},
+            {"key": "bank_permit", "title": "开户许可证", "fileCount": 0},
+        ],
+        required_keys=[],
+        include_keys=["license", "bank_permit"],
+    )
+    assert [x["key"] for x in report["matched"]] == ["mlic01"]
+    assert [x["title"] for x in report["matched"]] == ["企业法人营业执照副本"]
+    assert [x["key"] for x in report["missingFiles"]] == ["bank_permit"]
+    assert report["createdItems"] == []
 
 
 def test_find_catalog_item_does_not_borrow_other_slot() -> None:
