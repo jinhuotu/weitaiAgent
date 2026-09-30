@@ -20,6 +20,7 @@ from api.services.tenders.document import (
     _auth_text,
     _commercial_dev_rows,
     _embed_tech_drawings,
+    _forbid_row_split,
     _glue_sign_off,
     _deviation_rows,
     _distribute_twips,
@@ -494,23 +495,26 @@ def _seal_register(doc: Document, brief: BidBrief) -> list[str]:
     _write_cell(table.cell(3, 3), "行号：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(4, 0), "账号：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(5, 0), "", size=10.5, bold=False, underline=False, center=True)
-    _set_row_height(table.rows[5], 2.4)
+    _set_row_height(table.rows[5], 0.7)
     _write_cell(table.cell(6, 0), "公章", size=11, bold=False, underline=False, center=True)
     _write_cell(table.cell(6, 2), "财务章", size=11, bold=False, underline=False, center=True)
     _write_cell(table.cell(6, 4), "合同章", size=11, bold=False, underline=False, center=True)
     for col in (0, 2, 4):
         _write_cell(table.cell(7, col), "印鉴备案", size=10.5, bold=False, underline=False, center=True)
-    # 公章直径约 4.2cm，格子用精确行高，避免预览把 atLeast 收成一行字
-    _set_row_height(table.rows[7], 6.0, exact=True)
+    # 公章直径约 4.2cm，格子加高方便盖章；上面空行压矮，整表仍优先一页
+    _set_row_height(table.rows[7], 5.8, exact=True)
     _write_cell(table.cell(8, 0), "法人签字样本：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(8, 3), "", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(9, 0), "财务负责人签字样本：", size=10.5, bold=False, underline=False)
     _write_cell(table.cell(9, 3), "财务负责人电话：", size=10.5, bold=False, underline=False)
-    _set_row_height(table.rows[8], 2.0)
-    _set_row_height(table.rows[9], 2.0)
-    _para(doc, "备注：本表中三处备案印鉴为红色章。")
+    _set_row_height(table.rows[8], 1.4)
+    _set_row_height(table.rows[9], 1.4)
+    note = _para(doc, "备注：本表中三处备案印鉴为红色章。")
     col_twips = _distribute_twips(_usable_width_twips(doc), (1, 1, 1, 1, 1, 1))
     _apply_fixed_table_widths(table, col_twips)
+    _forbid_row_split(table)
+    if note is not None:
+        note.paragraph_format.keep_together = True
     return ["印鉴预留备案表已按招标书格子填写公司名称和电话，印章请盖原件"]
 
 

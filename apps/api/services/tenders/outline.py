@@ -66,7 +66,8 @@ _COMPANY_ONLY = re.compile(
     r"^[\u4e00-\u9fff]{2,24}(?:有限责任公司|股份有限公司|有限公司)$"
 )
 _MASHED_ZHI = re.compile(
-    r"^((?:投标|响应)?承诺书|承诺函|投标函|响应函)(致[：:]?.*)$",
+    r"^((?:[一二三四五六七八九十]+、)?(?:合同条款)?响应书|"
+    r"(?:投标|响应)?承诺书|承诺函|投标函|响应函)(致[：:]?.*)$",
     re.M,
 )
 _ZHI_BODY = re.compile(r"(我公司|我方现|我方确认|我方已|如下承诺|现做出如下|保证投标|并重申)")
@@ -1636,7 +1637,19 @@ def fill_copy_blanks(
         )
     if date_cn:
         out = re.sub(r"[＿_—\-]{0,6}年[＿_—\-]{0,4}月[＿_—\-]{0,4}日", date_cn, out)
-        out = re.sub(r"年\s*月\s*日(?!(?:[一二三四五六七八九十]、))", date_cn, out)
+        # 含「年 月 日四、…」粘连：先填日期，再拆行（勿用负向断言挡住）
+        out = re.sub(r"年\s*月\s*日", date_cn, out)
+        out = re.sub(
+            rf"({re.escape(date_cn)})\s*([一二三四五六七八九十]、\s*"
+            r"(?:合同|偏差|偏离|报价|响应方案|响应书|承诺|授权|身份))",
+            r"\1\n\2",
+            out,
+        )
+        out = re.sub(
+            rf"({re.escape(date_cn)})\s*((?:供应商|投标人)\s*[：:].{{0,8}}参见)",
+            r"\1\n\2",
+            out,
+        )
     return out
 
 
@@ -1801,8 +1814,14 @@ def _attach_item_bodies(items: list[OutlineItem], chapter_body: str) -> None:
         end = min(end, _next_attach_cut(chapter_body, start, item.title))
         chunk = chapter_body[start:end]
         item.body = _clean_copied_body(chunk, item.title)
-        if (item.kind or "").strip() == "letter":
+        kind = (item.kind or "").strip()
+        if kind == "letter":
             item.body = slice_copied_letter_body(item.body, item.title)
+        elif kind == "commitment_copy" or "响应书" in compact_title(item.title):
+            item.body = _trim_copied_form_tail(item.body, item.title)
+        elif kind in {"biz_dev", "tech_dev"}:
+            # 模块表只用表头；正文里落款/下一节别跟着污染
+            item.body = _trim_copied_form_tail(item.body, item.title)
 
 
 def _template_starts(body: str, items: list[OutlineItem]) -> list[int]:
@@ -1822,6 +1841,12 @@ def _template_starts(body: str, items: list[OutlineItem]) -> list[int]:
         else:
             starts.append(-1)
     return starts
+
+
+_NEXT_FORM_SEC = re.compile(
+    r"[一二三四五六七八九十]{1,2}、\s*"
+    r"(?:合同条款|商务和技术|商务|技术)?(?:偏差|偏离|报价|响应方案|响应书|承诺|授权|身份)"
+)
 
 
 def _next_attach_cut(body: str, start: int, title: str) -> int:
@@ -1848,7 +1873,39 @@ def _next_attach_cut(body: str, start: int, title: str) -> int:
             pos += 1
         cut = min(cut, start + skip + pos)
         break
+    # OCR 无换行时「…日四、响应方案」也要截断
+    for m in _NEXT_FORM_SEC.finditer(tail):
+        other = m.group(0)
+        if seq and _attach_seq(other) == seq:
+            continue
+        t_core = compact_title(title or "")
+        o_core = compact_title(other)
+        if t_core and o_core and (t_core in o_core or o_core in t_core):
+            continue
+        cut = min(cut, start + skip + m.start())
+        break
     return cut
+
+
+def _trim_copied_form_tail(text: str, title: str = "") -> str:
+    """响应书/抄写稿：落款后下一节标题（含粘连）一律丢掉。"""
+    raw = (text or "").rstrip()
+    if not raw:
+        return ""
+    cut = len(raw)
+    title_n = compact_title(title or "")
+    for m in _NEXT_FORM_SEC.finditer(raw):
+        if m.start() < 12:
+            continue
+        other = compact_title(m.group(0))
+        if title_n and other and (title_n in other or other in title_n):
+            continue
+        # 本页标题行里的「三、合同条款响应书」不砍
+        if title_n and "响应书" in title_n and "响应书" in other and m.start() < 40:
+            continue
+        cut = min(cut, m.start())
+        break
+    return raw[:cut].rstrip()
 
 
 def _core_doc_name(text: str) -> str:
@@ -2053,7 +2110,10 @@ def _clean_copied_body(chunk: str, title: str) -> str:
     compact = compact_title(text)
     if "\n" not in text and len(compact) <= 28 and classify_kind(text) != "unknown":
         return ""
-    return cut_invite_pack_body(text)[:_BODY_MAX]
+    text = cut_invite_pack_body(text)[:_BODY_MAX]
+    if "响应书" in compact_title(title or "") or classify_kind(title or "") == "commitment_copy":
+        text = _trim_copied_form_tail(text, title)
+    return text
 
 
 def _format_section(text: str) -> tuple[str, str]:

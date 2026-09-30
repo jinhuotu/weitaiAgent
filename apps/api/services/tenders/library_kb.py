@@ -883,18 +883,7 @@ async def resolve_attachments(
             paths = _files_of(parent, children.get(parent.public_id, []))
         if not paths and _KEY_RE.match(key):
             paths = list_slot_files(key)
-        if not paths:
-            # 资料库里同名/同类项已有扫描件时用那份，不另建空槽
-            for pkey, other in parents.items():
-                if pkey == key:
-                    continue
-                if not same_library_material(item.title, other.name or ""):
-                    continue
-                paths = _files_of(other, children.get(other.public_id, []))
-                if not paths and pkey and _KEY_RE.match(pkey):
-                    paths = list_slot_files(pkey)
-                if paths:
-                    break
+        # 缺件就空着，绝不拿身份证/信用中国等其他槽位文件顶替
         if paths:
             out[key] = paths
     return out

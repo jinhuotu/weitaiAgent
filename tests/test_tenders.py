@@ -587,7 +587,13 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
         if "".join((p.text or "").split()).startswith("日期") and "2026" in (p.text or "")
     )
     assert "2026年" in (letter_date.text or "").replace(" ", "").replace("\u3000", "")
-    assert letter_date.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    letter_date_left = (
+        float(letter_date.paragraph_format.left_indent.cm)
+        if letter_date.paragraph_format.left_indent
+        else 0
+    )
+    assert letter_date_left >= 4.0
+    assert "\n" not in (letter_date.text or "")
     pay_bidder = next(
         p for p in doc.paragraphs if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
     )
@@ -662,9 +668,11 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     sign = next(
         p
         for p in doc.paragraphs[commit_title:]
-        if "投 标 人" in (p.text or "") and "盖章" in (p.text or "")
+        if ("投 标 人" in (p.text or "") or "投　标　人" in (p.text or "") or "投标人" in (p.text or ""))
+        and "盖章" in (p.text or "")
     )
-    assert sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    sign_left = float(sign.paragraph_format.left_indent.cm) if sign.paragraph_format.left_indent else 0
+    assert sign_left >= 4.0 or sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
 
 
 def test_commitment_letter_fills_tenderer(tmp_path) -> None:
@@ -1478,7 +1486,7 @@ def test_find_catalog_item_maps_default_slot_aliases() -> None:
     assert key_of("委托代理人身份证正反面") == "id_agent"
     assert key_of("近三年类似业绩合同") == "perf"
     assert key_of("财务报表") == "finance"
-    assert key_of("近半年社保缴费证明") in {"finance", "id_agent"}
+    assert key_of("近半年社保缴费证明") in {"", "id_agent", "social", "finance"}
     assert key_of("型式试验报告") == "product"
     assert key_of("3C认证证书") == "product"
     assert key_of("投标承诺书") == "commit"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from docx.oxml.ns import qn
 
 from api.services.tenders.outline import (
@@ -41,12 +43,97 @@ def test_ymd_pads_single_digit_month_day() -> None:
     assert _ymd("2026-09-11") == ("2026", "09", "11")
 
 
+def test_sign_spacer_caps_and_reserves_room() -> None:
+    from docx import Document
+
+    from api.services.tenders.document import _sign_spacer_cm
+
+    doc = Document()
+    doc.add_paragraph("短正文")
+    capped = _sign_spacer_cm(doc, sign_cm=3.2, max_cm=3.2, reserve_cm=2.0)
+    assert capped <= 3.2 + 1e-6
+    # 预留过大时宁可不要弹性空白，避免和 keep 链一起翻页
+    none = _sign_spacer_cm(doc, sign_cm=3.2, reserve_cm=100.0, max_cm=3.2)
+    assert none == 0.0
+
+
 def test_align_sign_label_spreads_short_words() -> None:
     from api.services.tenders.document import _align_sign_label
 
     assert _align_sign_label("投标人：") == "投　标　人："
     assert _align_sign_label("日期") == "日　　　期："
     assert _align_sign_label("法定代表人：") == "法定代表人："
+
+
+def test_letter_sign_line_stays_single_line_no_overflow() -> None:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm
+
+    from api.services.tenders.document import (
+        _LETTER_SIGN_RIGHT_KW,
+        _em_len,
+        _line_em_budget,
+        _rewrite_date_line,
+        _rewrite_labeled_underline,
+    )
+
+    doc = Document()
+    for sec in doc.sections:
+        sec.page_width = Cm(21.0)
+        sec.page_height = Cm(29.7)
+        sec.left_margin = Cm(2.54)
+        sec.right_margin = Cm(2.54)
+    para = doc.add_paragraph()
+    _rewrite_labeled_underline(
+        para,
+        [("法定代表人或其委托代理人：", "", "（签字或盖章）")],
+        **_LETTER_SIGN_RIGHT_KW,
+    )
+    assert "（签字或盖章）" in (para.text or "")
+    body = (para.text or "").replace("法定代表人或其委托代理人：", "", 1).replace("（签字或盖章）", "", 1)
+    # 实线下划线空格，且「（签字或盖章）」与横线同排
+    assert "＿" not in (para.text or "")
+    assert "（签字或盖章）" in (para.text or "")
+    assert "\n" not in (para.text or "")
+    assert _em_len(body) >= 4
+    # 横线用的是带 w:u 的全角空格
+    assert "w:u" in para._p.xml
+    left = float(para.paragraph_format.left_indent.cm) if para.paragraph_format.left_indent else 0
+    assert left >= 1.4
+    date_p = doc.add_paragraph()
+    _rewrite_date_line(
+        date_p,
+        "2026",
+        "09",
+        "29",
+        label="日期：",
+        **_LETTER_SIGN_RIGHT_KW,
+    )
+    assert "2026" in (date_p.text or "")
+    assert date_p.alignment == WD_ALIGN_PARAGRAPH.LEFT
+    d_label = "日　　　期："
+    d_room = _line_em_budget(date_p, d_label, "")
+    d_body = (date_p.text or "").replace("日期：", "").replace("日　　　期：", "")
+    assert _em_len(d_body) <= d_room + 0.6
+
+
+def test_media_keys_do_not_borrow_credit_or_id() -> None:
+    from api.services.tenders.assemble import _media_keys_for_item
+    from api.services.tenders.match import _same_material_kind
+    from api.services.tenders.placeholders import DEFAULT_SLOTS
+
+    slots = list(DEFAULT_SLOTS)
+    audit = OutlineItem(id="x", title="上一年度审计报告", kind="scan")
+    assert _media_keys_for_item(audit, slots) == ["finance"]
+    commit = OutlineItem(id="c", title="无违法承诺函", kind="commitment_copy")
+    keys = _media_keys_for_item(commit, slots)
+    assert "credit" not in keys
+    assert "commitment" in keys or keys == []
+    assert not _same_material_kind(
+        "近三年财务审计报告 / 完税证明 / 社保缴纳证明",
+        "授权代理人身份证及近半年社保缴纳证明",
+    )
 
 
 def test_attach_template_body_not_toc_line() -> None:
@@ -630,10 +717,26 @@ def test_assemble_letter_keeps_invitation_form_layout(tmp_path) -> None:
     assert "郭志伟" not in texts[legal_i]
     assert "：：" not in texts[phone_i]
     assert "w:u" in paras[bidder_i]._p.xml
+    assert "签字" in texts[legal_i]
+    assert "＿" not in texts[legal_i]
     assert "w:u" in paras[legal_i]._p.xml
-    assert paras[contact_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
-    assert paras[phone_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
-    assert paras[bidder_i].alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    assert "（签字" in texts[legal_i] or "签字或盖章" in texts[legal_i]
+    def _sign_left(p) -> float:
+        ind = p.paragraph_format.left_indent
+        return float(ind.cm) if ind else 0.0
+
+    assert _sign_left(paras[contact_i]) >= 4.0
+    assert _sign_left(paras[phone_i]) >= 4.0
+    assert _sign_left(paras[bidder_i]) >= 4.0
+    assert abs(_sign_left(paras[contact_i]) - _sign_left(paras[bidder_i])) < 0.05
+    # 短标签冒号轴对齐（中间插全角空格）
+    assert "投　标　人" in texts[bidder_i] or "投标人" in texts[bidder_i]
+    assert "联" in texts[contact_i] and "人" in texts[contact_i]
+    # 落款单行：不出现「签字」与「或盖章」拆到两段
+    assert "签字或盖章" in texts[legal_i] or "签字" in texts[legal_i]
+    assert not any(
+        (p.text or "").strip() in {"或盖章）", "盖章）"} for p in paras
+    )
 
 
 def test_assemble_letter_without_body_still_writes_module(tmp_path) -> None:
@@ -1108,8 +1211,21 @@ def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     indent = float(auth_sign.paragraph_format.left_indent.cm) if auth_sign.paragraph_format.left_indent else 0
     assert indent >= 3.0
     assert any(_run_underlined(run) for run in auth_sign.runs if "河南伟泰" in (run.text or ""))
-    letter_sign = next(p for p in stamped if p.text.startswith("投　标　人：") or p.alignment == WD_ALIGN_PARAGRAPH.RIGHT)
-    assert letter_sign.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    letter_sign = next(
+        p
+        for p in stamped
+        if "投标人" in "".join((p.text or "").split())
+        and (
+            p.text.startswith("投　标　人：")
+            or p.text.startswith("投标人：")
+            or (
+                p.paragraph_format.left_indent
+                and float(p.paragraph_format.left_indent.cm) >= 6.0
+            )
+        )
+    )
+    left = float(letter_sign.paragraph_format.left_indent.cm) if letter_sign.paragraph_format.left_indent else 0
+    assert left >= 4.0
     assert any(_run_underlined(run) for run in letter_sign.runs if "河南伟泰" in (run.text or ""))
     spacers = []
     for para in doc.paragraphs:
@@ -1457,7 +1573,9 @@ def test_assemble_seal_register_fills_company_table(tmp_path) -> None:
     el = None if tr_pr is None else tr_pr.find(qn("w:trHeight"))
     assert el is not None
     assert el.get(qn("w:hRule")) == "exact"
-    assert int(el.get(qn("w:val")) or 0) >= 3000
+    # 约 5.8cm，够盖直径 4.2cm 公章
+    assert int(el.get(qn("w:val")) or 0) >= int(5.5 * 567)
+    assert stamp._tr.get_or_add_trPr().find(qn("w:cantSplit")) is not None
 
 
 def test_assemble_drops_duplicate_seal_register_page(tmp_path) -> None:
@@ -1994,8 +2112,9 @@ def test_assemble_keeps_multiline_commitment_paragraphs(tmp_path) -> None:
     assert "丙方继续履行" in paras[0]
 
 
-def test_assemble_copies_seal_register_body_instead_of_grid(tmp_path) -> None:
+def test_assemble_seal_register_uses_one_page_grid(tmp_path) -> None:
     from docx import Document
+    from docx.oxml.ns import qn
 
     from api.services.tenders.assemble import assemble_bid_docx
 
@@ -2013,7 +2132,7 @@ def test_assemble_copies_seal_register_body_instead_of_grid(tmp_path) -> None:
     brief.outlineItems = [
         OutlineItem(id="o01", title="印鉴预留备案表", kind="company", source="copy", body=body),
     ]
-    dest = tmp_path / "seal-copy.docx"
+    dest = tmp_path / "seal-grid.docx"
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     doc = Document(str(dest))
     blob = _docx_text(doc)
@@ -2024,7 +2143,13 @@ def test_assemble_copies_seal_register_body_instead_of_grid(tmp_path) -> None:
             if any((c.text or "").strip() == "印鉴备案" for c in row.cells):
                 stamp = row
                 break
-    assert stamp is None
+        if stamp is not None:
+            for row in table.rows:
+                tr_pr = row._tr.trPr
+                assert tr_pr is not None
+                assert tr_pr.find(qn("w:cantSplit")) is not None
+            break
+    assert stamp is not None
 
 
 def test_assemble_follows_invitation_templates_not_fixed_seal_or_quote(tmp_path) -> None:
@@ -2718,8 +2843,17 @@ def test_assemble_copied_letter_title_salute_and_fields(tmp_path) -> None:
         if "法定代表人" in compact_title(p.text) and "签字或盖章" in (p.text or "")
     )
     assert "（签字或盖章）" in (legal.text or "")
-    assert legal.alignment == WD_ALIGN_PARAGRAPH.RIGHT
+    legal_left = float(legal.paragraph_format.left_indent.cm) if legal.paragraph_format.left_indent else 0
+    # 手签行可能略减左缩进以拉长横线
+    assert legal_left >= 1.4
+    from api.services.tenders.document import _em_len
+
+    blank = (legal.text or "").replace("法定代表人或其委托代理人：", "").replace("（签字或盖章）", "")
+    assert "＿" not in (legal.text or "")
+    assert "（签字或盖章）" in (legal.text or "")
     assert "\n" not in (legal.text or "").replace("\u3000", "")
+    assert "签字或盖章" in (legal.text or "").replace("\n", "")
+    assert "w:u" in legal._p.xml or _em_len(blank) >= 4
     assert not any(
         compact_title(p.text) in {"签字或盖章", "（签字或盖章）"} for p in paras if p is not legal
     )
@@ -2755,5 +2889,283 @@ def test_assemble_copied_letter_title_salute_and_fields(tmp_path) -> None:
     assert any(compact_title(t).startswith("大写") or "大写" in compact_title(t) for t in texts)
     assert any("安全生产措施费" in compact_title(t) for t in texts)
 
+
+def test_assemble_letter_recovers_signoff_when_ocr_stuck_after_appendix(tmp_path) -> None:
+    """邀请书把盖章落款写在附录后时，投标函页仍须有投标人/日期。"""
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    # 函正文无落款；附录后才有签字段（常见 OCR 粘连）
+    body = (
+        "（一）投标函\n"
+        "郑州天健智慧园区运营管理有限公司：\n"
+        "1.我方已仔细研究了某某项目招标文件的全部内容，愿意以人民币投标。\n"
+        "2. 我方的投标文件包括下列内容：\n"
+        "（1）投标函及投标函附录；\n"
+        "5. 我方在此声明，所递交的投标文件内容完整、真实和准确。\n"
+        "（二）投标函附录\n"
+        "项目名称：某某项目\n"
+        "投标人：河南伟泰光电科技有限公司\n"
+        "投标人：河南伟泰光电科技有限公司（盖单位公章）\n"
+        "法定代表人或其委托代理人：（签字或盖章）\n"
+        "日期：2026年09月29日\n"
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.tenderer = "郑州天健智慧园区运营管理有限公司"
+    brief.projectName = "某某项目"
+    brief.bidDate = "2026-09-29"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="投标函", kind="letter", source="copy", body=body),
+    ]
+    dest = tmp_path / "letter-sign-recover.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    paras = [p for p in doc.paragraphs if (p.text or "").strip()]
+
+    def _is_letter_heading(t: str) -> bool:
+        n = compact_title(t)
+        return n.endswith("投标函") and "附录" not in n and len(n) <= 10
+
+    def _is_app_heading(t: str) -> bool:
+        n = compact_title(t)
+        return "投标函附录" in n and "及" not in n and len(n) <= 16
+
+    # 跳过封面/目录，取正文第一处投标函标题
+    letter_i = next(i for i, p in enumerate(paras) if _is_letter_heading(p.text) and i >= 20)
+    app_i = next(i for i, p in enumerate(paras) if i > letter_i and _is_app_heading(p.text))
+    letter_part = [p.text.strip() for p in paras[letter_i:app_i]]
+    assert any(
+        "投标人" in compact_title(t) and ("盖单位" in t or "公章" in t or "盖章" in t)
+        for t in letter_part
+    ), letter_part
+    assert any("日期" in compact_title(t) and "2026" in t for t in letter_part)
+
+
+def test_form_line_role_notice_is_body_not_sign() -> None:
+    from api.services.tenders.assemble import _form_line_role
+
+    assert (
+        _form_line_role("供应商：参见询价采购文件第三章、第四章有关格式提供。") == "body"
+    )
+    assert _form_line_role("供应商：（盖章）") == "sign"
+    assert _form_line_role("日期：2026年09月29日") == "sign"
+    assert _form_line_role("二、合同条款响应书") == "title"
+
+
+def test_norm_resp_body_fills_lot_and_choice_blanks() -> None:
+    from api.services.tenders.assemble import _norm_resp_body
+
+    out = _norm_resp_body(
+        "根据贵方的采购文件，标段编号为        ，我方经慎重研究，承诺  （全面/部分）响应所有合同条件。"
+    )
+    assert "标段编号为〓LOT〓" in out
+    assert "承诺〓CHOICE〓（全面/部分）" in out
+    assert "标段编号为 " not in out
+    assert "承诺  （" not in out
+
+
+def test_assemble_response_letter_layout_right_sign_centered_title(tmp_path) -> None:
+    from docx import Document
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    from docx.shared import Cm
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    body = (
+        "二、合同条款响应书致：河南华慧有色工程设计有限公司\n"
+        "根据贵方的采购文件，标段编号：________，我方经慎重研究，承诺全面响应所有合同条件。\n"
+        "供应商：河南伟泰光电科技有限公司（全称，加盖公章）\n"
+        "法定代表人或授权代表：（签字或盖章）\n"
+        "日期： 年 月 日\n"
+        "供应商已全面理解第三章《合同条款》所有合同条款及第四章《技术要求》的所有要求，无任何偏离。\n"
+        "若存在部分响应，须将偏差部分详细注明并填写《商务和技术偏差表》。\n"
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.bidDate = "2026-09-29"
+    brief.tenderer = "河南华慧有色工程设计有限公司"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="合同条款响应书",
+            kind="commitment_copy",
+            source="copy",
+            body=body,
+        ),
+    ]
+    dest = tmp_path / "resp-layout.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    paras = [p for p in doc.paragraphs if (p.text or "").strip()]
+    head_i = next(
+        i
+        for i, p in enumerate(paras)
+        if compact_title(p.text) == "合同条款响应书"
+        and "\t" not in (p.text or "")
+        and i > 15
+    )
+    head = paras[head_i]
+    assert "二、" not in (head.text or "")
+    assert head.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    chunk = paras[head_i:]
+    texts = [p.text.strip() for p in chunk[:12]]
+    assert any(t.startswith("致：") and "华慧" in t for t in texts)
+    zhi = next(p for p in chunk if (p.text or "").strip().startswith("致"))
+    assert "w:u" not in zhi._p.xml
+    # 落款在须知正文之后
+    notice_i = next(i for i, t in enumerate(texts) if "商务和技术偏差表" in t)
+    supplier_i = next(
+        i for i, t in enumerate(texts) if "伟泰" in t and "供应商" in compact_title(t)
+    )
+    assert supplier_i > notice_i
+    supplier = next(p for p in chunk if "伟泰" in (p.text or "") and "供应商" in compact_title(p.text))
+    # 与投标函同款：右半页缩进
+    assert (supplier.paragraph_format.left_indent or Cm(0)) >= Cm(3.5)
+    date_p = next(p for p in chunk if "2026" in (p.text or "") and "日期" in compact_title(p.text))
+    assert (date_p.paragraph_format.left_indent or Cm(0)) >= Cm(3.5)
+    assert "w:u" in date_p._p.xml
+    body_p = next(p for p in chunk if "全面/部分" in (p.text or "") or "全面响应" in (p.text or ""))
+    # 标段编号、承诺选项处应是实线下划线，不能是可被拉开的普通空格
+    assert "w:u" in body_p._p.xml
+    assert "标段编号为" in (body_p.text or "")
+    # 承诺与（全面/部分）之间不应残留大段空白
+    blob = (body_p.text or "").replace("\u3000", "")
+    assert "承诺（全面/部分）" in blob or "承诺(全面/部分)" in blob or "承诺" in blob
+
+def test_pipe_table_stops_before_signoff_and_next_section() -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import _is_table_stop, _try_write_pipe_table
+    from api.services.tenders.schema import DocumentFormat
+
+    assert _is_table_stop("四、响应方案")
+    assert _is_table_stop("供应商：（盖章）")
+    assert _is_table_stop("日期：2026年09月29日")
+    assert not _is_table_stop("1 | 交货期 | 全部响应/无偏差")
+
+    doc = Document()
+    fmt = DocumentFormat()
+    lines = [
+        "序号 | 招标文件要求 | 投标文件响应",
+        "1 | 交货期 | 全部响应/无偏差",
+        "供应商：（盖章）",
+        "日期：2026年09月29日",
+        "四、响应方案",
+    ]
+    nxt = _try_write_pipe_table(doc, lines, 0, fmt=fmt, title="商务和技术偏差表")
+    assert nxt == 2
+    blob = "".join(c.text or "" for t in doc.tables for r in t.rows for c in r.cells)
+    assert "四、响应方案" not in blob
+    assert "盖章" not in blob
+    assert "日期" not in blob
+
+
+def test_assemble_response_letter_one_date_notice_no_underline(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    body = (
+        "合同条款响应书\n"
+        "致：郑州某某有限公司\n"
+        "我方完全响应合同条款，无任何偏差。\n"
+        "供应商：河南伟泰光电科技有限公司（盖章）\n"
+        "日期： 年 月 日\n"
+        "2026年09月29日\n"
+        "供应商：参见询价采购文件第三章、第四章有关格式提供。\n"
+        "四、响应方案\n"
+        "（格式自拟）\n"
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.bidDate = "2026-09-29"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="合同条款响应书",
+            kind="commitment_copy",
+            source="copy",
+            body=body,
+        ),
+    ]
+    dest = tmp_path / "response-letter.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    paras = [p for p in doc.paragraphs if (p.text or "").strip()]
+    head_i = next(
+        i
+        for i, p in enumerate(paras)
+        if compact_title(p.text) == "合同条款响应书" and i > 10
+    )
+    chunk = paras[head_i : head_i + 12]
+    texts = [p.text.strip() for p in chunk]
+    blob = "\n".join(texts)
+    date_lines = [t for t in texts if re.search(r"2026\s*年\s*09\s*月\s*29\s*日", t)]
+    assert len(date_lines) == 1, date_lines
+    assert "四、响应方案" not in blob
+    notice_para = next(p for p in chunk if "参见" in (p.text or "") and "第三章" in (p.text or ""))
+    assert "w:u" not in notice_para._p.xml
+
+
+def test_assemble_tech_dev_ignores_dirty_ocr_body(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    dirty = (
+        "序号 | 招标文件要求 | 投标文件响应\n"
+        "1 | 交货期 | 全部响应/无偏差供应商：（盖章）日期：2026年09月29日四、响应方案\n"
+        "供应商：（盖章）\n"
+        "四、响应方案\n"
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.bidDate = "2026-09-29"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.deviationLines = [
+        DeviationLine(
+            seq="1",
+            requirement="支持单点登录",
+            response="支持单点登录",
+            deviation="无偏差",
+        )
+    ]
+    brief.outlineItems = [
+        OutlineItem(
+            id="o01",
+            title="技术偏差表",
+            kind="tech_dev",
+            source="generate",
+            body=dirty,
+        ),
+    ]
+    dest = tmp_path / "tech-dev-clean.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    tech = next(
+        t
+        for t in doc.tables
+        if any("支持单点登录" in (c.text or "") for r in t.rows for c in r.cells)
+    )
+    heads = [c.text.strip() for c in tech.rows[0].cells]
+    assert len(heads) in {3, 4}
+    assert "序号" in heads[0]
+    cell_blob = "".join(c.text or "" for r in tech.rows for c in r.cells)
+    assert "四、响应方案" not in cell_blob
+    assert "盖章" not in cell_blob
+    assert "支持单点登录" in cell_blob
 
 

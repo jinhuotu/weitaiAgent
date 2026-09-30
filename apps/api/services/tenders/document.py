@@ -346,7 +346,9 @@ def _em_len(text: str) -> float:
     return n
 
 
-def _add_form_pad(para: Paragraph, ems: float) -> None:
+def _add_form_pad(para: Paragraph, ems: float, *, blank: bool = False) -> None:
+    """空栏/补线一律全角空格 + 单实线下划线（w:u single），不用＿/短横，预览里才是实线。"""
+    del blank
     n = int(round(max(0.0, ems)))
     if n <= 0:
         return
@@ -395,19 +397,21 @@ def _add_form_blank(para: Paragraph) -> None:
 
 
 def _underline_value(para: Paragraph, value: str, target_em: int) -> None:
-    """有字则字下划线，再补全角空格拉到固定长度；空栏整段下划线。超宽时不再强行补线，避免换行。"""
-    target = max(1, int(target_em or 8))
+    """有字则字下划线再补空；空栏用全角空格+单实线下划线。绝不超出 target。"""
+    target = max(0, int(target_em or 0))
     text = (value or "").strip()
     if text:
-        filled = f" {text} "
-        if _em_len(filled) > target + 0.4:
-            filled = text
+        filled = text
+        padded = f" {text} "
+        if target >= 2 and _em_len(padded) <= target + 0.05:
+            filled = padded
         _form_run(para, filled, underline=True)
         extra = target - _em_len(filled)
         if extra >= 0.5:
             _add_form_pad(para, extra)
         return
-    _add_form_pad(para, max(4, target))
+    if target >= 1:
+        _add_form_pad(para, target)
 
 
 def _align_sign_label(label: str, width: int = 5) -> str:
@@ -444,9 +448,10 @@ def _line_em_budget(para: Paragraph, label: str, suffix: str, *, size_pt: float 
         usable -= float(pf.left_indent.cm)
     if pf.right_indent:
         usable -= float(pf.right_indent.cm)
-    em_cm = max(0.32, size_pt * 2.54 / 72.0)
-    remain = usable / em_cm - _em_len(label) - _em_len(suffix) - 2.5
-    return max(4, int(remain))
+    # OnlyOffice/宋体略宽，多留余量，避免最后一个全角空格掉到下一行
+    em_cm = max(0.36, size_pt * 2.54 / 72.0)
+    remain = usable / em_cm - _em_len(label) - _em_len(suffix) - 1.2
+    return max(0, int(remain))
 
 
 _LETTER_CONTACT_KW: dict = {
@@ -458,15 +463,18 @@ _LETTER_CONTACT_KW: dict = {
     "line_em": 8,
 }
 
+# 落款块靠右半页：短标签冒号轴对齐，横线拉到同一右缘；长度按行宽预算，禁止换行
 _LETTER_SIGN_RIGHT_KW: dict = {
-    "align": WD_ALIGN_PARAGRAPH.RIGHT,
-    "left_indent_cm": 0,
-    "right_indent_cm": 1.2,
+    "align": WD_ALIGN_PARAGRAPH.LEFT,
+    "left_indent_cm": 4.6,
+    "right_indent_cm": 0.7,
     "line_spacing": 1.15,
     "space_before": 2,
     "space_after": 1,
     "nowrap": True,
-    "line_em": 6,
+    "line_em": 18,
+    "label_width": 5,
+    "fill_to_edge": True,
 }
 
 # 投标函网址/电话/传真/邮编：四字标签对齐，下划线拉到同一右缘
@@ -508,8 +516,34 @@ _SIGN_OFF_KW: dict = {
 
 _SIGN_BOTTOM_PAD_CM = 2.2
 _SIGN_MIN_GAP_CM = 1.5
+# 手写签字格目标宽度；实际以行宽为准，宁短不挤换行
+_SIGN_BLANK_MIN_EM = 10
 _TWIPS_PER_CM = 567
 _EMU_PER_CM = 360000.0
+
+
+def _is_hand_sign_blank(label: str, value: str, suffix: str) -> bool:
+    blob = f"{label}{suffix}{value}"
+    return any(k in blob for k in ("签字", "签名", "手签"))
+
+
+def _fit_hand_sign_fill(para: Paragraph, display: str, suffix: str, *, want_em: int) -> int:
+    """签字横线长度：先保证「标签+线+（签字或盖章）」同排，再尽量拉长。"""
+    room = _line_em_budget(para, display, suffix)
+    if room >= want_em:
+        return want_em
+    # 预算不够时略减左缩进再量一次
+    pf = para.paragraph_format
+    cur = float(pf.left_indent.cm) if pf.left_indent else 0.0
+    if cur > 2.0 and room < want_em:
+        em_cm = 0.38
+        need = want_em - room
+        shrink = min(cur - 2.0, need * em_cm + 0.3)
+        if shrink >= 0.2:
+            pf.left_indent = Cm(cur - shrink)
+            room = _line_em_budget(para, display, suffix)
+    # 至少留一点签字空位，但绝不超过 room（否则后缀必换行）
+    return max(4, min(want_em, room))
 
 
 def _rewrite_labeled_underline(
@@ -526,8 +560,9 @@ def _rewrite_labeled_underline(
     line_em: int = 8,
     nowrap: bool = False,
     label_width: int | None = None,
+    fill_to_edge: bool = False,
 ) -> None:
-    """标签 + 底部实线下划线 + 后缀。填空线不超过当前行宽，避免「公章）」掉到下一行。"""
+    """标签 + 单实线下划线 + 后缀。空栏不换行，后缀与横线同一行。"""
     del blank_width
     _clear_runs(para)
     _clear_tab_stops(para)
@@ -544,21 +579,29 @@ def _rewrite_labeled_underline(
         pf.left_indent = Cm(left_indent_cm)
     pf.right_indent = Cm(0.0 if right_indent_cm is None else right_indent_cm)
     _use_body_style(para)
-    if nowrap:
-        _set_word_wrap(para, enabled=False)
-    target = max(4, int(line_em or 8))
+    # 落款/填空一律禁止软换行，避免「（签字或盖章）」掉到下一行
+    _set_word_wrap(para, enabled=False)
+    soft_cap = max(0, int(line_em or 0))
     for i, (label, value, suffix) in enumerate(rows):
         if i:
             para.add_run().add_break()
         display = _align_sign_label(label, label_width) if label_width else label
+        hand = _is_hand_sign_blank(label, value, suffix)
+        fill = "" if hand else value
+        if hand:
+            fill_target = _fit_hand_sign_fill(
+                para, display, suffix, want_em=_SIGN_BLANK_MIN_EM
+            )
+        else:
+            room = _line_em_budget(para, display, suffix)
+            if fill_to_edge:
+                fill_target = room
+            elif soft_cap:
+                fill_target = min(soft_cap, room)
+            else:
+                fill_target = room
         _form_run(para, display, underline=False)
-        fill = "" if any(k in f"{label}{suffix}{value}" for k in ("签字", "签名", "手签")) else value
-        room = _line_em_budget(para, display, suffix)
-        cap = target
-        if suffix:
-            room = min(room, max(4, int(26 - _em_len(display) - _em_len(suffix))))
-            cap = min(cap, 8)
-        _underline_value(para, fill, min(cap, room))
+        _underline_value(para, fill, fill_target)
         if suffix:
             _form_run(para, suffix, underline=False)
 
@@ -596,16 +639,25 @@ def _rewrite_date_line(
     label_width = kw.get("label_width")
     if label_width:
         label = _align_sign_label(label, int(label_width))
-    target = int(kw.get("line_em") or 0)
+    soft_cap = int(kw.get("line_em") or 0)
     month = _two_digit_md(month) or month
     day = _two_digit_md(day) or day
     _form_run(para, label, underline=False)
-    if target >= 12:
-        _underline_value(para, f"{year}年{month}月{day}日", target)
+    date_text = f"{year}年{month}月{day}日"
+    room = _line_em_budget(para, label, "")
+    if soft_cap >= 8 or kw.get("fill_to_edge"):
+        fill_target = room if kw.get("fill_to_edge") else min(soft_cap, room)
+        _underline_value(para, date_text, fill_target)
         return
+    # 预算不够整段日期时，拆成年/月/日，仍不超出 room
+    used = 0.0
     for val, tail in ((year, " 年 "), (month, " 月 "), (day, " 日")):
-        _form_run(para, f" {val} ", underline=True)
+        chunk = f" {val} "
+        if used + _em_len(chunk) + _em_len(tail) > room + 0.2:
+            break
+        _form_run(para, chunk, underline=True)
         _form_run(para, tail, underline=False)
+        used += _em_len(chunk) + _em_len(tail)
 
 
 def _scrub_hints(para: Paragraph, hints: tuple[str, ...]) -> None:
@@ -752,18 +804,23 @@ def _sign_spacer_cm(
     sign_cm: float,
     stop_el=None,
     bottom_pad_cm: float | None = None,
+    reserve_cm: float = 0.0,
+    max_cm: float = 10.0,
 ) -> float:
     used = _estimate_cm_on_current_page(doc, stop_el=stop_el)
     pad = _SIGN_BOTTOM_PAD_CM if bottom_pad_cm is None else bottom_pad_cm
     page = _page_body_cm(doc)
     remain = page - used
+    reserve = max(0.0, float(reserve_cm or 0.0))
+    cap = max(0.35, float(max_cm or 10.0))
     # 本页已经放不下落后落款时不要再垫空白，否则整块签字会翻到下一页独页
-    if remain < sign_cm + _SIGN_MIN_GAP_CM:
+    if remain < sign_cm + _SIGN_MIN_GAP_CM + reserve:
         return 0.0
-    budget = remain - sign_cm - pad
-    if used > page * 0.55 or budget < 0.35:
+    budget = remain - sign_cm - pad - reserve
+    # 正文未过满页时尽量垫空白，把落款压到右下（原先 0.55 阈值太严，附录半页就贴正文）
+    if used > page * 0.78 or budget < 0.35:
         return 0.0
-    return min(budget, 8.0)
+    return min(budget, cap)
 
 
 def _glue_sign_off(doc: Document, spacer: Paragraph | None, lines: list[Paragraph]) -> None:
@@ -832,9 +889,21 @@ def _add_bottom_sign_spacer(
     return para
 
 
-def _insert_bottom_sign_spacer_before(para: Paragraph, *, sign_cm: float) -> Paragraph | None:
+def _insert_bottom_sign_spacer_before(
+    para: Paragraph,
+    *,
+    sign_cm: float,
+    reserve_cm: float = 0.0,
+    max_cm: float = 10.0,
+) -> Paragraph | None:
     doc = para.part.document
-    height = _sign_spacer_cm(doc, sign_cm=sign_cm, stop_el=para._element)
+    height = _sign_spacer_cm(
+        doc,
+        sign_cm=sign_cm,
+        stop_el=para._element,
+        reserve_cm=reserve_cm,
+        max_cm=max_cm,
+    )
     if height < 0.35:
         return None
     spacer = doc.add_paragraph()
@@ -1834,11 +1903,11 @@ def _fill_paragraphs(
                     _write_para(para, extra, size=12)
             elif n.startswith("投标人") and "盖单位公章" in n:
                 if not letter_sign_gapped:
-                    _insert_bottom_sign_spacer_before(para, sign_cm=2.4)
+                    _insert_bottom_sign_spacer_before(para, sign_cm=3.2)
                     letter_sign_gapped = True
                 _rewrite_labeled_underline(
                     para,
-                    [("投　标　人：", brief.bidderName, "（盖单位公章）")],
+                    [("投标人：", brief.bidderName, "（盖单位公章）")],
                     **{**_LETTER_SIGN_RIGHT_KW, "space_before": 16},
                 )
                 para.paragraph_format.keep_with_next = True
@@ -1881,7 +1950,7 @@ def _fill_paragraphs(
                         year,
                         month,
                         day,
-                        **{**_LETTER_SIGN_RIGHT_KW, "label": "日　　期："},
+                        **{**_LETTER_SIGN_RIGHT_KW, "label": "日期："},
                     )
                     letter_date_done = True
             continue
@@ -1890,7 +1959,7 @@ def _fill_paragraphs(
             if "盖单位公章" in n or "盖单位章" in n or (n.startswith("投标人") and "签字" in n):
                 mashed_legal = "法定代表人" in n
                 seal = "（盖单位公章）" if "公章" in n else "（盖单位章）"
-                label = "投标人名称：" if "名称" in n else "投　标　人："
+                label = "投标人名称：" if "名称" in n else "投标人："
                 _rewrite_labeled_underline(
                     para,
                     [(label, brief.bidderName, seal)],
@@ -2252,6 +2321,15 @@ def _set_tbl_borders(table: Table) -> None:
         el.set(qn("w:color"), "000000")
         borders.append(el)
     tbl_pr.append(borders)
+
+
+def _forbid_row_split(table: Table) -> None:
+    """表行不拆页；整表优先落在一页（印鉴备案等格子表）。"""
+    for row in table.rows:
+        tr_pr = row._tr.get_or_add_trPr()
+        for old in tr_pr.findall(qn("w:cantSplit")):
+            tr_pr.remove(old)
+        tr_pr.append(OxmlElement("w:cantSplit"))
 
 
 def _insert_table_after(doc: Document, para: Paragraph, rows: int, cols: int) -> Table:

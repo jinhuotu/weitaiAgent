@@ -85,8 +85,8 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     ),
     PlaceholderItem(
         key="finance",
-        title="近三年财务审计报告 / 完税证明 / 社保缴纳证明",
-        hint="按招标文件资格审查条款提供。",
+        title="近三年财务审计报告 / 完税证明",
+        hint="按招标文件资格审查条款提供。社保证明挂在授权代理人项下，勿与身份证混用。",
     ),
     PlaceholderItem(
         key="credit",

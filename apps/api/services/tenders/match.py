@@ -86,13 +86,47 @@ def _kind_hits(text: str) -> set[str]:
     return hits
 
 
+# 这些类型互斥：不能因「社保」等弱标签把身份证和审计报告算一类
+_EXCLUSIVE_KINDS = frozenset(
+    {
+        "id_legal",
+        "id_agent",
+        "credit",
+        "commitment",
+        "bond",
+        "license",
+        "bank_permit",
+        "finance",
+        "perf",
+        "product",
+        "seal",
+    }
+)
+_WEAK_KINDS = frozenset({"social"})
+
+
 def _same_material_kind(left: str, right: str) -> bool:
-    return bool(_kind_hits(left) & _kind_hits(right))
+    ha, hb = _kind_hits(left), _kind_hits(right)
+    if not ha or not hb:
+        return False
+    shared = ha & hb
+    if not shared:
+        return False
+    if shared <= _WEAK_KINDS:
+        return False
+    ea, eb = ha & _EXCLUSIVE_KINDS, hb & _EXCLUSIVE_KINDS
+    if ea and eb and ea != eb:
+        return False
+    return True
 
 
 def same_library_material(left: str, right: str) -> bool:
     if _same_material_kind(left, right):
         return True
+    la, lb = _kind_hits(left), _kind_hits(right)
+    ea, eb = la & _EXCLUSIVE_KINDS, lb & _EXCLUSIVE_KINDS
+    if ea and eb and ea != eb:
+        return False
     return _titles_loosely_match(left, right)
 
 

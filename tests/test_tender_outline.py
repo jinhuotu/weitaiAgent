@@ -851,6 +851,31 @@ def test_fill_copy_blanks_does_not_glue_date_into_section() -> None:
     )
     assert "2026年09月22日四、" not in out.replace(" ", "")
     assert "四、响应方案" in out
+    assert "\n四、响应方案" in out or out.strip().startswith("四、") is False
+
+
+def test_fill_copy_blanks_splits_harder_date_glue() -> None:
+    from api.services.tenders.outline import fill_copy_blanks, _trim_copied_form_tail
+
+    text = (
+        "供应商：（盖章）\n"
+        "日期：年 月 日四、响应方案全部响应无偏差"
+    )
+    out = fill_copy_blanks(
+        text,
+        bidder="河南伟泰光电科技有限公司",
+        project="项目",
+        tenderer="甲方",
+        legal="",
+        bid_date="2026-09-29",
+    )
+    assert "2026年09月29日四、" not in out.replace(" ", "")
+    lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
+    assert any(ln.startswith("2026年09月29日") or "日期" in ln for ln in lines)
+    assert any(ln.startswith("四、响应方案") for ln in lines)
+    trimmed = _trim_copied_form_tail(out, "合同条款响应书")
+    assert "四、响应方案" not in trimmed
+    assert "2026年09月29日" in trimmed.replace(" ", "")
 
 
 def test_bid_item_title_strips_invite_attach_and_template() -> None:
@@ -873,6 +898,12 @@ def test_split_mashed_zhi_keeps_company_only_on_salute() -> None:
     assert parts[0] == "致：河南鑫宇光科技股份有限公司"
     assert parts[1].startswith("我方确认收到")
 
+
+def test_split_mashed_zhi_response_letter() -> None:
+    parts = split_mashed_zhi_line("二、合同条款响应书致：河南华慧有色工程设计有限公司")
+    assert parts[0] == "二、合同条款响应书"
+    assert parts[1].startswith("致：")
+    assert "华慧" in parts[1]
 
 def test_unfold_sign_lines_keeps_pipe_table_row() -> None:
     row = (
