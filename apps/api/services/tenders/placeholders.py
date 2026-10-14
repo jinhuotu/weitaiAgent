@@ -113,7 +113,7 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
 TECH_DRAWING_KEY = "tech_drawings"
 TECH_DRAWING_SLOT = PlaceholderItem(
     key=TECH_DRAWING_KEY,
-    title="实施方案图纸",
+    title="本项目图纸",
     hint="本标平面图、系统图或施工图。换一份邀请书需重新上传，不要用其他项目图纸。",
 )
 

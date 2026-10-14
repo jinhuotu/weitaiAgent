@@ -1,0 +1,27 @@
+---
+description: FastAPI / SQLAlchemy / 测试约定
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python / FastAPI
+
+- Python 3.12，Ruff 行宽 100。路由薄、逻辑在 `apps/api/services/`，Pydantic 在 `apps/api/schemas/`。
+- 鉴权用 `CurrentUser` / `AdminUser` / `SuperuserUser` / `DbSession`（`api.deps`）。上传接口不要用 HTTPBearer，避免 Form 被判未登录。
+- 新路由：`APIRouter(prefix="...", tags=[...])`，在 `api.app.create_app` 用 `settings.api_prefix`（`/api/v1`）挂载。
+- DB：SQLAlchemy 2.0 async + `selectinload`。模型列写中文 `comment`。不要在请求路径写 `chat_messages`（对话热路径走 Redis）。
+- LLM 运行时不读 `.env` 的 `LLM_*`；走模型管理。知识库入库/RAG 需要已启用 Embedding。
+- 测试放 `tests/`，优先不连真实 MySQL/Qdrant；异步测加 `@pytest.mark.asyncio`。
+
+```python
+# ❌ 路由里堆业务 + 同步 Session
+@router.get("/items")
+def list_items(db: Session = Depends(get_db)):
+    return db.query(Item).all()
+
+# ✅
+@router.get("/items")
+async def list_items(db: DbSession, _user: CurrentUser) -> dict:
+    items = await items_svc.list_items(db)
+    return ok(items)
+```

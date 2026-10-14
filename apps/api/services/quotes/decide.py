@@ -104,3 +104,58 @@ def build_schemes(
         f"五、说明：本文件由系统辅助生成，投标前须由商务/造价人员审核签认。"
     )
     return schemes, instruction, risks
+
+
+def pick_scheme(schemes: list[dict[str, Any]], name: str | None) -> dict[str, Any] | None:
+    if not schemes:
+        return None
+    want = (name or "").strip()
+    if want:
+        for s in schemes:
+            if str(s.get("name") or "") == want:
+                return s
+    return next((s for s in schemes if s.get("recommended")), schemes[0])
+
+
+def apply_scheme_to_lines(
+    lines: list[dict[str, Any]],
+    *,
+    target_ex: Decimal,
+) -> list[dict[str, Any]]:
+    """按方案总价回写售价，使明细合价与方案不含税合计一致。成本价不动。"""
+    from api.services.quotes.catalog import money
+
+    rows = [dict(r) for r in lines]
+    if target_ex <= 0:
+        return rows
+    idx = [i for i, r in enumerate(rows) if _q(r.get("qty")) > 0]
+    if not idx:
+        return rows
+    weights: list[Decimal] = []
+    for i in idx:
+        row = rows[i]
+        qty = _q(row.get("qty"))
+        sell = _q(row.get("sellPrice") or row.get("unitPrice"))
+        cost = _q(row.get("costPrice"))
+        w = money(qty, sell) if sell > 0 else money(qty, cost)
+        weights.append(w if w > 0 else qty)
+    total_w = sum(weights) or Decimal("0")
+    allocated = Decimal("0")
+    last = len(idx) - 1
+    for j, i in enumerate(idx):
+        row = rows[i]
+        qty = _q(row.get("qty"))
+        if j == last:
+            amt = (target_ex - allocated).quantize(_TWO, rounding=ROUND_HALF_UP)
+        elif total_w > 0:
+            amt = (weights[j] / total_w * target_ex).quantize(_TWO, rounding=ROUND_HALF_UP)
+        else:
+            amt = Decimal("0")
+        if amt < 0:
+            amt = Decimal("0")
+        allocated += amt
+        price = (amt / qty).quantize(_TWO, rounding=ROUND_HALF_UP) if qty else Decimal("0")
+        row["sellPrice"] = price
+        row["unitPrice"] = price
+        row["amount"] = amt
+    return rows

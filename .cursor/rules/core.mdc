@@ -1,0 +1,33 @@
+---
+description: 微泰后端必须遵守的产品与协作约束（每次会话生效）
+alwaysApply: true
+---
+
+# weitaiAgent 核心规则
+
+本仓库是 **微泰/优祺智能体后端**（FastAPI :8100）。改代码前先对照现有模块，禁止另起一套风格。
+
+## 必须
+
+- 接口统一 `{ code, msg, data }`，成功 `code === 0`。业务失败抛 `AppError`，由全局处理器转 JSON；禁止自造响应壳。
+- JSON 字段沿用现有 **camelCase**（如 `baseId`、`createdAt`）。未要求时不要改路径、方法、字段名。
+- 用户可见 `msg` 用中文。代码少写注释（见 `code-style.mdc`）；不要给每个函数写说明。
+- **不要**从 zhongji 迁窑炉 / 铸造 / SCADA / 数据治理等行业业务。
+- **不要**提交 `.env`、密钥、OCR/LLM Key。配置只走环境变量 / 模型管理。
+- 改动保持最小：只动任务需要的文件；不顺手重构、不扩范围。
+- 导入用 `api` / `common` / `db` / `workers`（Poetry `packages.from`）。IDE 红线不等于写错。
+- 表结构变更必须加 Alembic，下一号为 `00xx_描述.py`，列带 `comment`。
+- Windows 改 API 后提醒重启（无 `--reload`），否则新路由会 404。
+
+## 禁止
+
+```python
+# ❌ 自造响应 / 改契约
+return {"success": True, "result": item}
+
+# ✅
+from common.response import ok
+from common.errors import AppError, ErrorCode
+return ok(item.model_dump())
+raise AppError(ErrorCode.NOT_FOUND, "知识库不存在", status_code=404)
+```

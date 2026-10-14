@@ -114,8 +114,30 @@ async def ensure_seed_prompt(db: AsyncSession) -> None:
         await db.commit()
 
 
+
+_INDUSTRY_SEEDS: list[dict[str, str]] = [
+    {"name": "物资采购通用模板", "remark": "[industry:物资通用][slots:我方报价,交货期,质保期][must:分项报价表,技术偏离表]",
+     "content": "你是物资采购投标专家。严格按本次邀请书大纲输出，不得编造证照号、业绩日期、金额。结构：封面/投标函/分项报价表/技术偏离表/商务偏离表/技术方案/资格证明。表格用三线表，参数逐条响应。优先级：邀请书>用户本次输入>投标资料库最新数据>本模板结构>历史标书写法。历史稿只学句式，不得照抄其业主名、日期、金额。"},
+    {"name": "充电桩模板", "remark": "[industry:充电桩][slots:我方报价,交货期,质保期,桩功率,枪数][must:分项报价表,技术偏离表]",
+     "content": "你是充电桩投标专家。除通用规则外，必须展开：充电模块/桩体防护等级/EMC/户外防护/运营平台对接/安装调试/安全充电。优先级同通用模板。缺桩功率、枪数写【待确认】，不许编。"},
+    {"name": "工程类模板", "remark": "[industry:工程][slots:我方报价,工期,质保期,项目经理][must:商务标,技术标,资格标]",
+     "content": "你是工程投标专家。三卷制：商务标/技术标/资格标，技术标含施工组织/进度计划/安全文明。优先级同通用模板。"},
+]
+
+
+async def ensure_industry_seeds(db: AsyncSession) -> None:
+    result = await db.execute(select(Prompt).limit(50))
+    names = {(r.name or "").strip() for r in result.scalars().all()}
+    for s in _INDUSTRY_SEEDS:
+        if s["name"] in names:
+            continue
+        db.add(Prompt(public_id=short_id(12), name=s["name"], content=s["content"], remark=s["remark"], enabled=True))
+    await db.commit()
+
+
 async def list_configs(db: AsyncSession) -> list[dict[str, Any]]:
     await ensure_seed_prompt(db)
+    await ensure_industry_seeds(db)
     result = await db.execute(select(Prompt).order_by(Prompt.updated_at.desc()))
     return [to_item(r) for r in result.scalars().all()]
 
@@ -123,6 +145,7 @@ async def list_configs(db: AsyncSession) -> list[dict[str, Any]]:
 async def list_options(db: AsyncSession) -> list[dict[str, Any]]:
     """对话页可选：仅启用项，不含全文（减少载荷）。"""
     await ensure_seed_prompt(db)
+    await ensure_industry_seeds(db)
     result = await db.execute(
         select(Prompt)
         .where(Prompt.enabled.is_(True))

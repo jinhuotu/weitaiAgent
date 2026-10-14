@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.layouts.parse import extract_json_object
 from api.services.tenders.assets import load_invitation_text, tenders_output_dir
-from api.services.tenders.categories import HIGH_DISQUALIFY_KEYS, tech_plan_text
+from api.services.tenders.categories import HIGH_DISQUALIFY_KEYS, is_tech_chapter_kind, tech_plan_text
 from api.services.tenders.outline import bid_is_works
 from api.services.tenders.schema import BidBrief, OutlineItem
 from common.errors import AppError, ErrorCode
@@ -566,24 +566,44 @@ def rule_inspect(
 
     tech_found = tech_total = 0
     if vol != "business":
-        has_tech_outline = any(
-            item.kind == "tech_plan" and not item.skipped for item in outline_items
-        )
-        if has_tech_outline or tech_plan_text(brief):
+        tech_items = [
+            item
+            for item in outline_items
+            if is_tech_chapter_kind(item.kind) and not item.skipped
+        ]
+        for item in tech_items:
             tech_total += 1
-            if tech_plan_text(brief) and (
-                title_in_text(blob, "实施方案")
-                or title_in_text(blob, "技术标")
-                or title_in_text(blob, tech_plan_text(brief)[:12], min_len=4)
+            draft = (item.draftBody or "").strip() or tech_plan_text(brief)
+            if draft and (
+                title_in_text(blob, item.title, min_len=4)
+                or title_in_text(blob, draft[:12], min_len=4)
             ):
-                tech_found += 1
-            elif title_in_text(blob, "实施方案") or title_in_text(blob, "技术标"):
                 tech_found += 1
             else:
                 gaps.append(
                     _gap(
-                        "技术标实施方案",
-                        "邀请书要求技术方案/实施方案，生成稿中未见对应章节",
+                        item.title or "技术章节",
+                        f"邀请书技术章「{item.title}」在生成稿中未见对应正文",
+                        severity=SEVERITY_DEDUCT,
+                        category="technical",
+                    )
+                )
+        for req in brief.bidRequirements or []:
+            if (req.category or "").strip() != "scoring":
+                continue
+            text = (req.text or "").strip()
+            if len(text) < 6:
+                continue
+            tech_total += 1
+            if title_in_text(blob, text[:12], min_len=4) or any(
+                title_in_text((item.draftBody or ""), text[:8], min_len=4) for item in tech_items
+            ):
+                tech_found += 1
+            else:
+                gaps.append(
+                    _gap(
+                        "评分点",
+                        f"评分点未落入技术章：{text[:40]}",
                         severity=SEVERITY_DEDUCT,
                         category="technical",
                     )

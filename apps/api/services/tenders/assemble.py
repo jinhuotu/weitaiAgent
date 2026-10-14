@@ -321,7 +321,7 @@ def assemble_bid_docx(
         # 偏差表一律模块填表，脏 OCR 表体/落款不得走抄写
         use_copy = (
             (not seal_form)
-            and kind not in {"legal_id", "scan", "performance", "biz_dev", "tech_dev"}
+            and kind not in {"legal_id", "scan", "performance", "biz_dev", "tech_dev", "tech_plan", "tech_chapter"}
             and can_copy_invite_body(kind, raw_body)
             and (keep_form or quote_form or kind in COPY_KINDS or kind in _COPY_BODY_KINDS)
         )

@@ -5,7 +5,13 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Any
 
-from api.services.quotes.catalog import CatalogItem, load_catalog, money, pick_catalog
+from api.services.quotes.catalog import (
+    OFFICIAL_SCORE,
+    CatalogItem,
+    load_catalog,
+    money,
+    pick_catalog,
+)
 from api.services.quotes.library import stored_paths
 
 _CHARGER = {
@@ -22,6 +28,9 @@ _EQUIP = {
     "group_host": ("群充主机", "台"),
     "fire_hydrant": ("消火栓", "套"),
     "cable_well": ("电缆井", "座"),
+    "cable": ("电缆", "米"),
+    "trench": ("电缆沟", "米"),
+    "foundation": ("充电桩基础", "处"),
 }
 
 
@@ -51,6 +60,8 @@ def empty_line(**kwargs: Any) -> dict[str, Any]:
         "amount": Decimal("0"),
         "source": "manual",
         "matchName": "",
+        "matchScore": 0.0,
+        "matchStatus": "none",
         "note": "",
     }
     row.update(kwargs)
@@ -148,6 +159,7 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
         notes.append("所选知识库没有可用价目 Excel（需含名称、单价列），单价留空待核价")
         return notes
     unmatched = 0
+    estimates = 0
     for row in lines:
         hit, score = pick_catalog(
             name=str(row.get("name") or ""),
@@ -155,8 +167,10 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
             code=str(row.get("code") or ""),
             catalog=catalog,
         )
+        row["matchScore"] = round(float(score or 0), 3)
         if hit is None:
             unmatched += 1
+            row["matchStatus"] = "none"
             continue
         cost = hit.cost_price if hit.cost_price > 0 else hit.unit_price
         sell = hit.sell_price if hit.sell_price > 0 else hit.unit_price
@@ -174,12 +188,29 @@ def apply_catalog(lines: list[dict[str, Any]], catalog: list[CatalogItem]) -> li
         if extra:
             old = str(row.get("note") or "").strip()
             row["note"] = f"{old}；{extra}" if old else extra
-        row["source"] = "catalog" if row.get("source") in {"vision", "rule", "boq", ""} else row.get("source")
-        if score < 0.7:
-            notes.append(f"「{row['name']}」按「{hit.name}」估价，请确认")
+        official = score >= OFFICIAL_SCORE
+        row["matchStatus"] = "official" if official else "estimate"
+        row["source"] = "catalog" if official else "estimate"
+        if not official:
+            estimates += 1
+            notes.append(f"「{row['name']}」按「{hit.name}」估价（{score:.0%}），须确认后才能作为正式价")
     if unmatched:
         notes.append(f"{unmatched} 项未匹配到价目，单价留空")
+    if estimates:
+        notes.append(f"{estimates} 项为低分估价，请点确认或换条后再导出")
     return notes
+
+
+def is_pending_price(row: dict[str, Any]) -> bool:
+    st = str(row.get("matchStatus") or "").strip().lower()
+    price = _qty(row.get("sellPrice")) or _qty(row.get("unitPrice")) or _qty(row.get("costPrice"))
+    if price <= 0:
+        return True
+    return st == "estimate"
+
+
+def pending_price_count(lines: list[dict[str, Any]]) -> int:
+    return sum(1 for r in lines if str(r.get("name") or "").strip() and is_pending_price(r))
 
 
 def number_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -200,8 +231,16 @@ def number_lines(lines: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def catalog_from_docs(docs: list[dict]) -> list[CatalogItem]:
-    return load_catalog(stored_paths(docs))
+def catalog_from_docs(docs: list[dict]) -> tuple[list[CatalogItem], list[str], dict[str, Any]]:
+    paths = stored_paths(docs)
+    items, errors = load_catalog(paths)
+    meta = {
+        "fileCount": len(paths),
+        "itemCount": len(items),
+        "files": [p.name for p in paths],
+        "errors": errors,
+    }
+    return items, errors, meta
 
 
 def _dump_line(row: dict[str, Any]) -> dict[str, Any]:
@@ -218,6 +257,8 @@ def _dump_line(row: dict[str, Any]) -> dict[str, Any]:
         "amount": float(row.get("amount") or 0),
         "source": str(row.get("source") or "manual"),
         "matchName": str(row.get("matchName") or ""),
+        "matchScore": float(row.get("matchScore") or 0),
+        "matchStatus": str(row.get("matchStatus") or "none"),
         "note": str(row.get("note") or ""),
     }
 
@@ -229,10 +270,11 @@ async def recognize_from_bom(
     project_name: str = "",
 ) -> dict[str, Any]:
     lines, warnings = flatten_bom(data)
-    catalog = catalog_from_docs(docs)
+    catalog, cat_err, meta = catalog_from_docs(docs)
+    warnings.extend(cat_err)
     warnings.extend(apply_catalog(lines, catalog))
     lines = number_lines(lines)
-    unmatched = sum(1 for r in lines if _qty(r.get("unitPrice")) <= 0)
+    unmatched = pending_price_count(lines)
     title = (project_name or "").strip() or _txt(data.get("projectName"))
     return {
         "projectName": title,
@@ -240,4 +282,5 @@ async def recognize_from_bom(
         "warnings": warnings,
         "catalogCount": len(catalog),
         "unmatched": unmatched,
+        "catalog": meta,
     }

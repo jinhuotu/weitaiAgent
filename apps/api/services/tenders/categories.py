@@ -31,11 +31,36 @@ LEGACY_TECH_FIELDS: tuple[str, ...] = (
     "schedulePlan",
 )
 TECH_CHAPTERS: tuple[tuple[str, str, str], ...] = (
-    ("techPlanNote", "实施方案说明", "按本邀请书概括施工、布置、配电、运维与工期，不要编造桩数"),
+    ("techPlanNote", "技术方案说明", "按本邀请书各技术章起草，缺事实标待补充，不要编造数量"),
 )
 
-_TECH_TITLE_MARK = ("方案", "布置", "配电", "运维", "图纸", "检测", "3C", "技术规格")
-_TECH_KINDS = frozenset({"tech_dev", "tech_plan"})
+PENDING_DRAFT = "【待响应】请按招标文件补充本章响应，缺事实处勿编造。"
+PENDING_FACT = "【待补充】"
+TECH_CHAPTER_KINDS = frozenset({"tech_plan", "tech_chapter"})
+
+_TECH_TITLE_MARK = (
+    "方案",
+    "组织设计",
+    "质量",
+    "安全",
+    "进度",
+    "措施",
+    "保证体系",
+    "技术规格",
+    "图纸",
+    "工艺",
+    "信息化",
+    "风险",
+    "环保",
+    "售后",
+    "培训",
+    "验收",
+    "调试",
+    "运维",
+    "偏离",
+    "偏差",
+)
+_TECH_KINDS = frozenset({"tech_dev", "tech_plan", "tech_chapter"})
 _BIZ_KINDS = frozenset(
     {"letter", "legal_id", "auth", "quote", "biz_dev", "commitment_copy", "performance", "factory", "company"}
 )
@@ -63,17 +88,49 @@ def item_volume(*, kind: str = "", title: str = "", key: str = "") -> str:
     kind = (kind or "").strip()
     if kind in _TECH_KINDS:
         return "technical"
+    # 函/报价/商务偏离等已定则不改卷，避免动商务标生成。
     if kind in _BIZ_KINDS:
         return "business"
+    if title_goes_technical(title):
+        return "technical"
     return slot_volume(key, title)
+
+
+def title_goes_technical(title: str) -> bool:
+    n = "".join((title or "").split())
+    if not n:
+        return False
+    if "发包人代表" in n:
+        return True
+    if "撤换" in n and "发包人" in n:
+        return True
+    return False
 
 
 def is_high_disqualify(key: str) -> bool:
     return key in HIGH_DISQUALIFY_KEYS
 
 
+def is_tech_chapter_kind(kind: str) -> bool:
+    return (kind or "").strip() in TECH_CHAPTER_KINDS
+
+
+def tech_outline_items(brief: BidBrief):
+    return [
+        item
+        for item in (brief.outlineItems or [])
+        if not item.skipped and is_tech_chapter_kind(item.kind)
+    ]
+
+
 def tech_plan_text(brief: BidBrief) -> str:
-    """新字段优先；旧五段方案合并，便于载入历史记录。"""
+    drafts = [
+        str(getattr(item, "draftBody", "") or "").strip()
+        for item in tech_outline_items(brief)
+        if str(getattr(item, "draftBody", "") or "").strip()
+    ]
+    if drafts:
+        return "\n\n".join(drafts)
     note = str(getattr(brief, "techPlanNote", "") or "").strip()
     if note:
         return note
@@ -81,11 +138,26 @@ def tech_plan_text(brief: BidBrief) -> str:
     return "\n\n".join(part for part in parts if part)
 
 
+def chapter_draft_text(item, brief: BidBrief) -> str:
+    draft = str(getattr(item, "draftBody", "") or "").strip()
+    if draft:
+        return draft
+    note = tech_plan_text(brief)
+    if note:
+        items = tech_outline_items(brief)
+        if len(items) <= 1:
+            return note
+        n = "".join((getattr(item, "title", "") or "").split())
+        if "实施方案" in n or "技术方案" in n or n.endswith("技术标"):
+            return note
+    return PENDING_DRAFT
+
+
 def tech_plan_body(brief: BidBrief) -> str:
     text = tech_plan_text(brief)
     if text:
         return text
-    return "【待响应】请按招标文件补充实施方案文字说明，并上传本项目图纸。"
+    return PENDING_DRAFT
 
 
 def technical_soft_issues(
@@ -99,11 +171,18 @@ def technical_soft_issues(
     issues: list[str] = []
     if not any((row.requirement or "").strip() for row in (brief.deviationLines or [])):
         issues.append("技术标：尚未填写技术偏差表，未响应招标技术要求会大量扣分")
-    if not tech_plan_text(brief):
-        issues.append("技术标：实施方案文字描述未写（请按邀请书概括，不要编造桩数）")
+    empty_chaps = [
+        item.title
+        for item in tech_outline_items(brief)
+        if not str(getattr(item, "draftBody", "") or "").strip()
+    ]
+    if empty_chaps:
+        issues.append(f"技术标：{len(empty_chaps)} 章尚未起草（{empty_chaps[0]}）")
+    elif not tech_plan_text(brief):
+        issues.append("技术标：技术方案尚未起草")
     drawing_files = media.get(TECH_DRAWING_KEY) or [] if isinstance(media, dict) else []
     if not drawing_files:
-        issues.append("技术标：尚未上传实施方案图纸")
+        issues.append("技术标：尚未上传本项目图纸")
     from api.services.tenders.performance import bid_performance_lines, performance_match_issues
 
     if not any((row.projectName or "").strip() for row in bid_performance_lines(brief.performanceLines or [])):

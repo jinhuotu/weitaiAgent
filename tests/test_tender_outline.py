@@ -47,6 +47,18 @@ def test_classify_kind_rules() -> None:
     assert classify_kind("技术标（实施方案）") == "tech_plan"
     assert classify_kind("响应方案") == "tech_plan"
     assert classify_kind("技术标准和要求") != "tech_plan"
+    assert classify_kind("技术标准和要求") != "tech_chapter"
+    assert classify_kind("施工组织设计") == "tech_chapter"
+    assert not is_noise_title("施工组织设计")
+    assert classify_kind("发包人代表") == "tech_chapter"
+    assert classify_kind("承包人可以要求发包人撤换发包人代表") == "tech_chapter"
+    assert item_volume(kind="unknown", title="发包人代表") == "technical"
+    assert item_volume(kind="letter", title="发包人代表") == "business"
+    assert item_volume(kind="quote", title="工程量清单") == "business"
+    assert item_volume(kind="biz_dev", title="商务偏离表") == "business"
+    assert classify_kind("售后服务方案") == "tech_chapter"
+    assert classify_kind("培训方案") == "tech_chapter"
+    assert item_volume(kind="tech_chapter", title="施工组织设计") == "technical"
     assert classify_kind("合同条款响应书") == "commitment_copy"
     assert classify_kind("商务和技术偏差表") == "tech_dev"
     assert classify_kind("分项报价表说明") == "unknown"
@@ -735,6 +747,59 @@ def test_items_for_volume_outline_fills_biz_essentials() -> None:
     tech = items_for_volume(brief, "technical")
     assert not any(item.kind == "tech_dev" for item in tech)
     assert not any(item.kind == "tech_plan" for item in tech)
+    assert not any(item.kind == "tech_chapter" for item in tech)
+
+
+def test_items_for_volume_outline_keeps_generic_tech_chapters() -> None:
+    brief = BidBrief(
+        layoutMode="outline",
+        outlineItems=[
+            OutlineItem(id="a", title="投标函", kind="letter"),
+            OutlineItem(id="b", title="施工组织设计", kind="tech_chapter"),
+            OutlineItem(id="c", title="售后服务方案", kind="tech_chapter"),
+            OutlineItem(id="d", title="技术偏差表", kind="tech_dev"),
+        ],
+    )
+    tech = items_for_volume(brief, "technical")
+    kinds = [item.kind for item in tech]
+    titles = [item.title for item in tech]
+    assert "tech_chapter" in kinds
+    assert "tech_dev" in kinds
+    assert "施工组织设计" in titles
+    assert "售后服务方案" in titles
+    assert "letter" not in kinds
+
+
+def test_owner_rep_stays_out_of_business_volume() -> None:
+    brief = BidBrief(
+        layoutMode="outline",
+        outlineItems=[
+            OutlineItem(id="a", title="投标函", kind="letter"),
+            OutlineItem(id="b", title="工程量清单", kind="quote"),
+            OutlineItem(id="c", title="商务偏离表", kind="biz_dev"),
+            OutlineItem(id="d", title="发包人代表", kind="unknown"),
+            OutlineItem(id="e", title="承包人可以要求发包人撤换发包人代表", kind="unknown"),
+            OutlineItem(id="f", title="施工组织设计", kind="tech_chapter"),
+            OutlineItem(id="g", title="技术偏差表", kind="tech_dev"),
+        ],
+    )
+    biz = items_for_volume(brief, "business")
+    tech = items_for_volume(brief, "technical")
+    biz_titles = [item.title for item in biz]
+    tech_titles = [item.title for item in tech]
+    assert "投标函" in biz_titles
+    assert "工程量清单" in biz_titles
+    assert "商务偏离表" in biz_titles
+    assert "发包人代表" not in biz_titles
+    assert "施工组织设计" not in biz_titles
+    assert "发包人代表" in tech_titles
+    assert "承包人可以要求发包人撤换发包人代表" in tech_titles
+    assert "施工组织设计" in tech_titles
+    assert all(item.kind != "letter" for item in tech)
+    assert all(item.kind != "quote" for item in tech)
+    assert all(item.kind != "biz_dev" for item in tech)
+    owner = next(item for item in tech if item.title == "发包人代表")
+    assert owner.kind == "tech_chapter"
 
 
 def test_ensure_biz_essentials_keeps_invitation_letter() -> None:
@@ -1051,7 +1116,7 @@ def test_classifier_splits_requirements_from_chapters() -> None:
     brief = BidBrief()
     notes = apply_bid_requirements(brief, reqs)
     assert brief.bidRequirements
-    assert "实施方案" in (brief.techPlanNote or "")
+    assert not (brief.techPlanNote or "").strip()
     assert "充电" in (brief.performanceRequirement.similarScope or "") or "充电" in "".join(
         brief.performanceRequirement.keywords or []
     )
@@ -1123,7 +1188,6 @@ def test_invite_format_pack_not_in_biz_outline() -> None:
         "近年财务状况表",
         "（一）中小企业声明函（如有）",
         "残疾人福利性单位声明函",
-        "十、施工组织设计",
         "施工组织设计（技术暗标部分）编制及装订要求",
         "拟分包项目情况表",
         "项目管理机构组成表",
@@ -1167,8 +1231,8 @@ def test_invite_format_pack_not_in_biz_outline() -> None:
     assert "财务状况" not in blob
     assert "中小企业" not in blob
     assert "残疾人" not in blob
-    assert "施工组织" not in blob
     assert "拟分包" not in blob
+    assert any(item.kind == "tech_chapter" and "施工组织" in item.title for item in items)
     assert "暗标" not in blob
     letter = next(item for item in items if item.kind == "letter" and "附录" not in item.title)
     body = compact_title(letter.body or "")
@@ -1195,6 +1259,8 @@ def test_invite_format_pack_not_in_biz_outline() -> None:
     assert "简历" not in biz_blob
     assert "中小企业" not in biz_blob
     assert "施工组织" not in biz_blob
+    tech = items_for_volume(brief, "technical")
+    assert any("施工组织" in item.title for item in tech)
     assert "资格审查资料" not in biz_blob
 
 

@@ -40,7 +40,7 @@ class DeviationLine(BaseModel):
     seq: str = ""
     requirement: str = ""
     response: str = ""
-    deviation: str = "无偏差"
+    deviation: str = ""
 
 
 class PerformanceLine(BaseModel):
@@ -86,6 +86,7 @@ OUTLINE_KINDS: tuple[str, ...] = (
     "performance",
     "factory",
     "tech_plan",
+    "tech_chapter",
     "company",
     "unknown",
 )
@@ -158,6 +159,10 @@ class OutlineItem(BaseModel):
     required: bool = True
     skipped: bool = False
     body: str = ""
+    # 招标原文；组卷时不得当投标响应。
+    inviteExcerpt: str = ""
+    draftBody: str = ""
+    draftStatus: str = "empty"
     level: int = Field(default=1, ge=1, le=4)
 
 

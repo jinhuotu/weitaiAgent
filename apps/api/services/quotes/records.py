@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -9,10 +10,10 @@ from uuid import uuid4
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.services.quotes.assemble import _dump_line
+from api.services.quotes.assemble import _dump_line, pending_price_count
 from api.services.quotes.contract import PURPOSE_STOP, default_rates_dict, normalize_purpose
 from api.services.quotes.costing import apply_costing
-from api.services.quotes.decide import build_schemes
+from api.services.quotes.decide import apply_scheme_to_lines, build_schemes, pick_scheme
 from api.services.quotes.excel import write_quote_xlsx
 from api.services.quotes.library import quotes_output_dir
 from api.services.quotes.schema import GenerateQuoteIn, QuoteLineIn
@@ -75,11 +76,50 @@ def _unlink_xlsx(name: str) -> None:
         pass
 
 
-def record_to_dict(row: QuoteRecord, *, include_lines: bool = False) -> dict[str, object]:
+def can_see_cost(user: User | None) -> bool:
+    if user is None:
+        return False
+    from api.deps import user_is_admin
+
+    return user_is_admin(user)
+
+
+def _redact_lines(lines: list) -> list:
+    out = []
+    for row in lines:
+        if not isinstance(row, dict):
+            out.append(row)
+            continue
+        item = dict(row)
+        item["costPrice"] = 0
+        item.pop("costAmount", None)
+        out.append(item)
+    return out
+
+
+def _redact_summary(summary: dict | None) -> dict | None:
+    if not isinstance(summary, dict):
+        return summary
+    data = dict(summary)
+    for key in ("materialCost", "laborCost", "measureFee", "manageFee", "costExTax", "costIncTax", "profit"):
+        data.pop(key, None)
+    return data
+
+
+def record_to_dict(
+    row: QuoteRecord,
+    *,
+    include_lines: bool = False,
+    see_cost: bool = True,
+) -> dict[str, object]:
+    purpose = getattr(row, "purpose", None) or "quote"
+    hide_cost = (not see_cost) and purpose == "quote"
     data: dict[str, object] = {
         "id": row.public_id,
-        "purpose": getattr(row, "purpose", None) or "quote",
+        "purpose": purpose,
         "stage": getattr(row, "stage", None) or "quoted",
+        "status": getattr(row, "status", None) or "draft",
+        "schemeName": getattr(row, "scheme_name", None) or "",
         "projectName": row.project_name or "",
         "note": row.note or "",
         "location": getattr(row, "location", None) or "",
@@ -99,13 +139,18 @@ def record_to_dict(row: QuoteRecord, *, include_lines: bool = False) -> dict[str
         "xlsxAvailable": _xlsx_ok(row.xlsx_file),
         "username": row.username or "",
         "createdAt": to_epoch_ms(row.created_at),
+        "lockedAt": to_epoch_ms(getattr(row, "locked_at", None)),
+        "lockedBy": getattr(row, "locked_by", None) or "",
+        "catalog": row.catalog_json if isinstance(getattr(row, "catalog_json", None), dict) else None,
         "rates": row.rates_json if isinstance(getattr(row, "rates_json", None), dict) else None,
         "verify": row.verify_json if isinstance(getattr(row, "verify_json", None), dict) else None,
         "schemes": row.schemes_json if isinstance(getattr(row, "schemes_json", None), list) else None,
         "instruction": getattr(row, "instruction_text", None) or "",
+        "seeCost": not hide_cost,
     }
     if include_lines:
-        data["lines"] = row.lines_json if isinstance(row.lines_json, list) else []
+        lines = row.lines_json if isinstance(row.lines_json, list) else []
+        data["lines"] = _redact_lines(lines) if hide_cost else lines
     return data
 
 
@@ -138,12 +183,28 @@ async def create_from_generate(
     else:
         rates_raw["taxRate"] = float(body.taxRate if body.taxRate is not None else rates_raw.get("taxRate", 0.13))
 
+    pending = pending_price_count(line_dicts)
+    if not body.forceExport:
+        if int(verify.get("errorCount") or 0) > 0:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                f"核算有 {verify['errorCount']} 个错误，不能导出正式稿（可勾选强制导出草稿）",
+                status_code=422,
+            )
+        if pending:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                f"还有 {pending} 项待核价或低分估价未确认，不能导出正式稿",
+                status_code=422,
+            )
+
     costed, summary = apply_costing(line_dicts, rates_raw)
     tax_rate = Decimal(str(summary.get("taxRate") or body.taxRate or 0.13))
 
     schemes: list[dict] = []
     instruction = ""
     risks: list[str] = []
+    applied_name = ""
     if purpose == "quote":
         ceiling = body.bidCeiling
         margin = body.targetMargin
@@ -157,6 +218,25 @@ async def create_from_generate(
             location=body.location or "",
             duration_days=body.durationDays,
         )
+        chosen = pick_scheme(schemes, body.schemeName)
+        if chosen:
+            applied_name = str(chosen.get("name") or "")
+            target = Decimal(str(chosen.get("totalExTax") or 0))
+            costed = apply_scheme_to_lines(costed, target_ex=target)
+            summary = dict(summary)
+            summary["quoteExTax"] = float(target)
+            summary["quoteIncTax"] = float(
+                (target * (Decimal("1") + tax_rate)).quantize(Decimal("0.01"))
+            )
+            for s in schemes:
+                s["applied"] = str(s.get("name") or "") == applied_name
+            rec_line = (
+                f"三、采用方案：{applied_name}，不含税合计约 {float(target):.2f} 元，"
+                f"测算毛利率约 {float(chosen.get('margin') or 0) * 100:.1f}%。"
+            )
+            instruction = "\n".join(
+                rec_line if x.startswith("三、") else x for x in instruction.split("\n")
+            )
         if risks:
             verify = dict(verify)
             issues = list(verify.get("issues") or [])
@@ -198,11 +278,7 @@ async def create_from_generate(
         verify=verify,
     )
     lines = _lines_dump(costed)
-    unmatched = sum(
-        1
-        for ln in lines
-        if float(ln.get("unitPrice") or 0) <= 0 and float(ln.get("costPrice") or 0) <= 0
-    )
+    unmatched = pending_price_count(lines)
 
     row = QuoteRecord(
         public_id=uuid4().hex[:16],
@@ -210,6 +286,8 @@ async def create_from_generate(
         username=(username or "").strip()[:64],
         purpose=purpose,
         stage=stage,
+        status="draft",
+        scheme_name=applied_name[:32],
         project_name=(body.projectName or "").strip()[:256],
         note=(body.note or "").strip()[:2000],
         location=(body.location or "").strip()[:128],
@@ -231,6 +309,7 @@ async def create_from_generate(
         verify_json=verify,
         schemes_json=schemes or None,
         instruction_text=instruction or None,
+        catalog_json=None,
     )
     db.add(row)
     await db.commit()
@@ -243,6 +322,8 @@ async def create_from_generate(
     out["totalIncTax"] = float(inc)
     out["unmatched"] = unmatched
     out["lineCount"] = len(lines)
+    out["schemeName"] = applied_name
+    out["status"] = "draft"
     return out
 
 
@@ -252,12 +333,17 @@ async def list_records(
     user_id: int,
     q: str | None = None,
     purpose: str | None = None,
+    status: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    see_cost: bool = True,
 ) -> dict[str, object]:
     clauses = [QuoteRecord.user_id == int(user_id)]
     if purpose:
         clauses.append(QuoteRecord.purpose == normalize_purpose(purpose))
+    st = (status or "").strip().lower()
+    if st in {"draft", "locked"}:
+        clauses.append(QuoteRecord.status == st)
     keyword = (q or "").strip()
     if keyword:
         like = f"%{keyword}%"
@@ -283,7 +369,7 @@ async def list_records(
         .scalars()
         .all()
     )
-    return {"total": total, "items": [record_to_dict(row) for row in rows]}
+    return {"total": total, "items": [record_to_dict(row, see_cost=see_cost) for row in rows]}
 
 
 async def _get_row(db: AsyncSession, public_id: str) -> QuoteRecord:
@@ -312,7 +398,7 @@ async def get_record(
 ) -> dict[str, object]:
     row = await _get_row(db, public_id)
     _assert_owner(row, user, admin=admin)
-    return record_to_dict(row, include_lines=True)
+    return record_to_dict(row, include_lines=True, see_cost=can_see_cost(user) or admin)
 
 
 async def load_owned(
@@ -347,7 +433,17 @@ async def load_owned(
             f"报价记录不存在或无权引用（{len(missing)} 条）",
             status_code=404,
         )
-    return [by_id[pid] for pid in ids]
+    ordered = [by_id[pid] for pid in ids]
+    unlocked = [
+        r for r in ordered if (getattr(r, "status", None) or "draft") != "locked"
+    ]
+    if unlocked:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"{len(unlocked)} 条报价记录尚未签认锁定，不能用于投标组卷",
+            status_code=422,
+        )
+    return ordered
 
 
 async def delete_record(
@@ -359,6 +455,8 @@ async def delete_record(
 ) -> dict[str, object]:
     row = await _get_row(db, public_id)
     _assert_owner(row, user, admin=admin)
+    if (getattr(row, "status", None) or "draft") == "locked" and not admin:
+        raise AppError(ErrorCode.CONFLICT, "已签认锁定的报价不能删除", status_code=409)
     _unlink_xlsx(row.xlsx_file)
     payload = record_to_dict(row)
     await db.delete(row)
@@ -375,14 +473,21 @@ async def clear_mine(
     clauses = [QuoteRecord.user_id == int(user.id)]
     if purpose:
         clauses.append(QuoteRecord.purpose == normalize_purpose(purpose))
+    from api.deps import user_is_admin
+
+    admin = user_is_admin(user)
     rows = (await db.execute(select(QuoteRecord).where(and_(*clauses)))).scalars().all()
     ids: list[str] = []
+    skipped = 0
     for row in rows:
+        if (getattr(row, "status", None) or "draft") == "locked" and not admin:
+            skipped += 1
+            continue
         _unlink_xlsx(row.xlsx_file)
         ids.append(str(row.public_id))
         await db.delete(row)
     await db.commit()
-    return {"deleted": len(ids), "ids": ids}
+    return {"deleted": len(ids), "ids": ids, "skippedLocked": skipped}
 
 
 async def rewrite_xlsx(
@@ -417,7 +522,61 @@ async def rewrite_xlsx(
     row.total_ex_tax = float(total)
     row.total_inc_tax = float(inc)
     row.line_count = len(lines)
-    row.unmatched = sum(1 for ln in lines if float(ln.unitPrice or 0) <= 0)
+    row.unmatched = pending_price_count([ln.model_dump() for ln in lines])
     await db.commit()
     await db.refresh(row)
-    return record_to_dict(row)
+    return record_to_dict(row, see_cost=can_see_cost(user) or admin)
+
+
+async def lock_record(
+    db: AsyncSession,
+    public_id: str,
+    *,
+    user: User,
+    admin: bool,
+    unlock: bool = False,
+) -> dict[str, object]:
+    row = await _get_row(db, public_id)
+    _assert_owner(row, user, admin=admin)
+    if unlock:
+        if not admin:
+            raise AppError(ErrorCode.FORBIDDEN, "只有管理员可以解除签认", status_code=403)
+        row.status = "draft"
+        row.locked_at = None
+        row.locked_by = ""
+        await db.commit()
+        await db.refresh(row)
+        return record_to_dict(row, include_lines=True, see_cost=can_see_cost(user) or admin)
+    if (getattr(row, "status", None) or "draft") == "locked":
+        return record_to_dict(row, include_lines=True, see_cost=can_see_cost(user) or admin)
+    lines = row.lines_json if isinstance(row.lines_json, list) else []
+    pending = pending_price_count(lines)
+    if pending:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            f"还有 {pending} 项待核价或待确认，不能签认",
+            status_code=422,
+        )
+    row.status = "locked"
+    row.locked_at = datetime.now(timezone.utc)
+    row.locked_by = (user.username or "")[:64]
+    await db.commit()
+    await db.refresh(row)
+    return record_to_dict(row, include_lines=True, see_cost=can_see_cost(user) or admin)
+
+
+async def get_record_by_file(
+    db: AsyncSession,
+    file_name: str,
+    *,
+    user: User,
+    admin: bool,
+) -> QuoteRecord:
+    name = (file_name or "").strip().replace("\\", "/").split("/")[-1]
+    row = (
+        await db.execute(select(QuoteRecord).where(QuoteRecord.xlsx_file == name))
+    ).scalar_one_or_none()
+    if row is None:
+        raise AppError(ErrorCode.NOT_FOUND, "报价文件不存在", status_code=404)
+    _assert_owner(row, user, admin=admin)
+    return row

@@ -62,9 +62,9 @@ def sanitize_history_brief(raw: BidBrief | dict | None) -> HistoryPlaybook | Non
     written: list[str] = []
     missing: list[str] = []
     if tech_plan_text(brief):
-        written.append("实施方案说明")
+        written.append("技术方案说明")
     else:
-        missing.append("实施方案说明")
+        missing.append("技术方案说明")
 
     if not keys and not role and not written:
         return None

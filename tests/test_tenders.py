@@ -1116,6 +1116,8 @@ def test_parse_xlsx_keeps_multiline_tech_specs(tmp_path) -> None:
     dev = deviation_lines_from_quote(list(sheet.lines))
     assert "7KW" in dev[0].requirement
     assert "(1)输入电压" in dev[0].requirement
+    assert dev[0].deviation == "待确认"
+    assert "无偏差" not in (dev[0].deviation or "")
 
 
 def test_parse_quote_from_pipe_text() -> None:
@@ -1664,8 +1666,9 @@ def test_deviation_follows_custom_quote_not_charger_template(tmp_path) -> None:
         if len(t.rows[0].cells) >= 4 and "招标文件要求" in t.rows[0].cells[1].text
     )
     body = "\n".join(cell.text for row in deviation.rows for cell in row.cells)
-    assert "高压开关柜" in body
-    assert "电缆" in body
+    assert "高压开关柜" not in body
+    assert "电缆" not in body
+    assert "待确认" in body or "待响应" in body
     assert "7kW" not in body
     assert "30kW" not in body
 
@@ -1732,7 +1735,7 @@ def test_deviation_lines_from_payload() -> None:
     assert len(lines) == 2
     assert lines[0].requirement == "绝缘电阻"
     assert lines[1].requirement == "防护等级"
-    assert lines[1].response == "防护等级"
+    assert lines[1].response == ""
 
 
 def test_merge_performance_lines_dedupes() -> None:
@@ -1862,7 +1865,7 @@ def test_technical_soft_issues_do_not_block() -> None:
 
     notes = technical_soft_issues(BidBrief(deliveryDays=30), media={})
     assert any("技术偏差表" in item for item in notes)
-    assert any("文字描述" in item for item in notes)
+    assert any("起草" in item or "技术方案" in item for item in notes)
     assert any("图纸" in item for item in notes)
     assert any("类似业绩" in item for item in notes)
 
@@ -2070,7 +2073,7 @@ def test_sanitize_history_brief_strips_project_and_qty() -> None:
     assert book is not None
     assert book.slot_keys == ("id_legal", "bond", "perf")
     assert book.factory_role == "充电设备生产厂商"
-    assert "实施方案说明" in book.tech_written
+    assert "技术方案说明" in book.tech_written
     text = playbooks_prompt_block([book])
     assert "133" not in text
     assert "518800" not in text

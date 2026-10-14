@@ -1,0 +1,46 @@
+---
+description: 代码要像人手写的：逻辑必须对，但避免模板腔、过度工整和说明文
+alwaysApply: true
+---
+
+# 代码风格（降低 AI 味）
+
+**正确性优先**：分支、边界、错误码、接口契约必须对。下面只改「长相」，不许借机写错逻辑或删校验。
+
+## 怎么写
+
+- **拆着改，别一次倒出整模块。** 先动现有函数/文件；新逻辑能塞进相邻模块就别新建一大坨。单次补丁宁短不长。
+- **命名别全是完美英文短语。** 对外字段、schema、URL 仍跟现有契约（camelCase）。局部变量允许 `n`、`ok`、`rows`、`tmp`、`item`、`p` 这类短名；不要满屏 `handleXxx` / `processXxxData` / `isXxxValid`。同一文件里命名习惯可以略不齐。
+- **注释能不写就不写。** 禁止函数头八股、逐步讲解、复述代码的长注释。只有不明显的坑（时区、权限、兼容旧字段）才在旁边丢半句。模块顶最多一行用途，不要每个 def 都写 docstring。
+- **别写成教科书。** 允许一点点重复、临时变量、早 return；不要为了「优雅」硬抽一层。也不要为了像人而故意写 bug、空 except、无用代码。
+- **排查痕迹可以留一点。** 一两处注释掉的 `print` / `logger.debug` 即可，不要成片，不要打印 token、密码、密钥。不要为了「像人」往生产路径塞会刷屏的 debug。
+- **排版随手。** 不要为对齐把参数排成表格。空行、换行跟旁边文件差不多就行，不要整文件重新格式化。
+- **不要无脑 try/except。** 只包真会失败且你有办法处理的地方。预料中的业务错误继续抛 `AppError`。禁止 `except Exception: pass`、捕获了只 log 再空过。
+
+## 回复
+
+改完后不要写「实现说明 / 改动列表 / 使用方式」。一两句说改了啥（以及要不要重启 API）就够，不要再复述代码。
+
+```python
+# ❌ 模板腔
+async def handle_document_review_process(document_id: str) -> None:
+    """处理文档审核流程。
+    本函数首先校验参数，然后更新状态，最后返回结果。
+    """
+    try:
+        result = await perform_review_operation(document_id)
+        return result
+    except Exception:
+        pass
+
+# ✅ 人手味，逻辑仍完整
+async def review_doc(db, doc_id: str, action: str) -> None:
+    doc = await load_doc(db, doc_id)
+    if doc is None:
+        raise AppError(ErrorCode.NOT_FOUND, "文档不存在", status_code=404)
+    # 已通过的不能再拒，避免检索里来回晃
+    if doc.review_status == "approved" and action == "reject":
+        raise AppError(ErrorCode.CONFLICT, "已通过文档不可驳回", status_code=409)
+    await apply_review(db, doc, action)
+    # print("review", doc_id, action)
+```

@@ -48,6 +48,8 @@ logger = logging.getLogger("api.tenders.extract")
 _INVITE_MAX_CHARS = 18000
 _KB_MAX_CHARS = 6000
 _BIDDER_LOCK = BIDDER_LOCK
+_KB_QUAL_TAIL = " 投标资格 保证金 交货期 付款比例 类似业绩"
+_KB_FORMAT_QUERY = "投标文件格式 响应文件格式 响应函格式 报价表 偏离表 目录 装订"
 
 # 允许用邀请书覆盖的字段。投标人/法人/代理人一律不改。
 _PATCHABLE = frozenset(
@@ -107,15 +109,15 @@ _MONEY_FIELDS = frozenset(
 
 _SYSTEM = """你是投标文件助理。用户会上传甲方的投标邀请书或招标文件正文。
 投标文件分商务标与技术标。商务标看有没有资格干（公司、资质、人员、业绩、报价、函件），缺资质或盖章错误会废标。
-技术标看充电站打算怎么建好。实施方案由经办人上传本项目图纸并写文字说明，模型不要编造图纸和台数。
+技术标按本邀请书的技术章节和条款响应，不限定行业。识别阶段只抽字段和条款，不要写长篇方案，不要编造图纸、数量或工期。
 你的任务：抽出填「投标书表单」所需的项目侧字段，用 JSON 返回。
 硬性规则：
 1. 投标人永远是河南伟泰光电科技有限公司。不要把招标人、代理机构或其他公司写进投标人。
-2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体桩数。
+2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体工程量。
 3. 不要输出思考过程、Word 或 Markdown，只输出一个完整 JSON 对象。
 4. 知识库摘录仅对照资格条款种类。出现其他公司投标文件、投标函或合同，一律忽略，不得当作伟泰资料。
-5. 工程量清单必须来自本邀请书或用户上传的表格。没有表格则 quoteLines 必须为 []，禁止用其它项目的台数（例如 133/56）或历史投标书顶替。
-6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、台数、合同业绩写入 JSON。
+5. 工程量清单必须来自本邀请书或用户上传的表格。没有表格则 quoteLines 必须为 []，禁止用其它项目的数量或历史投标书顶替。
+6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、数量、合同业绩写入 JSON。
 JSON 字段：
 projectName, tenderer, bidContent, quality,
 deliveryDays, warrantyYears, bidValidityDays, bidPriceYuan,
@@ -125,14 +127,14 @@ pmName, pmCertNo, pmGrade, defectPeriod, perfBond,
 quoteTitle, quoteTaxRate,
 quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
 notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
-requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或台数当作本标附件。名称不同但同属一类的必须用已有 key，例如资料库「信用截图」对应邀请书「信用中国/政府采购网/国家企业信用信息公示查询截图」）,
+requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或数量当作本标附件。名称不同但同属一类的必须用已有 key，例如资料库「信用截图」对应邀请书「信用中国/政府采购网/国家企业信用信息公示查询截图」）,
 missingMaterials（对象数组，每项 title/reason，仅当资料库完全没有同类项、邀请书额外要求时才填。不要因标题更长就新建；不要填其他项目的文件名；程序会建空项等用户上传）,
-deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术要求，禁止写死 7kW/30kW 充电桩套话。无条款则 []）,
+deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术条款或规格，禁止套用某一行业的固定参数。无条款则 []。response/deviation 可空，程序后续起草）,
 performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
-performanceRequirement（对象或 null：仅当资格/业绩条款写明类似项目门槛时填写。字段 similarScope, minAmountYuan, minCount, requireCompleted, keywords, note。keywords 只取业绩条款里的行业词，禁止把建设范围里的 MES/MOM/WMS 模块名当成业绩门槛。邀请书没写则 null，禁止套用充电桩或 MES 默认值）,
-constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填；实施方案改为图纸+文字，由经办人上传）,
-techPlanNote（中文字符串：仅当邀请书提出施工、布置、配电、运维或工期要求时，用两三句话概括伟泰拟响应的要点；没有则空字符串，禁止编造图纸、桩位和台数）,
-factoryRole（字符串：如 充电设备生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
+performanceRequirement（对象或 null：仅当资格/业绩条款写明类似项目门槛时填写。字段 similarScope, minAmountYuan, minCount, requireCompleted, keywords, note。keywords 只取业绩条款里的行业词，禁止把建设范围里的模块名当成业绩门槛。邀请书没写则 null，禁止套用默认行业）,
+constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填）,
+techPlanNote（空字符串；技术方案由后续分章起草，这里不要写）,
+factoryRole（字符串：如 生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
 数字字段用数字或 null；百分比用 0-100 的整数。quoteTaxRate 用 0.13 这种小数。"""
 
 
@@ -276,8 +278,8 @@ def deviation_lines_from_payload(patch: dict[str, Any]) -> list[DeviationLine]:
         requirement = str(item.get("requirement") or item.get("req") or "").strip()
         if not requirement:
             continue
-        response = str(item.get("response") or item.get("reply") or "").strip() or requirement
-        deviation = str(item.get("deviation") or "无偏差").strip() or "无偏差"
+        response = str(item.get("response") or item.get("reply") or "").strip()
+        deviation = str(item.get("deviation") or "").strip()
         seq = str(item.get("seq") or i).strip() or str(i)
         out.append(
             DeviationLine(seq=seq, requirement=requirement, response=response, deviation=deviation)
@@ -353,15 +355,15 @@ def deviation_lines_from_quote(lines: list) -> list[DeviationLine]:
             continue
         if name and spec:
             requirement = f"{name}\n{spec}"
-            response = (
-                f"我司所投{name}：\n{spec}\n"
-                "含供货、安装、调试，安装费已含在综合单价内。"
-            )
         else:
             requirement = name or spec
-            response = f"我司所投{name or '产品'}：{spec or name}，含供货、安装、调试，安装费已含在综合单价内。"
         out.append(
-            DeviationLine(seq=str(i), requirement=requirement, response=response, deviation="无偏差")
+            DeviationLine(
+                seq=str(i),
+                requirement=requirement,
+                response="【待响应】",
+                deviation="待确认",
+            )
         )
     return out
 
@@ -596,6 +598,8 @@ async def parse_invitation(
         extract_auth_need,
         extract_outline,
         ensure_biz_essentials,
+        has_invite_format_chapter,
+        hydrate_tech_excerpts,
         unmash_invitation_text,
     )
     from api.services.tenders.performance import (
@@ -625,7 +629,7 @@ async def parse_invitation(
             auth_enabled=brief.authEnabled,
         )
     brief.outlineChapter = chapter
-    brief.outlineItems = outline_items
+    brief.outlineItems = hydrate_tech_excerpts(outline_items)
     brief.documentFormat = extract_document_format(invitation)
     tender_no = extract_tender_no(invitation)
     if tender_no:
@@ -656,11 +660,18 @@ async def parse_invitation(
     from api.services.tenders.tables import apply_format_table_headers
 
     header_notes = apply_format_table_headers(brief)
-    if not brief.deviationLines:
-        from_quote = deviation_lines_from_quote(brief.quoteLines)
-        if from_quote:
-            brief.deviationLines = from_quote
-            filled = [*filled, "deviationLines"]
+    kb_fmt_notes: list[str] = []
+    if (kb_ids or []) and not has_invite_format_chapter(chapter):
+        fmt_hits, fmt_err = await _recall_knowledge(
+            db,
+            invitation,
+            kb_ids or [],
+            query=_KB_FORMAT_QUERY,
+            quiet=True,
+        )
+        kb_fmt_notes.extend(fmt_err)
+        kb_fmt_notes.extend(apply_kb_format_suggestions(brief, chapter, fmt_hits or kb_hits))
+        outline_items = list(brief.outlineItems or [])
     lib_perf = await performance_from_library(db, extract_missing=False)
     if lib_perf or brief.performanceLines:
         brief.performanceLines = merge_performance_lines(
@@ -686,6 +697,7 @@ async def parse_invitation(
         *notes_from_payload(patch),
         *quote_note,
         *header_notes,
+        *kb_fmt_notes,
         *req_notes,
     ]
     req_label = format_requirement(brief.performanceRequirement)
@@ -792,7 +804,7 @@ def _label(key: str) -> str:
         "powerPlan": "配电方案",
         "omPlan": "运维方案",
         "schedulePlan": "工期安排",
-        "techPlanNote": "实施方案说明",
+        "techPlanNote": "技术方案说明",
         "bidderName": "投标人全称",
         "bidderAddress": "地址",
         "bidderPhone": "电话",
@@ -855,18 +867,94 @@ def _user_prompt(
     return "\n".join(parts)
 
 
+def apply_kb_format_suggestions(
+    brief: BidBrief,
+    chapter: str,
+    clips: list[dict[str, Any]] | None,
+) -> list[str]:
+    """本标没有格式章时，用知识库摘录补目录标题和表头，不抄函/报价正文。"""
+    from api.services.tenders.format_rules import extract_document_format
+    from api.services.tenders.outline import (
+        choose_layout_mode,
+        ensure_biz_essentials,
+        has_invite_format_chapter,
+        hydrate_tech_excerpts,
+        titles_from_format_text,
+    )
+    from api.services.tenders.tables import extract_dev_headers, extract_quote_headers
+
+    if has_invite_format_chapter(chapter):
+        return []
+    parts: list[str] = []
+    names: list[str] = []
+    for hit in clips or []:
+        text = str(hit.get("content") or "").strip()
+        if not text:
+            continue
+        if should_skip_kb_retrieval(
+            name=str(hit.get("name") or ""),
+            content=text,
+            tags=hit.get("tags") if isinstance(hit.get("tags"), list) else None,
+        ):
+            continue
+        parts.append(text[:4000])
+        label = str(hit.get("name") or "").strip()
+        if label and label not in names:
+            names.append(label)
+    blob = "\n\n".join(parts)
+    if not blob.strip():
+        return []
+    src = "、".join(names[:3]) if names else "知识库"
+    notes: list[str] = []
+    active = [item for item in (brief.outlineItems or []) if not item.skipped]
+    if not active:
+        items = titles_from_format_text(blob)
+        if items:
+            brief.outlineItems = hydrate_tech_excerpts(items)
+            brief.layoutMode = choose_layout_mode(chapter, brief.outlineItems)
+            if (brief.layoutMode or "").strip() == "outline":
+                brief.outlineItems = hydrate_tech_excerpts(ensure_biz_essentials(brief.outlineItems))
+            notes.append(f"目录 {len(items)} 条来自知识库（{src}），请核对，不套用其中正文")
+    if not any(str(h or "").strip() for h in (brief.quoteHeaders or [])):
+        layout = extract_quote_headers(blob)
+        if layout is not None:
+            brief.quoteHeaders = list(layout.titles)
+            brief.quoteRoles = list(layout.roles)
+            notes.append("报价表表头来自知识库，请核对")
+    if not any(str(h or "").strip() for h in (brief.techDevHeaders or [])):
+        layout = extract_dev_headers(blob)
+        if layout is not None:
+            brief.techDevHeaders = list(layout.titles)
+            notes.append("技术偏离表表头来自知识库，请核对")
+    if not any(str(h or "").strip() for h in (brief.bizDevHeaders or [])):
+        layout = extract_dev_headers(blob)
+        if layout is not None:
+            brief.bizDevHeaders = list(layout.titles)
+            notes.append("商务偏离表表头来自知识库，请核对")
+    fmt = brief.documentFormat
+    if fmt is None or not fmt.specified:
+        sug = extract_document_format(blob)
+        if sug.specified:
+            brief.documentFormat = sug
+            notes.append("排版建议来自知识库，请核对")
+    return notes
+
+
 async def _recall_knowledge(
     db: AsyncSession,
     invitation: str,
     kb_ids: list[str],
+    *,
+    query: str | None = None,
+    quiet: bool = False,
 ) -> tuple[list[dict[str, Any]], list[str]]:
     notes: list[str] = []
     ids = [x.strip() for x in kb_ids if str(x).strip()]
     if not ids:
         return [], notes
-    query = " ".join(invitation.split())[:240] + " 投标资格 保证金 交货期 付款比例 类似业绩"
+    q = (query or "").strip() or (" ".join(invitation.split())[:240] + _KB_QUAL_TAIL)
     try:
-        docs = await search_knowledge_docs(db, query=query, top_k=3, kb_ids=ids, max_drawings=0)
+        docs = await search_knowledge_docs(db, query=q, top_k=3, kb_ids=ids, max_drawings=0)
     except AppError as exc:
         notes.append(f"知识库未检索：{exc.msg}。已仅根据邀请书抽取")
         return [], notes
@@ -898,6 +986,8 @@ async def _recall_knowledge(
         kept.append({"name": doc.get("name"), "docId": doc.get("doc_id"), "content": clip})
     if skipped:
         notes.append(f"已忽略 {skipped} 篇疑似投标书或其他公司材料的知识库文档")
+    if quiet:
+        return kept, notes
     if kept:
         notes.append("已结合知识库 " + "、".join(str(x.get("name") or "资料") for x in kept))
     elif ids:

@@ -1,0 +1,30 @@
+﻿"""鎸夐個璇蜂功鎶€鏈珷璧疯崏鍙紪杈戣崏绋匡紝缂轰簨瀹炴爣寰呰ˉ鍏呫€?""
+
+from __future__ import annotations
+
+import logging
+import re
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from api.services.tenders.categories import PENDING_DRAFT, PENDING_FACT, is_tech_chapter_kind
+from api.services.tenders.outline import ensure_tech_chapters, hydrate_tech_excerpts
+from api.services.tenders.schema import BidBrief, DeviationLine, OutlineItem
+
+logger = logging.getLogger("api.tenders.tech_draft")
+
+TECH_BID_TAG = "tech_bid"
+_PENDING_RESP = "銆愬緟鍝嶅簲銆?
+
+_DRAFT_SYSTEM = """浣犳槸鎶曟爣鎶€鏈爣璧疯崏鍔╃悊銆傛牴鎹粰瀹氱殑鎷涙爣鍘熸枃銆佽瘎鍒嗙偣鍜屾湰鏍囧凡鏈変簨瀹烇紝鍐欎竴绔犲搷搴旇崏绋裤€?
+纭€ц鍒欙細
+1. 鍙娇鐢ㄧ敤鎴风粰鍑虹殑浜嬪疄銆傛暟瀛椼€佸伐鏈熴€佹暟閲忋€佸浘绾搞€佷汉鍛樺悕鍗曚笉鍦ㄤ簨瀹為噷灏卞啓銆愬緟琛ュ厖銆戯紝绂佹缂栭€犮€?
+2. 鍘嗗彶鐗囨鍙彲鍙傝€冨啓娉曪紝涓嶅緱鐓ф妱鍏朵腑鐨勯」鐩悕銆佹暟閲忔垨鐢叉柟鍚嶇О銆?
+3. 涓嶈鍐欐姇鏍囦汉鍏ㄧО銆佸窘鏍囥€佷汉鍛樼湡鍚嶏紙鏆楁爣锛夈€?
+4. 鍙緭鍑烘湰绔犳鏂囷紝涓嶈鏍囬銆佷笉瑕?Markdown 浠ｇ爜鍧椼€?""
+
+
+def quote_facts(brief: BidBrief) -> str:
+    rows: list[str] = []
+    for line in brief.quoteLines or []:

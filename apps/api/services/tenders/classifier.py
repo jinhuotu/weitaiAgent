@@ -219,12 +219,6 @@ def apply_bid_requirements(brief: BidBrief, reqs: list[BidRequirement]) -> list[
     perf = [r.text for r in reqs if r.category == "performance"]
     if perf:
         _merge_perf(brief, perf)
-    scoring = [r.text for r in reqs if r.category == "scoring"]
-    if scoring:
-        blob = "评标要求（请在实施方案中响应）：" + "；".join(scoring[:6])
-        cur = (brief.techPlanNote or "").strip()
-        if blob not in cur:
-            brief.techPlanNote = f"{cur}\n{blob}".strip() if cur else blob
     n_qual = sum(1 for r in reqs if r.category in {"qualification", "material"})
     notes.append(
         f"招标要求 {len(reqs)} 条已从组卷目录分开"

@@ -1583,14 +1583,13 @@ def _ensure_header(section, project_name: str, *, cover: bool = False) -> None:
 def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
     lines = list(brief.deviationLines or [])
     if not lines:
-        from api.services.tenders.extract import deviation_lines_from_quote
-
-        quote_lines = list(brief.quoteLines or [])
-        lines = deviation_lines_from_quote(quote_lines)
-    if not lines:
-        text = (brief.bidContent or "").strip() or (brief.projectName or "").strip() or "按招标文件要求供货"
         lines = [
-            DeviationLine(seq="1", requirement=text, response=text, deviation="无偏差"),
+            DeviationLine(
+                seq="1",
+                requirement="【待响应】尚未抽出技术条款",
+                response="【待响应】",
+                deviation="待确认",
+            ),
         ]
     rows: list[tuple[str, str, str, str]] = []
     for i, line in enumerate(lines, start=1):
@@ -1601,11 +1600,11 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
             (
                 (line.seq or str(i)).strip() or str(i),
                 req,
-                (line.response or req).strip(),
-                (line.deviation or "无偏差").strip() or "无偏差",
+                (line.response or "【待响应】").strip() or "【待响应】",
+                (line.deviation or "待确认").strip() or "待确认",
             )
         )
-    return rows or [("1", "按招标文件要求供货", "按招标文件要求供货", "无偏差")]
+    return rows or [("1", "【待响应】尚未抽出技术条款", "【待响应】", "待确认")]
 
 
 def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:

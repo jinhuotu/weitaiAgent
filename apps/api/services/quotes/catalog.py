@@ -127,16 +127,25 @@ def _row_item(cells: list[object], mapping: dict[str, int], source: str) -> Cata
     )
 
 
-def load_catalog(paths: list[Path]) -> list[CatalogItem]:
+OFFICIAL_SCORE = 0.7
+
+
+def load_catalog(paths: list[Path]) -> tuple[list[CatalogItem], list[str]]:
     items: list[CatalogItem] = []
+    errors: list[str] = []
     for path in paths:
         if path.suffix.lower() not in {".xlsx", ".xlsm"}:
             continue
         try:
-            items.extend(parse_catalog_xlsx(path))
-        except Exception:
+            rows = parse_catalog_xlsx(path)
+        except Exception as exc:
+            errors.append(f"价目文件「{path.name}」无法解析：{exc}")
             continue
-    return items
+        if not rows:
+            errors.append(f"价目文件「{path.name}」未读到有效行（需含名称和单价列）")
+            continue
+        items.extend(rows)
+    return items, errors
 
 
 def _norm(text: str) -> str:
@@ -192,6 +201,42 @@ def _spec_rank(item: CatalogItem) -> int:
     if re.search(r"[（(]\s*1\s*[）)]", spec) or "输入电压" in spec or "输出功率" in spec:
         n += 8000
     return n
+
+
+def list_catalog_hits(
+    *,
+    name: str,
+    spec: str,
+    code: str,
+    catalog: list[CatalogItem],
+    limit: int = 8,
+) -> list[dict]:
+    query = f"{name} {spec}".strip()
+    scored: list[tuple[float, CatalogItem]] = []
+    for item in catalog:
+        s = match_score(query, code, item)
+        if s < 0.25:
+            continue
+        scored.append((s, item))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    out: list[dict] = []
+    for s, it in scored[: max(1, min(limit, 20))]:
+        out.append(
+            {
+                "name": it.name,
+                "spec": it.spec,
+                "unit": it.unit,
+                "unitPrice": float(it.unit_price),
+                "costPrice": float(it.cost_price),
+                "sellPrice": float(it.sell_price),
+                "score": round(s, 3),
+                "official": s >= OFFICIAL_SCORE,
+                "source": it.source,
+                "category": it.category,
+                "scene": it.scene,
+            }
+        )
+    return out
 
 
 def pick_catalog(

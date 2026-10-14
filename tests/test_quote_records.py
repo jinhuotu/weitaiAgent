@@ -61,6 +61,35 @@ def test_lines_snapshot_roundtrip():
     assert float(loaded[0].qty) == 2
 
 
+def test_record_to_dict_exposes_lock_fields():
+    row = QuoteRecord(
+        id=2,
+        public_id="locktest00000001",
+        user_id=1,
+        username="admin",
+        project_name="锁定测试",
+        note="",
+        base_id="kb01",
+        base_name="价目",
+        tax_rate=0.13,
+        total_ex_tax=1,
+        total_inc_tax=1.13,
+        unmatched=0,
+        line_count=1,
+        xlsx_file="",
+        download_name="x.xlsx",
+        lines_json=[{"name": "桩", "qty": 1, "unitPrice": 1, "costPrice": 0.8, "sellPrice": 1}],
+        created_at=datetime(2026, 10, 9, 8, 0, 0, tzinfo=timezone.utc),
+        status="draft",
+        scheme_name="均衡方案",
+    )
+    data = record_to_dict(row, include_lines=True, see_cost=False)
+    assert data["status"] == "draft"
+    assert data["schemeName"] == "均衡方案"
+    assert data["seeCost"] is False
+    assert data["lines"][0]["costPrice"] == 0
+
+
 def test_sheet_from_quote_records_merges():
     from api.services.tenders.quote import sheet_from_quote_records
 

@@ -11,13 +11,15 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.ai.chat_images import multimodal_user_content
-from api.services.knowledge.drawings import preview_jpeg_from_file
+from api.services.knowledge.drawings import pdf_page_count, preview_jpeg_from_file
 from api.services.models.runtime import build_llm_client
 from common.errors import AppError, ErrorCode
 
 _FENCE_RE = re.compile(r"```(?:json)?\s*([\s\S]*?)```", re.IGNORECASE)
 _MAX_UPLOAD = 20 * 1024 * 1024
 MAX_SITE_MAPS = 20
+MAX_PDF_PAGES = 8
+MAX_RASTERS = 20
 _ALLOWED = {
     ".png",
     ".jpg",
@@ -32,7 +34,7 @@ _PROMPT = """你是充电站造价助理。根据场地规划图提取工程量�
 规则：
 - 桩型 code 只能是 dc_320kw / dc_160kw / dc_120kw / ac_14kw
 - 设备 code 可用 box_transformer / ring_cabinet / lv_cabinet / group_host / fire_hydrant
-- 多张图视为同一项目，同类工程量合计，不要把同一批桩重复计数
+- 多张图/多页 PDF 视为同一项目，同类工程量合计，不要把同一批桩重复计数
 - 图上看不清的数量不要编，放进 uncertainties
 - 不要填写单价
 JSON 形状：
@@ -63,7 +65,13 @@ def sniff_ext(filename: str, content_type: str | None) -> str:
     return ""
 
 
-def rasterize_upload(filename: str, content_type: str | None, blob: bytes) -> tuple[str, bytes]:
+def rasterize_upload(
+    filename: str,
+    content_type: str | None,
+    blob: bytes,
+    *,
+    remaining: int = MAX_RASTERS,
+) -> list[tuple[str, bytes]]:
     if not blob:
         raise AppError(ErrorCode.VALIDATION, "图片为空", status_code=422)
     if len(blob) > _MAX_UPLOAD:
@@ -72,16 +80,31 @@ def rasterize_upload(filename: str, content_type: str | None, blob: bytes) -> tu
     if ext not in _ALLOWED:
         raise AppError(ErrorCode.VALIDATION, "规划图请上传图片或 PDF", status_code=422)
     suffix = ext or ".bin"
+    left = max(0, int(remaining))
+    if left <= 0:
+        return []
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as fh:
         fh.write(blob)
         tmp = Path(fh.name)
     try:
-        jpeg = preview_jpeg_from_file(tmp, ext=ext.lstrip("."), max_px=1600)
+        pages = 1
+        if ext == ".pdf":
+            try:
+                pages = pdf_page_count(tmp)
+            except Exception:
+                pages = 1
+            pages = max(1, min(pages, MAX_PDF_PAGES, left))
+        else:
+            pages = 1
+        out: list[tuple[str, bytes]] = []
+        for i in range(pages):
+            jpeg = preview_jpeg_from_file(tmp, ext=ext.lstrip("."), max_px=1600, page_index=i)
+            if not jpeg:
+                raise AppError(ErrorCode.VALIDATION, "无法读取规划图", status_code=422)
+            out.append(("image/jpeg", jpeg))
+        return out
     finally:
         tmp.unlink(missing_ok=True)
-    if not jpeg:
-        raise AppError(ErrorCode.VALIDATION, "无法读取规划图", status_code=422)
-    return "image/jpeg", jpeg
 
 
 def extract_json(text: str) -> dict[str, Any]:

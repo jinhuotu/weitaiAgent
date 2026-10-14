@@ -16,13 +16,29 @@ def is_drawing_ext(ext: str | None) -> bool:
     return (ext or "").lower().lstrip(".") in _DRAWING_EXTS
 
 
-def preview_jpeg_from_file(path: Path, *, ext: str | None = None, max_px: int = _MAX_PX) -> bytes:
+def preview_jpeg_from_file(
+    path: Path,
+    *,
+    ext: str | None = None,
+    max_px: int = _MAX_PX,
+    page_index: int = 0,
+) -> bytes:
     kind = (ext or path.suffix.lower().lstrip(".")).lower()
     if kind == "pdf":
-        raw = _render_pdf_page(path, 0)
+        raw = _render_pdf_page(path, page_index)
     else:
         raw = path.read_bytes()
     return _downscale_jpeg(raw, max_px=max_px)
+
+
+def pdf_page_count(path: Path) -> int:
+    import pypdfium2 as pdfium
+
+    doc = pdfium.PdfDocument(str(path))
+    try:
+        return len(doc)
+    finally:
+        doc.close()
 
 
 def _render_pdf_page(pdf_path: Path, page_index: int) -> bytes:

@@ -11,7 +11,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 from docx.text.paragraph import Paragraph
 
-from api.services.tenders.categories import tech_plan_body
+from api.services.tenders.categories import chapter_draft_text
 from api.services.tenders.document import (
     _LETTER_SIGN_RIGHT_KW,
     _SIGN_OFF_KW,
@@ -54,7 +54,19 @@ from api.services.tenders.tables import resolve_dev_layout, resolve_quote_layout
 _SONG = "宋体"
 
 MODULE_KINDS = frozenset(
-    {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan", "company"}
+    {
+        "letter",
+        "legal_id",
+        "auth",
+        "quote",
+        "biz_dev",
+        "tech_dev",
+        "performance",
+        "factory",
+        "tech_plan",
+        "tech_chapter",
+        "company",
+    }
 )
 COPY_KINDS = frozenset({"commitment_copy", "company"})
 
@@ -72,7 +84,7 @@ def render_module(
         return [f"「{item.title}」无对应填空模块"]
     if kind in {"legal_id", "auth"}:
         return handler(doc, brief, item, media=media, inlined=inlined)
-    if kind == "tech_plan":
+    if kind in {"tech_plan", "tech_chapter"}:
         return handler(doc, brief, item, media=media)
     if kind == "performance":
         return handler(doc, brief, item, media=media)
@@ -551,24 +563,23 @@ def _scrub_anon(text: str, brief: BidBrief) -> str:
 def _tech_plan(
     doc: Document, brief: BidBrief, item: OutlineItem, media: dict | None = None
 ) -> list[str]:
-    works = "施工组织" in compact_title(item.title) or bid_is_works(brief)
-    body = _scrub_anon(tech_plan_body(brief), brief)
+    body = _scrub_anon(chapter_draft_text(item, brief), brief)
     notes: list[str] = []
-    if works:
+    if bid_is_works(brief) or "施工组织" in compact_title(item.title):
         _para(doc, "本部分按技术暗标编制，不出现投标人名称、徽标和人员姓名。", indent=True)
-        hint = body if body and "【待响应】" not in body else "按招标文件及现场情况组织实施，图纸另附。"
-        for i, head in enumerate(_WORKS_PLAN, start=1):
-            _para(doc, f"{i}. {head}", bold=True)
-            _para(doc, hint if i == 1 else "按招标文件要求实施，详见图纸及附表。", indent=True)
-        _para(doc, "附表：劳动力计划表、主要施工设备表、临时用地表另附，施工进度采用横道图、总平面按现场绘制。")
-    else:
-        for block in _split_blocks(body):
-            _para(doc, block, indent=True)
-    title = _para(doc, "图纸", bold=True)
-    notes.extend(_embed_tech_drawings(doc, title, media))
-    if "【待响应】" in (tech_plan_body(brief) or ""):
-        notes.insert(0, "实施方案文字未写，已按招标文件章节列出待响应说明")
+    for block in _split_blocks(body):
+        _para(doc, block, indent=True)
+    if _chapter_wants_drawings(item):
+        title = _para(doc, "图纸", bold=True)
+        notes.extend(_embed_tech_drawings(doc, title, media))
+    if "【待响应】" in body or "【待补充】" in body:
+        notes.insert(0, f"{item.title}尚未补全，已按待响应/待补充写入")
     return notes
+
+
+def _chapter_wants_drawings(item: OutlineItem) -> bool:
+    n = compact_title(item.title)
+    return any(k in n for k in ("图纸", "方案", "实施", "布置", "组织设计"))
 
 
 _HANDLERS = {
@@ -582,6 +593,7 @@ _HANDLERS = {
     "factory": _factory,
     "company": _company,
     "tech_plan": _tech_plan,
+    "tech_chapter": _tech_plan,
 }
 
 

@@ -74,6 +74,21 @@ class QuoteRecord(Base):
     instruction_text: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="编制说明"
     )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="draft", index=True, comment="draft/locked"
+    )
+    scheme_name: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="", comment="采用的报价方案"
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, comment="签认锁定时间"
+    )
+    locked_by: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", comment="签认人"
+    )
+    catalog_json: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="价目快照（文件名/条数）"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

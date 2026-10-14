@@ -126,7 +126,7 @@ _PACK_SKIP = re.compile(
     r"主要项目管理人员简历|项目经理简历表|项目经理主要工作经历|"
     r"项目管理机构组成表|^项目管理机构$|"
     r"拟分包项目情况|^拟分包$|"
-    r"施工组织设计|暗标|装订要求|"
+    r"暗标|装订要求|"
     r"劳动力计划表|临时用地|"
     r"其他有必要提供|^其他资料$|^其他材料$)"
 )
@@ -163,7 +163,57 @@ _AUTH_REQUIRED = re.compile(
 )
 
 _GENERATE_KINDS = frozenset(
-    {"letter", "legal_id", "auth", "quote", "biz_dev", "tech_dev", "performance", "factory", "tech_plan"}
+    {
+        "letter",
+        "legal_id",
+        "auth",
+        "quote",
+        "biz_dev",
+        "tech_dev",
+        "performance",
+        "factory",
+        "tech_plan",
+        "tech_chapter",
+    }
+)
+
+_TECH_CHAPTER_MARKS = (
+    "施工组织",
+    "组织设计",
+    "质量保证",
+    "质量管理",
+    "质量体系",
+    "质量措施",
+    "安全管理",
+    "安全文明",
+    "安全保证",
+    "进度计划",
+    "工期保证",
+    "工期措施",
+    "保证体系",
+    "技术规格",
+    "技术措施",
+    "技术方案",
+    "新工艺",
+    "信息化监控",
+    "BIM",
+    "风险管理",
+    "风险措施",
+    "环境保护",
+    "文明施工",
+    "售后服务",
+    "培训方案",
+    "培训计划",
+    "竣工验收",
+    "调试验收",
+    "运维方案",
+    "运维服务",
+    "人员配备",
+    "拟投入资源",
+    "劳动力计划",
+    "施工总平面",
+    "总平面布置",
+    "建造方式",
 )
 
 _CHAPTER_HEAD = re.compile(r"^第[一二三四五六七八九十百零〇0-9]+章[^\n]{0,48}")
@@ -207,6 +257,30 @@ def _outline_key(title: str) -> str:
     n = re.sub(r"[（）()：:、.．]", "", n)
     n = _DOC_TAIL.sub("", n)
     return n or compact_title(title)
+
+
+def _is_buyer_spec_title(n: str) -> bool:
+    if "技术标准" in n and "要求" in n:
+        return True
+    if "功能需求" in n:
+        return True
+    return False
+
+
+def _is_tech_chapter_title(n: str) -> bool:
+    if any(k in n for k in ("装订", "暗标", "编制及", "使用说明", "须知")):
+        return False
+    from api.services.tenders.categories import title_goes_technical
+
+    if title_goes_technical(n):
+        return True
+    if any(k in n for k in _TECH_CHAPTER_MARKS):
+        return True
+    if n.endswith("方案") and "报价" not in n:
+        return True
+    if n.endswith("图纸") or n.endswith("设计图"):
+        return True
+    return False
 
 
 def classify_kind(title: str) -> str:
@@ -258,6 +332,10 @@ def classify_kind(title: str) -> str:
         return "factory"
     if "实施方案" in n or "响应方案" in n or n.endswith("技术标") or "技术标（" in n or "技术标(" in n:
         return "tech_plan"
+    if _is_buyer_spec_title(n):
+        return "unknown"
+    if _is_tech_chapter_title(n):
+        return "tech_chapter"
     if any(
         k in n
         for k in (
@@ -387,7 +465,7 @@ def _default_volume_pool(brief: BidBrief) -> list[OutlineItem]:
         OutlineItem(id="d06", title="企业业绩", kind="performance", source="generate"),
         OutlineItem(id="d07", title="原厂生产承诺", kind="factory", source="generate"),
         OutlineItem(id="d08", title="技术偏差表", kind="tech_dev", source="generate"),
-        OutlineItem(id="d09", title="技术标（实施方案）", kind="tech_plan", source="generate"),
+        OutlineItem(id="d09", title="技术方案", kind="tech_chapter", source="generate"),
     ]
     if brief.includeCommitment:
         items.append(OutlineItem(id="d10", title="投标承诺书", kind="commitment_copy", source="generate"))
@@ -399,6 +477,57 @@ def _ensure_kind(items: list[OutlineItem], kind: str, title: str) -> list[Outlin
         return items
     items.append(OutlineItem(id=f"v-{kind}", title=title, kind=kind, source="generate", required=True))
     return items
+
+
+def scoring_chapter_titles(brief: BidBrief) -> list[str]:
+    titles: list[str] = []
+    seen: set[str] = set()
+    for req in brief.bidRequirements or []:
+        if (req.category or "").strip() != "scoring":
+            continue
+        t = (req.targetTitle or "").strip() or (req.text or "").strip()[:24]
+        if len(t) < 4:
+            continue
+        key = compact_title(t)[:40]
+        if key in seen:
+            continue
+        seen.add(key)
+        titles.append(t[:40])
+        if len(titles) >= 8:
+            break
+    return titles
+
+
+def ensure_tech_chapters(items: list[OutlineItem], brief: BidBrief | None = None) -> list[OutlineItem]:
+    out = _ensure_kind(list(items), "tech_dev", "技术偏差表")
+    if any((item.kind or "").strip() in {"tech_plan", "tech_chapter"} and not item.skipped for item in out):
+        return out
+    titles = scoring_chapter_titles(brief) if brief is not None else []
+    if not titles:
+        titles = ["技术方案"]
+    for i, title in enumerate(titles):
+        out.append(
+            OutlineItem(
+                id=f"v-tech-{i + 1:02d}",
+                title=title,
+                kind="tech_chapter",
+                source="generate",
+                required=True,
+            )
+        )
+    return out
+
+
+def hydrate_tech_excerpts(items: list[OutlineItem]) -> list[OutlineItem]:
+    out: list[OutlineItem] = []
+    for item in items:
+        kind = (item.kind or "").strip()
+        excerpt = (item.inviteExcerpt or "").strip()
+        if kind in {"tech_plan", "tech_chapter"} and not excerpt:
+            excerpt = (item.body or "").strip()
+            item = item.model_copy(update={"inviteExcerpt": excerpt})
+        out.append(item)
+    return out
 
 
 # 商务标缺一即废/评委默认要看的页。邀请书有模板就沿用，没有则模块填写或标题+方框。
@@ -513,7 +642,7 @@ def _biz_sort_key(item: OutlineItem, idx: int) -> tuple[int, int, int]:
 
     kind = (item.kind or "").strip()
     n = compact_title(item.title)
-    if kind in {"tech_plan", "tech_dev"} or item_volume(
+    if kind in {"tech_plan", "tech_chapter", "tech_dev"} or item_volume(
         kind=kind, title=item.title, key=item.id
     ) == "technical":
         return (20, 0, idx)
@@ -638,13 +767,19 @@ def slice_copied_letter_body(body: str, title: str) -> str:
 
 
 def _keep_in_bid_outline(item: OutlineItem) -> bool:
+    from api.services.tenders.categories import is_volume_label, title_goes_technical
+
+    kind = (item.kind or "").strip()
+    if kind in {"tech_plan", "tech_chapter", "tech_dev"}:
+        return not is_volume_label(item.title)
+    if title_goes_technical(item.title):
+        return not is_volume_label(item.title)
     if is_outline_junk(item):
         return False
     if is_policy_statement_title(item.title) or is_invite_pack_title(item.title):
         return False
     if not is_chapter_title(item.title):
         return False
-    kind = (item.kind or "").strip()
     if kind in {
         "letter",
         "legal_id",
@@ -657,6 +792,7 @@ def _keep_in_bid_outline(item: OutlineItem) -> bool:
         "company",
         "factory",
         "tech_plan",
+        "tech_chapter",
         "tech_dev",
     }:
         return True
@@ -683,7 +819,7 @@ def ensure_biz_essentials(items: list[OutlineItem]) -> list[OutlineItem]:
 
 def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
     """商务标 / 技术标分卷。卷名标题不当正文；商务标补必备页，技术标不发明请书没有的页。"""
-    from api.services.tenders.categories import is_volume_label, item_volume
+    from api.services.tenders.categories import is_volume_label, item_volume, title_goes_technical
 
     raw = [item for item in (brief.outlineItems or []) if not item.skipped]
     use_outline = (brief.layoutMode or "").strip() == "outline" and bool(raw)
@@ -706,6 +842,12 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
         if not kind:
             continue
         if item_volume(kind=kind, title=item.title, key=item.id) == volume:
+            if (
+                volume == "technical"
+                and title_goes_technical(item.title)
+                and kind not in {"tech_plan", "tech_chapter", "tech_dev"}
+            ):
+                item = item.model_copy(update={"kind": "tech_chapter"})
             out.append(item)
     out = dedupe_letter_items(dedupe_outline_items(out))
     if use_outline:
@@ -725,8 +867,7 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
             ]
         return out
     if volume == "technical":
-        out = _ensure_kind(out, "tech_dev", "技术偏差表")
-        out = _ensure_kind(out, "tech_plan", "技术标（实施方案）")
+        out = ensure_tech_chapters(out, brief)
     elif volume == "business":
         if not out:
             out = [
@@ -1057,7 +1198,7 @@ def _tree_from_groups(
     while i < n:
         item, bm = packed[i]
         kind = (item.kind or "").strip()
-        if kind == "tech_plan":
+        if kind in {"tech_plan", "tech_chapter"}:
             roots.append(_node(item.title, bm, _tech_children(bm, item, tech_text)))
             i += 1
             continue
@@ -1116,6 +1257,8 @@ def is_noise_title(title: str) -> bool:
     n = compact_title(title)
     if not n:
         return True
+    if classify_kind(title) in {"tech_plan", "tech_chapter", "tech_dev"}:
+        return False
     if is_outline_junk(title=title):
         return True
     if (
@@ -1193,8 +1336,9 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
         seen.add(key)
         kind = classify_kind(title)
         kind = kind if kind in OUTLINE_KINDS else "unknown"
-        if is_outline_junk(title=title) or not is_chapter_title(title):
-            continue
+        if kind not in {"tech_plan", "tech_chapter", "tech_dev"}:
+            if is_outline_junk(title=title) or not is_chapter_title(title):
+                continue
         if kind == "unknown" and not _keep_unknown_title(title):
             continue
         items.append(
@@ -1220,6 +1364,39 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
 
 
 _BODY_MAX = 80000
+
+
+def has_invite_format_chapter(chapter: str) -> bool:
+    n = compact_title(chapter)
+    return any(
+        k in n
+        for k in ("投标文件格式", "响应文件格式", "投标文件组成", "响应文件组成")
+    )
+
+
+def titles_from_format_text(text: str) -> list[OutlineItem]:
+    """知识库格式摘录：只要目录标题，不要函/表正文。"""
+    from api.services.tenders.categories import is_volume_label
+
+    _, items = extract_outline(text)
+    out: list[OutlineItem] = []
+    for item in items:
+        if is_volume_label(item.title):
+            continue
+        out.append(
+            item.model_copy(
+                update={
+                    "id": f"kb{len(out) + 1:02d}",
+                    "body": "",
+                    "inviteExcerpt": "",
+                    "draftBody": "",
+                    "source": "generate",
+                }
+            )
+        )
+        if len(out) >= 16:
+            break
+    return out
 
 
 def choose_layout_mode(chapter: str, items: list[OutlineItem]) -> str:

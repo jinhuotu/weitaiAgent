@@ -457,3 +457,103 @@ def test_normalize_purpose() -> None:
     assert normalize_purpose("x") == "quote"
     assert PURPOSE_STOP["cost"] == "costed"
     assert PURPOSE_STOP["quote"] == "quoted"
+
+
+def test_low_score_match_is_estimate_not_official() -> None:
+    from api.services.quotes.assemble import apply_catalog, pending_price_count
+    from api.services.quotes.catalog import CatalogItem
+
+    catalog = [
+        CatalogItem(
+            name="综合服务",
+            spec="",
+            unit="项",
+            unit_price=Decimal("1000"),
+            cost_price=Decimal("800"),
+            sell_price=Decimal("1000"),
+        )
+    ]
+    lines = [{"name": "综合布线", "spec": "", "code": "", "qty": Decimal("1"), "source": "vision"}]
+    notes = apply_catalog(lines, catalog)
+    assert lines[0]["matchStatus"] in {"estimate", "none"}
+    if lines[0]["matchStatus"] == "estimate":
+        assert lines[0]["source"] == "estimate"
+        assert pending_price_count(lines) == 1
+        assert any("须确认" in x or "估价" in x for x in notes)
+    lines[0]["matchStatus"] = "confirmed"
+    lines[0]["unitPrice"] = Decimal("1000")
+    lines[0]["sellPrice"] = Decimal("1000")
+    assert pending_price_count(lines) == 0
+
+
+def test_apply_scheme_rewrites_line_total() -> None:
+    from api.services.quotes.decide import apply_scheme_to_lines, build_schemes, pick_scheme
+
+    lines = [
+        {
+            "name": "桩",
+            "qty": Decimal("2"),
+            "costPrice": Decimal("40000"),
+            "sellPrice": Decimal("48000"),
+            "unitPrice": Decimal("48000"),
+            "amount": Decimal("96000"),
+        },
+        {
+            "name": "箱变",
+            "qty": Decimal("1"),
+            "costPrice": Decimal("80000"),
+            "sellPrice": Decimal("86000"),
+            "unitPrice": Decimal("86000"),
+            "amount": Decimal("86000"),
+        },
+    ]
+    schemes, instruction, _ = build_schemes(
+        cost_ex=Decimal("160000"),
+        quote_ex=Decimal("182000"),
+        bid_ceiling=None,
+        competition="balanced",
+        target_margin=Decimal("0.08"),
+        project_name="站",
+        location="苏州",
+        duration_days=30,
+    )
+    chosen = pick_scheme(schemes, "进取方案")
+    assert chosen is not None
+    target = Decimal(str(chosen["totalExTax"]))
+    out = apply_scheme_to_lines(lines, target_ex=target)
+    got = sum(Decimal(str(r["amount"])) for r in out)
+    assert got == target
+    assert "编制说明" in instruction or "报价编制说明" in instruction
+
+
+def test_quote_xlsx_has_bid_sheet(tmp_path, monkeypatch) -> None:
+    from openpyxl import load_workbook
+
+    from api.services.quotes import excel as excel_mod
+    from api.services.quotes.schema import QuoteLineIn
+
+    monkeypatch.setattr(excel_mod, "quotes_output_dir", lambda: tmp_path)
+    path, _, total, _ = excel_mod.write_quote_xlsx(
+        project_name="投标对齐",
+        note="",
+        tax_rate=Decimal("0.13"),
+        lines=[
+            QuoteLineIn(
+                name="160kW直流充电桩",
+                unit="台",
+                qty=Decimal("2"),
+                unitPrice=Decimal("48000"),
+                sellPrice=Decimal("48000"),
+            )
+        ],
+        purpose="quote",
+        cost_summary={"quoteExTax": 96000, "quoteIncTax": 108480},
+        schemes=[{"name": "均衡方案", "totalExTax": 96000, "margin": 0.08, "tip": "", "risks": [], "applied": True}],
+        instruction="说明",
+    )
+    wb = load_workbook(path)
+    assert "分项报价表" in wb.sheetnames
+    assert "报价方案" in wb.sheetnames
+    assert wb["报价方案"].cell(2, 7).value == "是"
+    assert total == Decimal("96000")
+    wb.close()

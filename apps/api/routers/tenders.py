@@ -56,7 +56,9 @@ from api.services.tenders.records import (
     regenerate_from_record,
     submit_for_approval,
 )
+from api.services.models.runtime import build_llm_client
 from api.services.tenders.schema import BidBrief, PlaceholderItem
+from api.services.tenders.tech_draft import draft_tech
 from api.services.tenders.slots import clear_drawing_files, sanitize_slot_key, save_drawing_file
 from api.services.tenders.yozo import (
     build_editor_payload as build_yozo_payload,
@@ -99,6 +101,14 @@ class ApprovalDecisionIn(BaseModel):
 
 class MarkResultIn(BaseModel):
     status: str = Field(..., min_length=1, max_length=16)
+
+
+class TechDraftIn(BaseModel):
+    brief: BidBrief
+    kbIds: list[str] = Field(default_factory=list)
+    itemId: str | None = None
+    promptId: str | None = None
+    materialIds: list[str] = Field(default_factory=list)
 
 
 def _require_menu(user, href: str) -> None:
@@ -347,6 +357,24 @@ async def tenders_parse_invitation(
     )
     payload["catalogSlots"] = await list_slots_status_kb(db)
     return ok(payload)
+
+
+@router.post("/tech/draft")
+async def tenders_tech_draft(body: TechDraftIn, db: DbSession, user: CurrentUser):
+    del user
+    client = None
+    try:
+        client = await build_llm_client(db, "fast")
+    except Exception as exc:
+        logger.warning("tech draft llm unavailable: %s", exc)
+    brief, notes = await draft_tech(
+        body.brief,
+        db=db,
+        kb_ids=[k for k in body.kbIds if str(k).strip()],
+        item_id=(body.itemId or "").strip() or None,
+        client=client,
+    )
+    return ok({"brief": brief.model_dump(mode="json"), "notes": notes})
 
 
 @router.post("/generate")

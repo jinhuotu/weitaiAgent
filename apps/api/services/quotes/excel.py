@@ -221,8 +221,10 @@ def write_quote_xlsx(
         _write_summary_sheet(wb, cost_summary, purpose)
     if verify and (verify.get("issues") or []):
         _write_verify_sheet(wb, verify)
-    if purpose == "quote" and schemes:
-        _write_schemes_sheet(wb, schemes, instruction or "")
+    if purpose == "quote":
+        _write_bid_sheet(wb, rows, tax_rate, total, inc)
+        if schemes:
+            _write_schemes_sheet(wb, schemes, instruction or "")
 
     stem = uuid4().hex[:12]
     dest = quotes_output_dir() / f"{stem}.xlsx"
@@ -325,12 +327,36 @@ def _write_verify_sheet(wb, verify: dict[str, Any]) -> None:
     ws.column_dimensions["D"].width = 60
 
 
+def _write_bid_sheet(wb, rows: list, tax_rate: Decimal, total: Decimal, inc: Decimal) -> None:
+    """投标组卷常用的分项报价表，列与邀请书识别表头对齐。"""
+    from openpyxl.styles import Alignment, Font
+
+    ws = wb.create_sheet("分项报价表")
+    headers = ("序号", "名称", "规格型号", "单位", "数量", "不含税单价（元）", "合价")
+    ws.append(list(headers))
+    for i, w in enumerate((8, 22, 36, 8, 10, 16, 14), start=1):
+        ws.column_dimensions[_col_letter(i)].width = w
+    for i, ln in enumerate(rows, start=1):
+        qty = ln.qty if ln.qty > 0 else Decimal("0")
+        sell = ln.sellPrice if ln.sellPrice > 0 else (ln.unitPrice if ln.unitPrice > 0 else Decimal("0"))
+        cost = ln.costPrice if ln.costPrice > 0 else Decimal("0")
+        price = sell if sell > 0 else cost
+        amount = money(qty, price) if price > 0 else Decimal("0")
+        ws.append([i, ln.name, ln.spec, ln.unit or "项", qty, float(price) if price > 0 else None, float(amount) if price > 0 else None])
+    ws.append(["不含税合计", None, None, None, None, None, float(total)])
+    ws.append([f"增值税 {tax_rate * 100:.0f}%", None, None, None, None, None, float((inc - total) if inc >= total else 0)])
+    ws.append(["含税合计", None, None, None, None, None, float(inc)])
+    ws["A1"].font = Font(bold=True, name="微软雅黑", size=10)
+    for cell in ws[1]:
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+
 def _write_schemes_sheet(wb, schemes: list[dict[str, Any]], instruction: str) -> None:
     from openpyxl.styles import Alignment
 
     ws = wb.create_sheet("报价方案")
-    headers = ("方案", "不含税合计", "毛利率", "风险", "说明", "推荐")
-    widths = (12, 14, 10, 36, 36, 8)
+    headers = ("方案", "不含税合计", "毛利率", "风险", "说明", "推荐", "采用")
+    widths = (12, 14, 10, 36, 36, 8, 8)
     ws.append(list(headers))
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[_col_letter(i)].width = w
@@ -342,6 +368,7 @@ def _write_schemes_sheet(wb, schemes: list[dict[str, Any]], instruction: str) ->
             _norm_cell_text("；".join(s.get("risks") or [])),
             _norm_cell_text(s.get("tip")),
             "是" if s.get("recommended") else "",
+            "是" if s.get("applied") else "",
         ]
         ws.append(values)
         r = ws.max_row

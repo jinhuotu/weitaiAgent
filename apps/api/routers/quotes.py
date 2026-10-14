@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from decimal import Decimal
 
 from fastapi import APIRouter, File, Form, Query, UploadFile
 from fastapi.responses import FileResponse
@@ -14,25 +15,33 @@ from api.services.quotes.assemble import (
     apply_catalog,
     catalog_from_docs,
     number_lines,
+    pending_price_count,
     recognize_from_bom,
     _dump_line,
 )
 from api.services.quotes.boq import lines_from_boq_bytes
+from api.services.quotes.catalog import list_catalog_hits
 from api.services.quotes.contract import PURPOSE_LABEL, default_rates_dict, normalize_purpose
 from api.services.quotes.costing import apply_costing
+from api.services.quotes.decide import build_schemes
 from api.services.quotes.excel import resolve_quote_file
 from api.services.quotes.library import docs_for_quote_kb
 from api.services.quotes.records import (
+    can_see_cost,
     clear_mine,
     create_from_generate,
     delete_record,
     get_record,
+    get_record_by_file,
     list_records,
+    lock_record,
+    _redact_lines,
+    _redact_summary,
     rewrite_xlsx,
 )
-from api.services.quotes.schema import CostQuoteIn, GenerateQuoteIn, VerifyQuoteIn
+from api.services.quotes.schema import CatalogCandidatesIn, CostQuoteIn, GenerateQuoteIn, VerifyQuoteIn
 from api.services.quotes.verify import apply_amount_fixes, verify_lines
-from api.services.quotes.vision import MAX_SITE_MAPS, rasterize_upload, read_site_map
+from api.services.quotes.vision import MAX_RASTERS, MAX_SITE_MAPS, rasterize_upload, read_site_map
 from common.errors import AppError, ErrorCode
 from common.response import ok
 
@@ -91,8 +100,17 @@ async def quotes_recognize(
         )
     blobs: list[tuple[str, bytes]] = []
     for up in files:
+        if len(blobs) >= MAX_RASTERS:
+            break
         raw = await up.read()
-        blobs.append(rasterize_upload(up.filename or "", up.content_type, raw))
+        blobs.extend(
+            rasterize_upload(
+                up.filename or "",
+                up.content_type,
+                raw,
+                remaining=MAX_RASTERS - len(blobs),
+            )
+        )
     if not blobs:
         raise AppError(ErrorCode.VALIDATION, "请上传场地规划图", status_code=422)
     bom = await read_site_map(db, blobs, note=note or "")
@@ -110,6 +128,9 @@ async def quotes_recognize(
     data["durationDays"] = durationDays
     data["verify"] = verify_lines(data.get("lines") or [])
     data["stage"] = "verified"
+    data["unmatched"] = pending_price_count(data.get("lines") or [])
+    if purpose == "quote" and not can_see_cost(user):
+        data["lines"] = _redact_lines(data.get("lines") or [])
     logger.info(
         "quote recognize user=%s purpose=%s kb=%s lines=%s unmatched=%s",
         user.username,
@@ -137,14 +158,16 @@ async def quotes_parse_boq(
     raw = await file.read()
     lines, warnings = lines_from_boq_bytes(raw, filename=file.filename or "boq.xlsx")
     kb_id, kb_name, docs = await docs_for_quote_kb(db, user, baseId)
-    catalog = catalog_from_docs(docs)
+    catalog, cat_err, meta = catalog_from_docs(docs)
+    warnings.extend(cat_err)
     # 有单价的工程量行保留；无单价的对价目
     need = [r for r in lines if not (float(r.get("unitPrice") or 0) > 0)]
     if need:
         warnings.extend(apply_catalog(need, catalog))
-    # 合并：apply_catalog 原地改 need；lines 里同对象已更新
+    for r in lines:
+        if float(r.get("unitPrice") or 0) > 0 and not str(r.get("matchStatus") or "").strip():
+            r["matchStatus"] = "official"
     lines = number_lines(lines)
-    unmatched = sum(1 for r in lines if float(r.get("unitPrice") or 0) <= 0)
     payload = {
         "purpose": purpose,
         "stage": "verified",
@@ -154,11 +177,14 @@ async def quotes_parse_boq(
         "lines": [_dump_line(r) for r in lines],
         "warnings": warnings,
         "catalogCount": len(catalog),
-        "unmatched": unmatched,
+        "unmatched": pending_price_count(lines),
+        "catalog": meta,
         "baseId": kb_id,
         "baseName": kb_name,
         "verify": verify_lines([_dump_line(r) for r in lines]),
     }
+    if purpose == "quote" and not can_see_cost(user):
+        payload["lines"] = _redact_lines(payload["lines"])
     return ok(payload)
 
 
@@ -179,12 +205,29 @@ async def quotes_cost(body: CostQuoteIn, user: CurrentUser):
     rows = [ln.model_dump() for ln in body.lines if str(ln.name or "").strip()]
     rates = body.rates.model_dump() if body.rates else default_rates_dict()
     costed, summary = apply_costing(rows, rates)
+    schemes = []
+    if normalize_purpose(body.purpose) == "quote":
+        schemes, _, _ = build_schemes(
+            cost_ex=Decimal(str(summary["costExTax"])),
+            quote_ex=Decimal(str(summary["quoteExTax"])),
+            bid_ceiling=body.bidCeiling,
+            competition=body.competition or "balanced",
+            target_margin=body.targetMargin,
+            project_name=body.projectName,
+            location=body.location or "",
+            duration_days=body.durationDays,
+        )
+    dumped = [_dump_line(r) for r in costed]
+    if body.purpose == "quote" and not can_see_cost(user):
+        dumped = _redact_lines(dumped)
+        summary = _redact_summary(summary) or summary
     return ok(
         {
             "stage": "costed",
-            "lines": [_dump_line(r) for r in costed],
+            "lines": dumped,
             "costSummary": summary,
             "verify": verify_lines(costed),
+            "schemes": schemes,
         }
     )
 
@@ -205,7 +248,34 @@ async def quotes_generate(body: GenerateQuoteIn, db: DbSession, user: CurrentUse
         payload.get("id"),
         payload.get("lineCount"),
     )
+    if body.purpose == "quote" and not can_see_cost(user):
+        if isinstance(payload.get("costSummary"), dict):
+            payload["costSummary"] = _redact_summary(payload["costSummary"])
+        payload["seeCost"] = False
+    else:
+        payload["seeCost"] = True
     return ok(payload)
+
+
+@router.post("/catalog-candidates")
+async def quotes_catalog_candidates(
+    body: CatalogCandidatesIn,
+    db: DbSession,
+    user: CurrentUser,
+):
+    _require_menu(user)
+    _kb_id, kb_name, docs = await docs_for_quote_kb(db, user, body.baseId)
+    catalog, errors, meta = catalog_from_docs(docs)
+    hits = list_catalog_hits(
+        name=body.name,
+        spec=body.spec,
+        code=body.code,
+        catalog=catalog,
+        limit=body.limit,
+    )
+    if not can_see_cost(user):
+        hits = [{**h, "costPrice": 0} for h in hits]
+    return ok({"items": hits, "baseName": kb_name, "catalog": meta, "errors": errors})
 
 
 @router.get("/records")
@@ -214,6 +284,7 @@ async def quotes_list_records(
     user: CurrentUser,
     q: str | None = Query(None),
     purpose: str | None = Query(None),
+    status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
 ):
@@ -224,8 +295,10 @@ async def quotes_list_records(
             user_id=int(user.id),
             q=q,
             purpose=purpose,
+            status=status,
             limit=limit,
             offset=offset,
+            see_cost=can_see_cost(user),
         )
     )
 
@@ -252,6 +325,18 @@ async def quotes_rewrite_record(record_id: str, db: DbSession, user: CurrentUser
     return ok(await rewrite_xlsx(db, record_id, user=user, admin=user_is_admin(user)))
 
 
+@router.post("/records/{record_id}/lock")
+async def quotes_lock_record(record_id: str, db: DbSession, user: CurrentUser):
+    _require_menu(user)
+    return ok(await lock_record(db, record_id, user=user, admin=user_is_admin(user)))
+
+
+@router.post("/records/{record_id}/unlock")
+async def quotes_unlock_record(record_id: str, db: DbSession, user: CurrentUser):
+    _require_menu(user)
+    return ok(await lock_record(db, record_id, user=user, admin=user_is_admin(user), unlock=True))
+
+
 @router.delete("/records/{record_id}")
 async def quotes_delete_record(record_id: str, db: DbSession, user: CurrentUser):
     _require_menu(user)
@@ -265,8 +350,8 @@ async def quotes_download(
     user: CurrentUser,
     download_name: str | None = None,
 ):
-    del db
     _require_menu(user)
+    await get_record_by_file(db, file_name, user=user, admin=user_is_admin(user))
     path = resolve_quote_file(file_name)
     name = (download_name or path.name).strip().replace("\\", "/").split("/")[-1]
     name = re.sub(r'[\r\n"]+', "", name) or path.name
