@@ -12,7 +12,7 @@ from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
 from api.services.tenders.slots import list_slots_status
 from common.config import get_settings
 
-_FILE_RE = re.compile(r"^[a-f0-9]{12}\.(docx|pdf)$", re.I)
+_FILE_RE = re.compile(r"^[a-f0-9]{12}(?:\.format)?\.(docx|pdf)$", re.I)
 _UNSAFE = re.compile(r'[\\/:*?"<>|\s]+')
 
 
@@ -32,7 +32,7 @@ def qualification_status() -> dict[str, object]:
 
 def generate_volume(brief: BidBrief) -> str:
     v = (getattr(brief, "generateVolume", None) or "").strip()
-    return v if v in {"business", "technical"} else "business"
+    return v if v in {"business", "technical", "full"} else "business"
 
 
 def generate_bid(
@@ -40,6 +40,7 @@ def generate_bid(
     *,
     catalog_slots: list[PlaceholderItem] | None = None,
     catalog_media: dict[str, list[Path]] | None = None,
+    catalog_facts: list | None = None,
 ) -> dict[str, object]:
     vol = generate_volume(brief)
     stem = uuid4().hex[:12]
@@ -63,6 +64,7 @@ def generate_bid(
         qualification_pdf=pdf_src,
         catalog_slots=catalog_slots,
         catalog_media=catalog_media,
+        catalog_facts=catalog_facts,
         volume=vol,
     )
     warnings = list(warnings)
@@ -86,6 +88,9 @@ def generate_bid(
     if vol == "technical":
         out["techDocxFile"] = dest.name
         out["techDownloadName"] = safe_download_name(brief.projectName, suffix="技术标.docx")
+    elif vol == "full":
+        out["docxFile"] = dest.name
+        out["downloadName"] = safe_download_name(brief.projectName, suffix="投标文件.docx")
     else:
         out["docxFile"] = dest.name
         out["downloadName"] = safe_download_name(brief.projectName, suffix="商务标.docx")
@@ -94,6 +99,76 @@ def generate_bid(
             safe_download_name(brief.projectName, suffix="资质文件.pdf") if pdf_name else None
         )
     return out
+
+
+_MERGE_KEYS = (
+    "docxFile",
+    "techDocxFile",
+    "pdfFile",
+    "downloadName",
+    "techDownloadName",
+    "pdfDownloadName",
+)
+
+
+def merge_generated(base: dict[str, object], extra: dict[str, object]) -> dict[str, object]:
+    out = dict(base)
+    for key in _MERGE_KEYS:
+        if extra.get(key) and not out.get(key):
+            out[key] = extra[key]
+    notes = list(out.get("warnings") or [])
+    for note in extra.get("warnings") or []:
+        if note not in notes:
+            notes.append(note)
+    out["warnings"] = notes
+    out["generateBoth"] = True
+    return out
+
+
+def generate_pair(
+    brief: BidBrief,
+    *,
+    catalog_slots: list[PlaceholderItem] | None = None,
+    catalog_media: dict[str, list[Path]] | None = None,
+    catalog_facts: list | None = None,
+) -> dict[str, object]:
+    """先出商务卷，再出技术卷。未建议分册时，商务卷与单卷调用相同。"""
+    kw = dict(
+        catalog_slots=catalog_slots,
+        catalog_media=catalog_media,
+        catalog_facts=catalog_facts,
+    )
+    # 报价留在商务卷，不另出一册。只有建议分册时，这次商务卷才裁技术部分。
+    slice_biz = (getattr(brief, "volumeAdvice", None) or "").strip() == "split"
+    biz = brief.model_copy(
+        update={"generateVolume": "business", "generateBoth": False, "splitSlice": slice_biz}
+    )
+    tech = brief.model_copy(
+        update={"generateVolume": "technical", "generateBoth": False, "splitSlice": False}
+    )
+    return merge_generated(generate_bid(biz, **kw), generate_bid(tech, **kw))
+
+
+def volume_pair_status(vol: str, *, business_ready: bool, technical_ready: bool) -> dict[str, object]:
+    if (vol or "").strip() == "full":
+        return {
+            "generateVolume": "full",
+            "otherVolume": "",
+            "otherVolumeReady": True,
+            "otherVolumeNote": "",
+        }
+    cur = vol if vol in {"business", "technical"} else "business"
+    other = "technical" if cur == "business" else "business"
+    ready = technical_ready if other == "technical" else business_ready
+    cur_label = "技术标" if cur == "technical" else "商务标"
+    other_label = "技术标" if other == "technical" else "商务标"
+    note = "" if ready else f"本次生成的是{cur_label}，{other_label}尚未生成"
+    return {
+        "generateVolume": cur,
+        "otherVolume": other,
+        "otherVolumeReady": ready,
+        "otherVolumeNote": note,
+    }
 
 
 def resolve_output_file(file_name: str):

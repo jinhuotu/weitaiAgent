@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, String, Text, func
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.mysql import JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -141,3 +141,63 @@ class TenderApprovalLog(Base):
     )
 
     record: Mapped[TenderRecord] = relationship("TenderRecord", back_populates="approval_logs")
+
+
+class TenderBidMark(Base):
+    """历史标书某一章的好坏。不改 tender_records。"""
+
+    __tablename__ = "tender_bid_marks"
+    __table_args__ = (
+        UniqueConstraint("record_id", "volume", "chapter_title", name="uq_bid_mark_chapter"),
+        {"comment": "历史标书章节好坏标记"},
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True, comment="主键"
+    )
+    public_id: Mapped[str] = mapped_column(
+        String(32), unique=True, nullable=False, comment="对外ID"
+    )
+    record_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("tender_records.id", ondelete="CASCADE"),
+        nullable=True,
+        index=True,
+        comment="tender_records.id，上传未关联记录时为空",
+    )
+    doc_public_id: Mapped[str | None] = mapped_column(
+        String(32), unique=True, nullable=True, index=True, comment="历史标书章节文档ID"
+    )
+    volume: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="", comment="business/technical"
+    )
+    chapter_title: Mapped[str] = mapped_column(
+        String(40), nullable=False, default="", comment="脱敏后的章节标题"
+    )
+    verdict: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="none", comment="good/bad/none"
+    )
+    problem_tags: Mapped[list | None] = mapped_column(
+        JSON, nullable=True, comment="问题标签，封闭集合"
+    )
+    note: Mapped[str] = mapped_column(
+        String(500), nullable=False, default="", comment="补充说明，已脱敏"
+    )
+    source: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="auto", comment="auto/approval/manual"
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True, comment="标记人用户ID"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="创建时间",
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False,
+        comment="更新时间",
+    )

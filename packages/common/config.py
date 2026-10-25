@@ -90,6 +90,13 @@ class Settings(BaseSettings):
     ocr_access_key_secret: str = ""
     ocr_type: str = "Advanced"
     ocr_timeout_seconds: int = 60
+    # 文档智能 PDF 转 Word。密钥可与 OCR 共用；空则回退 OCR_ACCESS_KEY_*
+    docmind_endpoint: str = "docmind-api.cn-hangzhou.aliyuncs.com"
+    docmind_access_key_id: str = ""
+    docmind_access_key_secret: str = ""
+    # basic=新链路；keep_format=旧链路，版式更紧时再改
+    docmind_pdf_option: str = "basic"
+    docmind_timeout_seconds: int = 360
     ocr_max_pages: int = 800
     ocr_page_text_min_chars: int = 50
     # 后台解析卡住超过该秒数，启动时标为 failed，可点重试
@@ -128,6 +135,10 @@ class Settings(BaseSettings):
     # 丢掉相对 top1 过弱的片段
     kb_score_floor: float = 0.12
     kb_keep_ratio: float = 0.38
+
+    # 1/true/on：投标演示。上传和识别只走样子，下载用 storage/tender-demo 里的成稿。
+    # 空或 0：仍走真实读取和组卷。改匹配代码时保持关闭。
+    tender_demo: str = ""
 
     # ---- 在线 Word 改稿引擎 ----
     # browser=前端 docx-preview（无文档服务时的只读预览）

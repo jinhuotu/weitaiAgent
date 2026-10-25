@@ -38,7 +38,8 @@ def test_document_key_changes_when_file_changes(tmp_path, oo_settings) -> None:
 
 
 def test_doc_preview_engine_defaults_to_browser(monkeypatch) -> None:
-    monkeypatch.delenv("TENDER_DOC_PREVIEW", raising=False)
+    # 空值走代码默认。本机 .env 可能已写成 onlyoffice，不能让它决定断言。
+    monkeypatch.setenv("TENDER_DOC_PREVIEW", "")
     monkeypatch.setenv("ONLYOFFICE_DOCUMENT_SERVER_URL", "http://127.0.0.1:8082")
     get_settings.cache_clear()
     assert get_settings().doc_preview_engine == "browser"
@@ -97,7 +98,7 @@ def test_build_editor_config_structure(tmp_path, oo_settings) -> None:
     assert customization["hideRightMenu"] is True
     assert customization["compatibleFeatures"] is True
     assert "plugins" not in customization
-    assert "-g3" in config["document"]["key"]
+    assert "-g4" in config["document"]["key"]
     assert "token" in config
 
     decoded = jwt.decode(
@@ -143,3 +144,44 @@ async def test_handle_callback_saves_file(tmp_path, monkeypatch, oo_settings) ->
     result = await oo_mod.handle_callback(file_name, {"status": 2, "url": "http://x/doc"})
     assert result == {"error": 0}
     assert path.read_bytes() == b"after-edit"
+    assert not (tmp_path / "tender-invitations" / file_name).exists()
+
+
+@pytest.mark.asyncio
+async def test_handle_callback_copies_format_template(tmp_path, monkeypatch, oo_settings) -> None:
+    from api.services.tenders import onlyoffice as oo_mod
+
+    out_dir = tmp_path / "tenders"
+    inv_dir = tmp_path / "tender-invitations"
+    out_dir.mkdir()
+    inv_dir.mkdir()
+    file_name = "deadbeef0001.format.docx"
+    path = out_dir / file_name
+    kept = inv_dir / file_name
+    path.write_bytes(b"before")
+    kept.write_bytes(b"orig")
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def get(self, url: str):
+            del url
+
+            class Resp:
+                content = b"edited-format"
+
+                @staticmethod
+                def raise_for_status() -> None:
+                    return None
+
+            return Resp()
+
+    monkeypatch.setattr(oo_mod.httpx, "AsyncClient", lambda **kwargs: FakeClient())
+    result = await oo_mod.handle_callback(file_name, {"status": 6, "url": "http://x/doc"})
+    assert result == {"error": 0}
+    assert path.read_bytes() == b"edited-format"
+    assert kept.read_bytes() == b"edited-format"

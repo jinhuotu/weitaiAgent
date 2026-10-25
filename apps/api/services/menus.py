@@ -28,6 +28,7 @@ ALL_MENUS: tuple[str, ...] = (
     "/tenders",
     "/tender-qa",
     "/tender-library",
+    "/history-bids",
     "/quotes-cost",
     "/quotes",
     "/quotes-budget",
@@ -121,7 +122,7 @@ def resolve_menus(user: User) -> list[str]:
     allowed -= ADMIN_ONLY_MENUS
     if not allowed:
         return ["/"]
-    return expand_quote_family(_sort_menus(allowed))
+    return apply_history_menu(expand_quote_family(_sort_menus(allowed)))
 
 
 def can_access_menu(user: User, href: str) -> bool:
@@ -135,6 +136,13 @@ def can_access_menu(user: User, href: str) -> bool:
 
 
 TENDER_LIBRARY_HREF = "/tender-library"
+HISTORY_HREF = "/history-bids"
+
+
+def apply_history_menu(menus: list[str]) -> list[str]:
+    if "/tenders" not in menus or HISTORY_HREF in menus:
+        return menus
+    return _sort_menus([*menus, HISTORY_HREF])
 
 
 def apply_tender_library_menu(menus: list[str], *, can_manage: bool) -> list[str]:

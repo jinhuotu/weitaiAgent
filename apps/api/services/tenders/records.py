@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
@@ -24,13 +25,14 @@ from api.services.approval_flow import (
     user_can_act_on_step,
 )
 from api.services.tenders.assets import tenders_output_dir
-from api.services.tenders.generate import generate_bid, generate_volume
+from api.services.tenders.generate import generate_bid, generate_pair, generate_volume, volume_pair_status
 from api.services.tenders.schema import BidBrief, PlaceholderItem
 from common.errors import AppError, ErrorCode
 from common.times import to_epoch_ms
 from db.models.tender import TenderApprovalLog, TenderRecord
 from db.models.user import User
 
+STATUS_DRAFT = "draft"
 STATUS_PROCESSING = "processing"
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
@@ -129,6 +131,12 @@ def _record_to_dict(
         "workflowLocked": workflow_locked(status),
         "userId": int(row.user_id or 0),
     }
+    stored = "business"
+    if isinstance(row.brief_json, dict):
+        v = str(row.brief_json.get("generateVolume") or "")
+        if v in {"business", "technical", "full"}:
+            stored = v
+    data.update(volume_pair_status(stored, business_ready=docx_ok, technical_ready=tech_ok))
     from api.services.tenders.qa import qa_summary
 
     data.update(qa_summary(row.public_id))
@@ -137,6 +145,18 @@ def _record_to_dict(
     if extra:
         data.update(extra)
     return data
+
+
+def require_format_confirm(brief: BidBrief) -> None:
+    if (brief.layoutMode or "").strip() != "outline":
+        return
+    if brief.formatConfirmed:
+        return
+    raise AppError(
+        ErrorCode.VALIDATION,
+        "请先预览并确认使用这份格式章模板",
+        status_code=422,
+    )
 
 
 def _brief_generate_issues(brief: BidBrief) -> list[str]:
@@ -165,17 +185,6 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
         issues.append("委托代理人")
     if bool(brief.authEnabled) and not (brief.agentIdNo or "").strip():
         issues.append("代理人身份证号")
-    if not any((ln.name or "").strip() for ln in (brief.quoteLines or [])):
-        issues.append("报价清单")
-    if generate_volume(brief) != "technical":
-        from api.services.tenders.performance import bid_performance_lines, requirement_active
-
-        req = brief.performanceRequirement
-        need = int(getattr(req, "minCount", 0) or 0) if requirement_active(req) else 0
-        if need > 0:
-            n = len(bid_performance_lines(brief.performanceLines))
-            if n < need:
-                issues.append(f"类似业绩已选 {n} 条，招标要求至少 {need} 个")
     return issues
 
 
@@ -196,12 +205,34 @@ def _missing_required_titles(
 def _missing_slot_warnings(missing: list[str]) -> list[str]:
     if not missing:
         return []
-    return ["以下资料未上传，已在附件区用虚线框占位：" + "、".join(missing)]
+    return ["以下资料未上传，已在专门章节或卷末附件区用虚线框占位：" + "、".join(missing)]
+
+
+def _output_exists(name: str | None) -> bool:
+    n = (name or "").strip()
+    return bool(n) and (tenders_output_dir() / n).is_file()
+
+
+async def _generate_for_record(
+    db: AsyncSession,
+    brief: BidBrief,
+    *,
+    peer_ready: bool = False,
+) -> tuple[dict[str, object], dict[str, object]]:
+    from api.services.tenders.demo import build_demo_output, demo_enabled
+
+    if demo_enabled():
+        generated = await build_demo_output(brief)
+        empty = {"matched": [], "missingFiles": [], "createdItems": []}
+        return generated, empty
+    return await _prepare_and_generate(db, brief, peer_ready=peer_ready)
 
 
 async def _prepare_and_generate(
     db: AsyncSession,
     brief: BidBrief,
+    *,
+    peer_ready: bool = False,
 ) -> tuple[dict[str, object], dict[str, object]]:
     """跑生成管道，返回 (generated, attachment_match)。会就地补全 brief 的槽位字段。"""
     import time
@@ -210,8 +241,11 @@ async def _prepare_and_generate(
     from api.services.tenders.library_kb import (
         catalog_placeholders,
         count_uncached_performance_files,
+        filter_legal_id_attachments,
         filter_performance_attachments,
         group_performance_attachments,
+        legal_persons_from_library,
+        library_facts,
         list_library_items,
         performance_from_library,
         resolve_attachments,
@@ -236,6 +270,7 @@ async def _prepare_and_generate(
             "请先完善：" + "、".join(issues),
             status_code=422,
         )
+    require_format_confirm(brief)
 
     catalog = await catalog_placeholders(db)
     t_catalog = time.perf_counter()
@@ -248,6 +283,12 @@ async def _prepare_and_generate(
             requirement=brief.performanceRequirement,
             preserve_flags=True,
         )
+    from api.services.tenders.performance import pad_performance_placeholders
+
+    brief.performanceLines = pad_performance_placeholders(
+        brief.performanceLines,
+        brief.performanceRequirement,
+    )
     has_agent = bool(brief.authEnabled)
     required_keys, include_keys = this_bid_keys(
         extra=brief.extraPlaceholders,
@@ -274,9 +315,41 @@ async def _prepare_and_generate(
         for name_key, files in grouped.items():
             if files:
                 media[f"perf:{name_key}"] = files
+    persons = await legal_persons_from_library(db, extract_missing=False)
+    picked = (brief.legalPersonKey or "").strip()
+    if len(persons) > 1 and not picked:
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "资料库有多位法定代表人，请先选择本标使用的人",
+            status_code=422,
+        )
+    if len(persons) == 1 and not picked:
+        picked = str(persons[0].get("key") or "")
+        brief.legalPersonKey = picked
+        if persons[0].get("name"):
+            brief.legalPersonName = str(persons[0]["name"])
+        if persons[0].get("gender"):
+            brief.legalPersonGender = str(persons[0]["gender"])
+        if persons[0].get("age"):
+            brief.legalPersonAge = str(persons[0]["age"])
+        if persons[0].get("idNo"):
+            brief.legalPersonIdNo = str(persons[0]["idNo"])
+    if picked:
+        known = {str(item.get("key") or "") for item in persons}
+        if picked not in known:
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "所选法定代表人不在资料库，请重新选择",
+                status_code=422,
+            )
+        if "id_legal" in media:
+            media["id_legal"] = await filter_legal_id_attachments(db, media["id_legal"], picked)
+            if not media["id_legal"]:
+                media.pop("id_legal", None)
     missing = _missing_required_titles(required_keys, slots, media)
     vol = generate_volume(brief)
-    if vol in {"business", "technical"}:
+    both = bool(brief.generateBoth)
+    if vol in {"business", "technical"} and not both:
         from api.services.tenders.categories import slot_volume
 
         keep = []
@@ -287,7 +360,12 @@ async def _prepare_and_generate(
                 keep.append(title)
         missing = keep
     t_prep = time.perf_counter()
-    generated = generate_bid(brief, catalog_slots=slots, catalog_media=media)
+    facts = await library_facts(db)
+    gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=facts)
+    if both:
+        generated = generate_pair(brief, **gen_kw)
+    else:
+        generated = generate_bid(brief, **gen_kw)
     t_docx = time.perf_counter()
     from api.services.tenders.categories import technical_soft_issues
 
@@ -304,9 +382,9 @@ async def _prepare_and_generate(
         brief, slots=slots, media=media, required_keys=required_keys
     ):
         text = str(note)
-        if vol == "business" and text.startswith("技术标"):
+        if not both and vol == "business" and text.startswith("技术标"):
             continue
-        if vol == "technical" and text.startswith("商务标"):
+        if not both and vol == "technical" and text.startswith("商务标"):
             continue
         if note not in warnings:
             warnings.append(note)
@@ -335,6 +413,19 @@ async def _prepare_and_generate(
         f"生成耗时约 {elapsed:.1f}s"
         f"（资料 {t_catalog - t0:.1f}s / 准备 {t_prep - t_catalog:.1f}s / Word {t_docx - t_prep:.1f}s）"
     )
+    if both:
+        biz_ready = bool(generated.get("docxFile"))
+        tech_ready = bool(generated.get("techDocxFile"))
+        status_vol = "business"
+    else:
+        biz_ready = bool(generated.get("docxFile")) or (vol == "technical" and peer_ready)
+        tech_ready = bool(generated.get("techDocxFile")) or (vol == "business" and peer_ready)
+        status_vol = vol
+    status = volume_pair_status(status_vol, business_ready=biz_ready, technical_ready=tech_ready)
+    generated.update(status)
+    note = str(status.get("otherVolumeNote") or "")
+    if note and note not in warnings:
+        warnings.append(note)
     generated["warnings"] = warnings
     return generated, attachment_match
 
@@ -345,6 +436,7 @@ def _apply_generated_files(row: TenderRecord, brief: BidBrief, generated: dict[s
     row.bid_price_yuan = float(brief.bidPriceYuan or 0)
     row.legal_person_name = (brief.legalPersonName or "").strip()[:64]
     vol = generate_volume(brief)
+    both = bool(brief.generateBoth)
     biz_file = generated.get("docxFile")
     if biz_file:
         row.docx_file = str(biz_file)
@@ -353,7 +445,7 @@ def _apply_generated_files(row: TenderRecord, brief: BidBrief, generated: dict[s
     if tech_file:
         row.tech_docx_file = str(tech_file)
         row.tech_download_name = generated.get("techDownloadName") or None
-    if vol != "technical":
+    if both or vol != "technical":
         row.pdf_file = generated.get("pdfFile") or None
         row.pdf_download_name = generated.get("pdfDownloadName") or None
     row.warnings = list(generated.get("warnings") or [])
@@ -386,13 +478,15 @@ async def create_record_from_generate(
     user_id: int,
     username: str,
 ) -> dict[str, object]:
-    """生成 Word 并写入 tender_records（新任务，状态编制中）。"""
-    generated, attachment_match = await _prepare_and_generate(db, brief)
+    """生成 Word。未到下载定稿前记为草稿，不出现在生成记录里。"""
+    generated, attachment_match = await _generate_for_record(db, brief)
+    # 没走到下载定稿前只留草稿，列表里看不到；换一份时清掉本人旧草稿
+    await _drop_user_drafts(db, user_id)
     row = TenderRecord(
         public_id=uuid4().hex[:16],
         user_id=user_id,
         username=(username or "").strip()[:64],
-        status=STATUS_PROCESSING,
+        status=STATUS_DRAFT,
         current_step="",
         project_type=infer_project_type((brief.projectName or "").strip()),
         deadline=deadline_from_brief(brief),
@@ -403,11 +497,50 @@ async def create_record_from_generate(
     db.add(row)
     await db.commit()
     await db.refresh(row)
+    from api.services.tenders.bid_archive import schedule_archive
+
+    schedule_archive(int(row.id))
     out = _record_to_dict(row)
     out["warnings"] = generated.get("warnings") or []
     out["defaultsUsed"] = generated.get("defaultsUsed")
     out["attachmentMatch"] = attachment_match
     return out
+
+
+async def _drop_user_drafts(db: AsyncSession, user_id: int) -> None:
+    rows = (
+        await db.execute(
+            select(TenderRecord).where(
+                TenderRecord.user_id == int(user_id),
+                TenderRecord.status == STATUS_DRAFT,
+            )
+        )
+    ).scalars().all()
+    from api.services.tenders.bid_archive import forget_record
+
+    for row in rows:
+        _purge_record_files(row)
+        await forget_record(db, int(row.id))
+        await db.delete(row)
+    if rows:
+        await db.flush()
+
+
+async def publish_record(
+    db: AsyncSession,
+    public_id: str,
+    *,
+    user: User,
+    admin: bool,
+) -> dict[str, object]:
+    """走到下载定稿后，草稿才进入生成记录。已入库的再点一次不动。"""
+    row = await _get_row(db, public_id)
+    _assert_owner_or_admin(row, user, admin=admin)
+    if (row.status or "") == STATUS_DRAFT:
+        row.status = STATUS_PROCESSING
+        await db.commit()
+        await db.refresh(row)
+    return _record_to_dict(row)
 
 
 def _filter_clause(
@@ -464,6 +597,9 @@ async def list_records(
     if clause is not None:
         base = base.where(clause)
         stmt = stmt.where(clause)
+    # 草稿还没到下载定稿，不进生成记录 / 工作任务
+    base = base.where(TenderRecord.status != STATUS_DRAFT)
+    stmt = stmt.where(TenderRecord.status != STATUS_DRAFT)
     if submitted_only:
         base = base.where(TenderRecord.submitted_at.is_not(None))
         stmt = stmt.where(TenderRecord.submitted_at.is_not(None))
@@ -592,8 +728,11 @@ async def delete_record(
         _assert_owner_or_admin(row, user, admin=False)
         if workflow_locked(row.status):
             raise AppError(ErrorCode.VALIDATION, "审批中或已定稿的任务不能删除", status_code=422)
+    from api.services.tenders.bid_archive import forget_record
+
     removed = _purge_record_files(row)
     payload = _record_to_dict(row)
+    await forget_record(db, int(row.id))
     await db.delete(row)
     await db.commit()
     return {"deleted": True, "id": payload["id"], "removedFiles": removed}
@@ -611,6 +750,8 @@ async def clear_mine_records(
         .scalars()
         .all()
     )
+    from api.services.tenders.bid_archive import forget_record
+
     deleted = 0
     skipped = 0
     removed_files: list[str] = []
@@ -621,6 +762,7 @@ async def clear_mine_records(
             continue
         removed_files.extend(_purge_record_files(row))
         ids.append(str(row.public_id))
+        await forget_record(db, int(row.id))
         await db.delete(row)
         deleted += 1
     await db.commit()
@@ -653,20 +795,34 @@ async def regenerate_from_record(
         except Exception as exc:
             raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
     old_docx, old_tech, old_pdf = row.docx_file, getattr(row, "tech_docx_file", None), row.pdf_file
-    generated, attachment_match = await _prepare_and_generate(db, brief)
+    vol = generate_volume(brief)
+    both = bool(brief.generateBoth)
+    if both:
+        peer_ready = False
+    elif vol == "technical":
+        peer_ready = _output_exists(old_docx)
+    else:
+        peer_ready = _output_exists(old_tech)
+    generated, attachment_match = await _generate_for_record(db, brief, peer_ready=peer_ready)
     _apply_generated_files(row, brief, generated)
     await db.commit()
     await db.refresh(row)
-    vol = generate_volume(brief)
-    if vol != "technical" and old_docx and old_docx != row.docx_file:
+    if (both or vol != "technical") and old_docx and old_docx != row.docx_file:
         _unlink_output(old_docx)
-    if vol != "business" and old_tech and old_tech != getattr(row, "tech_docx_file", None):
+    if (both or vol != "business") and old_tech and old_tech != getattr(row, "tech_docx_file", None):
         _unlink_output(str(old_tech))
-    if vol != "technical" and old_pdf and old_pdf != row.pdf_file:
+    if (both or vol != "technical") and old_pdf and old_pdf != row.pdf_file:
         _unlink_output(str(old_pdf))
     from api.services.tenders.qa import unlink_qa_report
 
-    unlink_qa_report(row.public_id, volume=vol)
+    if both:
+        unlink_qa_report(row.public_id, volume="business")
+        unlink_qa_report(row.public_id, volume="technical")
+    else:
+        unlink_qa_report(row.public_id, volume=vol)
+    from api.services.tenders.bid_archive import schedule_archive
+
+    schedule_archive(int(row.id), volumes=["business", "technical"] if both else [vol])
     out = _record_to_dict(row)
     out["warnings"] = generated.get("warnings") or []
     out["defaultsUsed"] = generated.get("defaultsUsed")
@@ -812,6 +968,13 @@ async def mark_result(
     await _add_log(db, row, user=user, action=ACTION_MARK, step=row.current_step, comment=target)
     await db.commit()
     await db.refresh(row)
+    if target in {STATUS_WON, STATUS_LOST}:
+        try:
+            from api.services.tenders.bid_marks import seed_record_marks
+
+            await seed_record_marks(db, row)
+        except Exception:
+            logging.getLogger("api.tenders.records").exception("章节初标失败 record=%s", row.id)
     extras = await _list_log_extras(db, [int(row.id)])
     return _record_to_dict(row, extra=extras.get(int(row.id)))
 

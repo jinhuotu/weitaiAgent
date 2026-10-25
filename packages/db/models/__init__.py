@@ -19,7 +19,7 @@ from db.models.model_config import ModelConfig
 from db.models.prompt import Prompt
 from db.models.quote import QuoteRecord
 from db.models.role import Role, UserRole
-from db.models.tender import TenderApprovalLog, TenderRecord
+from db.models.tender import TenderApprovalLog, TenderBidMark, TenderRecord
 from db.models.user import User
 from db.models.workflow import Workflow, WorkflowRun, WorkflowRunStep, WorkflowVersion
 
@@ -48,5 +48,6 @@ __all__ = [
     "ScenarioAgent",
     "TenderRecord",
     "TenderApprovalLog",
+    "TenderBidMark",
     "ApprovalFlow",
 ]

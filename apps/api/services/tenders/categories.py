@@ -65,6 +65,44 @@ _BIZ_KINDS = frozenset(
     {"letter", "legal_id", "auth", "quote", "biz_dev", "commitment_copy", "performance", "factory", "company"}
 )
 _VOLUME_LABELS = frozenset({"商务标", "技术标", "商务部分", "技术部分", "商务标书", "技术标书"})
+# 资格词先于「质量 / 安全 / 进度」，避免质量保证金进技术卷。
+_BIZ_TITLE_CUE = (
+    "保证金",
+    "资格",
+    "营业执照",
+    "执照",
+    "资质",
+    "财务",
+    "信用",
+    "承诺函",
+    "承诺书",
+    "授权",
+    "投标函",
+    "商务偏离",
+    "商务偏差",
+    "业绩",
+)
+_TECH_TITLE_CUE = (
+    "技术标准",
+    "技术参数",
+    "技术方案",
+    "施工组织",
+    "施工方案",
+    "实施方案",
+    "技术偏离",
+    "技术偏差",
+)
+
+
+def _title_cue(title: str) -> str:
+    n = "".join((title or "").split())
+    if not n:
+        return ""
+    if any(k in n for k in _BIZ_TITLE_CUE):
+        return "business"
+    if title_goes_technical(n) or any(k in n for k in _TECH_TITLE_CUE):
+        return "technical"
+    return ""
 
 
 def slot_volume(key: str, title: str = "") -> str:
@@ -72,6 +110,9 @@ def slot_volume(key: str, title: str = "") -> str:
         return "technical"
     if key in BUSINESS_SLOT_KEYS:
         return "business"
+    cue = _title_cue(title)
+    if cue:
+        return cue
     blob = f"{key}{title}"
     if any(mark in blob for mark in _TECH_TITLE_MARK):
         return "technical"
@@ -91,6 +132,9 @@ def item_volume(*, kind: str = "", title: str = "", key: str = "") -> str:
     # 函/报价/商务偏离等已定则不改卷，避免动商务标生成。
     if kind in _BIZ_KINDS:
         return "business"
+    cue = _title_cue(title)
+    if cue:
+        return cue
     if title_goes_technical(title):
         return "technical"
     return slot_volume(key, title)
@@ -183,12 +227,20 @@ def technical_soft_issues(
     drawing_files = media.get(TECH_DRAWING_KEY) or [] if isinstance(media, dict) else []
     if not drawing_files:
         issues.append("技术标：尚未上传本项目图纸")
-    from api.services.tenders.performance import bid_performance_lines, performance_match_issues
+    from api.services.tenders.performance import (
+        bid_performance_lines,
+        is_perf_placeholder,
+        performance_match_issues,
+        requirement_active,
+    )
 
-    if not any((row.projectName or "").strip() for row in bid_performance_lines(brief.performanceLines or [])):
-        issues.append("商务标：类似业绩为空，资格评审可能扣分")
-    else:
-        issues.extend(performance_match_issues(brief.performanceLines, brief.performanceRequirement))
+    selected = bid_performance_lines(brief.performanceLines or [])
+    real = [row for row in selected if not is_perf_placeholder(row)]
+    if requirement_active(brief.performanceRequirement):
+        if not real:
+            issues.append("商务标：类似业绩未从资料库匹配到，已按招标要求占位")
+        else:
+            issues.extend(performance_match_issues(brief.performanceLines, brief.performanceRequirement))
     required = set(required_keys or [])
     for item in slots or []:
         if slot_volume(item.key, item.title) != "technical":

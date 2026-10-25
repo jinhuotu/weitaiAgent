@@ -255,7 +255,9 @@ async def documents_check_duplicate(
 async def documents_upload(
     db: DbSession,
     user: CurrentUser,
-    file: UploadFile = File(..., description="原文件：pdf / docx / xlsx / pptx / 图片 / txt / md / csv"),
+    file: UploadFile = File(
+        ..., description="原文件：pdf / doc / docx / xlsx / pptx / 图片 / txt / md / csv",
+    ),
     baseId: str = Form(..., min_length=1, max_length=32),
     name: str | None = Form(None, max_length=255),
     tags: str | None = Form(None, description="JSON 数组或逗号分隔"),

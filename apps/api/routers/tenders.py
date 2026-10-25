@@ -9,7 +9,7 @@ import re
 
 from fastapi import APIRouter, File, Form, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.deps import CurrentUser, DbSession, SuperuserUser, user_is_admin, user_is_superuser
 from api.schemas.approval_flow import ApprovalFlowUpdateIn
@@ -17,13 +17,14 @@ from api.services.approval_flow import get_tender_flow, save_tender_flow
 from api.services.knowledge import access as kb_access
 from api.services.menus import can_access_menu
 from api.services.tenders.assets import restore_chapter5_template, save_chapter5_template
-from api.services.tenders.extract import parse_invitation, parse_kb_ids
+from api.services.tenders.extract import invitation_word_ext, parse_invitation, parse_kb_ids
 from api.services.tenders.generate import defaults_payload_kb, resolve_output_file
 from api.services.tenders.library_kb import (
     clear_library_files,
     create_library_item,
     delete_library_file,
     delete_library_item,
+    save_library_file_facts,
     enqueue_library_rag_backfill,
     library_payload_kb,
     list_slots_status_kb,
@@ -52,12 +53,13 @@ from api.services.tenders.records import (
     inspect_record_qa_upload,
     list_records,
     mark_result,
+    publish_record,
     record_ids_for_actor,
     regenerate_from_record,
     submit_for_approval,
 )
 from api.services.models.runtime import build_llm_client
-from api.services.tenders.schema import BidBrief, PlaceholderItem
+from api.services.tenders.schema import BidBrief, OutlineItem, PlaceholderItem
 from api.services.tenders.tech_draft import draft_tech
 from api.services.tenders.slots import clear_drawing_files, sanitize_slot_key, save_drawing_file
 from api.services.tenders.yozo import (
@@ -94,6 +96,16 @@ class LibraryItemPatch(BaseModel):
     hint: str | None = None
 
 
+class LibraryFactFieldIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=32)
+    value: str = ""
+
+
+class LibraryFactsIn(BaseModel):
+    role: str = ""
+    fields: list[LibraryFactFieldIn] = Field(default_factory=list)
+
+
 class ApprovalDecisionIn(BaseModel):
     passed: bool
     comment: str = ""
@@ -103,12 +115,47 @@ class MarkResultIn(BaseModel):
     status: str = Field(..., min_length=1, max_length=16)
 
 
+class HistoryMarkIn(BaseModel):
+    recordId: str = ""
+    docId: str = ""
+    volume: str = ""
+    chapterTitle: str = ""
+    verdict: str = "none"
+    problemTags: list[str] = Field(default_factory=list)
+    note: str = ""
+
+
 class TechDraftIn(BaseModel):
     brief: BidBrief
     kbIds: list[str] = Field(default_factory=list)
     itemId: str | None = None
     promptId: str | None = None
     materialIds: list[str] = Field(default_factory=list)
+
+
+class OutlineConfirmIn(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    brief: dict = Field(default_factory=dict)
+    items: list[dict] = Field(default_factory=list)
+
+
+def _confirm_outline_items(raw_items: list) -> list[dict]:
+    cleaned: list[dict] = []
+    for raw in raw_items or []:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("title") or "").strip()
+        if not title:
+            continue
+        item = OutlineItem.model_validate(raw)
+        dumped = item.model_dump(mode="json")
+        for key in ("copyPolicy", "label", "rawTitle"):
+            val = raw.get(key)
+            if val not in (None, ""):
+                dumped[key] = val
+        cleaned.append(dumped)
+    return cleaned
 
 
 def _require_menu(user, href: str) -> None:
@@ -220,6 +267,24 @@ async def tenders_delete_library_file(doc_id: str, db: DbSession, user: CurrentU
     return ok(await delete_library_file(db, doc_id))
 
 
+@router.patch("/library/files/{doc_id}/facts")
+async def tenders_patch_library_facts(
+    doc_id: str,
+    body: LibraryFactsIn,
+    db: DbSession,
+    user: CurrentUser,
+):
+    await kb_access.require_tender_lib_manage(db, user)
+    return ok(
+        await save_library_file_facts(
+            db,
+            doc_id,
+            role=body.role,
+            fields=[item.model_dump() for item in body.fields],
+        )
+    )
+
+
 @router.post("/library/items")
 async def tenders_create_library_item(body: LibraryItemIn, db: DbSession, user: CurrentUser):
     await kb_access.require_tender_lib_manage(db, user)
@@ -321,7 +386,7 @@ async def tenders_clear_slot(
 async def tenders_parse_invitation(
     db: DbSession,
     user: CurrentUser,
-    file: UploadFile = File(..., description="投标邀请书 / 招标文件：pdf / docx / xlsx / txt / 图片"),
+    file: UploadFile = File(..., description="投标邀请书 / 招标文件：.doc / .docx"),
     quoteFile: UploadFile | None = File(None, description="可选：工程量清单 Excel/Word"),
     quoteRecordIds: str | None = Form(
         None, description="可选：AI 报价记录 publicId，JSON 数组或逗号分隔"
@@ -329,20 +394,27 @@ async def tenders_parse_invitation(
     kbIds: str | None = Form(None, description="知识库 ID：JSON 数组或逗号分隔"),
     current: str | None = Form(None, description="当前表单 JSON，抽取结果合并到其上"),
 ):
-    brief = _parse_current_brief(current)
-    persist_library = await kb_access.has_base_perm(
-        db, user, kb_access.TENDER_LIB_PUBLIC_ID, kb_access.PERM_MANAGE
-    )
-    payload = await parse_invitation(
-        db,
-        file,
-        kb_ids=parse_kb_ids(kbIds),
-        current=brief,
-        quote_upload=quoteFile,
-        quote_record_ids=parse_kb_ids(quoteRecordIds),
-        created_by=int(user.id),
-        persist_library=persist_library,
-    )
+    invitation_word_ext(file.filename)
+    brief, volume_locked = _parse_current_brief(current)
+    from api.services.tenders.demo import demo_enabled, demo_parse
+
+    if demo_enabled():
+        payload = await demo_parse(file.filename or "")
+    else:
+        persist_library = await kb_access.has_base_perm(
+            db, user, kb_access.TENDER_LIB_PUBLIC_ID, kb_access.PERM_MANAGE
+        )
+        payload = await parse_invitation(
+            db,
+            file,
+            kb_ids=parse_kb_ids(kbIds),
+            current=brief,
+            quote_upload=quoteFile,
+            quote_record_ids=parse_kb_ids(quoteRecordIds),
+            created_by=int(user.id),
+            persist_library=persist_library,
+            volume_locked=volume_locked,
+        )
     brief_data = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     extras = _coerce_placeholders(brief_data.get("extraPlaceholders"))
     include_keys = [
@@ -357,6 +429,54 @@ async def tenders_parse_invitation(
     )
     payload["catalogSlots"] = await list_slots_status_kb(db)
     return ok(payload)
+
+
+@router.post("/outline/preview")
+async def tenders_outline_preview(body: OutlineConfirmIn, user: CurrentUser):
+    _require_menu(user, "/tenders")
+    brief = dict(body.brief or {})
+    raw_items = body.items if body.items else list(brief.get("outlineItems") or [])
+    rows = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        title = str(raw.get("rawTitle") or raw.get("title") or "").strip()
+        if not title:
+            continue
+        rows.append(
+            {
+                "id": str(raw.get("id") or ""),
+                "title": title,
+                "kind": str(raw.get("kind") or "unknown"),
+                "level": int(raw.get("level") or 1),
+                "copyPolicy": str(raw.get("copyPolicy") or "verbatim"),
+                "excerptPreview": "",
+                "hasOriginal": True,
+                "needsConfirm": False,
+                "missing": [],
+            }
+        )
+    return ok(
+        {
+            "chapter": str(brief.get("outlineChapter") or ""),
+            "structureMode": "outline",
+            "items": rows,
+            "warnings": [],
+        }
+    )
+
+
+@router.post("/outline/confirm")
+async def tenders_outline_confirm(body: OutlineConfirmIn, user: CurrentUser):
+    _require_menu(user, "/tenders")
+    brief = dict(body.brief or {})
+    raw_items = body.items if body.items else list(brief.get("outlineItems") or [])
+    items = _confirm_outline_items(raw_items)
+    if raw_items and not items:
+        raise AppError(ErrorCode.VALIDATION, "大纲条目无效", status_code=422)
+    brief["outlineItems"] = items
+    brief["layoutMode"] = "outline"
+    return ok({"brief": brief})
 
 
 @router.post("/tech/draft")
@@ -375,6 +495,105 @@ async def tenders_tech_draft(body: TechDraftIn, db: DbSession, user: CurrentUser
         client=client,
     )
     return ok({"brief": brief.model_dump(mode="json"), "notes": notes})
+
+
+@router.post("/tech/boq")
+async def tenders_tech_boq(
+    db: DbSession,
+    user: CurrentUser,
+    file: UploadFile = File(..., description="工程量清单"),
+):
+    del user
+    from api.services.tenders.tech_fill import fill_boq
+
+    data = await file.read()
+    client = None
+    try:
+        client = await build_llm_client(db, "fast")
+    except Exception as exc:
+        logger.warning("tech boq llm unavailable: %s", exc)
+    body = await fill_boq(data, file.filename or "", client=client)
+    return ok({"draftBody": body})
+
+
+@router.post("/tech/drawing-pdf")
+async def tenders_tech_drawing_pdf(
+    db: DbSession,
+    user: CurrentUser,
+    file: UploadFile = File(..., description="图纸 PDF"),
+    invitationId: str = Form(""),
+    replace: str = Form("true"),
+):
+    del user
+    from api.services.tenders.tech_fill import fill_drawing
+
+    if not (invitationId or "").strip():
+        raise AppError(ErrorCode.VALIDATION, "请先识别邀请书，再上传图纸", status_code=422)
+    name = file.filename or "drawing.pdf"
+    if not name.lower().endswith(".pdf"):
+        raise AppError(ErrorCode.VALIDATION, "图纸只支持 PDF", status_code=422)
+    data = await file.read()
+    do_replace = str(replace or "true").strip().lower() not in {"0", "false", "no"}
+    slot = save_drawing_file(
+        invitation_id=invitationId,
+        filename=file.filename or "drawing.pdf",
+        data=data,
+        replace=do_replace,
+    )
+    client = None
+    try:
+        client = await build_llm_client(db, "fast")
+    except Exception as exc:
+        logger.warning("tech drawing llm unavailable: %s", exc)
+    body = await fill_drawing(data, file.filename or "drawing.pdf", client=client)
+    return ok({"draftBody": body, "slot": slot})
+
+
+@router.get("/history-bids/chapters")
+async def tenders_history_chapters(
+    db: DbSession,
+    user: CurrentUser,
+    recordId: str = Query(""),
+):
+    from api.services.tenders.bid_marks import list_history_chapters
+
+    pid = (recordId or "").strip()
+    if not pid:
+        raise AppError(ErrorCode.VALIDATION, "缺少投标记录", status_code=422)
+    data = await list_history_chapters(db, pid, user=user, admin=user_is_admin(user))
+    return ok(data)
+
+
+@router.put("/history-marks")
+async def tenders_save_history_mark(body: HistoryMarkIn, db: DbSession, user: CurrentUser):
+    from api.services.tenders.bid_marks import save_manual_mark
+
+    data = await save_manual_mark(db, body, user=user, admin=user_is_admin(user))
+    return ok(data)
+
+
+@router.post("/history-bids")
+async def tenders_upload_history_bid(
+    db: DbSession,
+    user: CurrentUser,
+    file: UploadFile = File(..., description="历史标书 docx"),
+    outcome: str = Form(""),
+    recordId: str = Form(""),
+):
+    from api.services.tenders.bid_archive import accept_history_upload
+
+    data = await file.read()
+    payload = await accept_history_upload(
+        db,
+        data=data,
+        filename=file.filename or "",
+        user_id=int(user.id),
+        username=user.username or "",
+        outcome=outcome,
+        record_public_id=recordId,
+        admin=user_is_admin(user),
+    )
+    return ok(payload)
 
 
 @router.post("/generate")
@@ -516,6 +735,14 @@ async def tenders_inspect_record_qa_upload(
     )
 
 
+@router.post("/records/{record_id}/publish")
+async def tenders_publish_record(record_id: str, db: DbSession, user: CurrentUser):
+    """进入下载定稿时把草稿写入生成记录。"""
+    return ok(
+        await publish_record(db, record_id, user=user, admin=user_is_admin(user))
+    )
+
+
 @router.delete("/records/{record_id}")
 async def tenders_delete_record(record_id: str, db: DbSession, user: CurrentUser):
     return ok(await delete_record(db, record_id, user=user, admin=user_is_admin(user)))
@@ -588,6 +815,33 @@ async def tenders_mark_record(
             status=body.status,
         )
     )
+
+
+@router.get("/invitations/{invitation_id}/format-docx")
+async def tenders_invitation_format_docx(
+    invitation_id: str,
+    db: DbSession,
+    user: CurrentUser,
+):
+    del db
+    invite_id = (invitation_id or "").strip()
+    if not re.fullmatch(r"[a-f0-9]{10,16}", invite_id):
+        raise AppError(ErrorCode.BAD_REQUEST, "无效的招标文件标识", status_code=400)
+    from api.services.tenders.demo import demo_enabled, demo_format_file
+
+    if demo_enabled():
+        dest = await asyncio.to_thread(demo_format_file, invite_id)
+        return ok({"fileName": dest.name})
+    from api.services.tenders.assets import tenders_output_dir
+    from api.services.tenders.pdf_format import _ready_format_docx
+    import shutil
+
+    src = await asyncio.to_thread(_ready_format_docx, invite_id)
+    if src is None or not src.is_file():
+        raise AppError(ErrorCode.NOT_FOUND, "本标未识别到格式章，无法预览", status_code=404)
+    dest = tenders_output_dir() / f"{invite_id}.format.docx"
+    await asyncio.to_thread(shutil.copyfile, src, dest)
+    return ok({"fileName": dest.name})
 
 
 @router.get("/files/{file_name}")
@@ -786,16 +1040,18 @@ def _parse_extras(raw: str | None) -> list[PlaceholderItem] | None:
     return _coerce_placeholders(data)
 
 
-def _parse_current_brief(raw: str | None) -> BidBrief | None:
+def _parse_current_brief(raw: str | None) -> tuple[BidBrief | None, bool]:
     if raw is None or not str(raw).strip():
-        return None
+        return None, False
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         raise AppError(ErrorCode.VALIDATION, "current 必须是 JSON 对象", status_code=422) from exc
     if not isinstance(data, dict):
         raise AppError(ErrorCode.VALIDATION, "current 必须是 JSON 对象", status_code=422)
+    vol = str(data.get("generateVolume") or "").strip() if "generateVolume" in data else ""
+    locked = vol in {"business", "technical", "full"}
     try:
-        return BidBrief.model_validate(data)
+        return BidBrief.model_validate(data), locked
     except Exception as exc:
         raise AppError(ErrorCode.VALIDATION, f"当前表单无法解析：{exc}", status_code=422) from exc

@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import io
+import hashlib
 import logging
+import re
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -48,6 +51,9 @@ _ID_ASPECT_MIN = 1.22
 _ID_ASPECT_MAX = 1.98
 _HEADING_CM = 1.1
 _BOX_CM = 5.4
+_SLOT_GAP_STYLE = "TenderAttachmentGap"
+_SLOT_CLEARANCE_STYLE = "TenderTableClearance"
+_SLOT_GAP_CM = 0.5
 _IMAGE_MAX_H_CM = 16.0
 _TWIPS_PER_CM = 567
 _EMU_PER_CM = 360000.0
@@ -56,7 +62,7 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     PlaceholderItem(
         key="id_legal",
         title="法定代表人身份证正反面",
-        hint="须为河南伟泰光电科技有限公司法定代表人证件扫描件。",
+        hint="可放多位法定代表人。每人上传正面和反面，正面识别姓名和证号；做标书时再选本标用谁。",
     ),
     PlaceholderItem(
         key="id_agent",
@@ -220,9 +226,15 @@ def collect_slots(
                 key=key,
                 title=current.title,
                 hint=hint or current.hint,
+                attachToSection=(item.attachToSection or current.attachToSection or ""),
             )
         else:
-            by_key[key] = PlaceholderItem(key=key, title=title, hint=hint or "请按招标文件要求补附")
+            by_key[key] = PlaceholderItem(
+                key=key,
+                title=title,
+                hint=hint or "请按招标文件要求补附",
+                attachToSection=item.attachToSection or "",
+            )
     if include_keys is None:
         return list(by_key.values())
     ordered: list[PlaceholderItem] = []
@@ -310,6 +322,7 @@ def inline_id_scans(
         n = 0
     if before is not None:
         _relocate_appended_before(doc, before=before, last_before=last)
+    _merge_slot_gaps(doc)
     return n
 
 
@@ -396,6 +409,7 @@ def append_placeholder_section(
 
     if before is not None:
         _relocate_appended_before(doc, before=before, last_before=last_before)
+    _merge_slot_gaps(doc)
 
     if skipped_heavy:
         notes.append(
@@ -431,16 +445,1097 @@ def _relocate_appended_before(doc: Document, *, before: Paragraph, last_before) 
         before._element.addprevious(el)
 
 
+_LEVEL1 = re.compile(
+    r"^(?:第[一二三四五六七八九十0-9]+[章节]|[一二三四五六七八九十]{1,3}、|\d+[.、])"
+)
+
+
+def _compact_para(text: str) -> str:
+    return "".join((text or "").split())
+
+
+def _level1_core(text: str) -> str:
+    n = _compact_para(text)
+    if not n or len(n) > 36 or "如有" in n or "。" in n:
+        return ""
+    if n.startswith(("（", "(")):
+        return ""
+    if _LEVEL1.match(n) is None:
+        return ""
+    n = re.sub(r"^第[一二三四五六七八九十0-9]+[章节]", "", n)
+    n = re.sub(r"^[一二三四五六七八九十]{1,3}、", "", n)
+    n = re.sub(r"^\d+[.、]", "", n)
+    return n
+
+
+def _para_text(el) -> str:
+    return "".join(node.text or "" for node in el.iter(qn("w:t")))
+
+
+_NO_PASTE = {
+    "投标函",
+    "投标函附录",
+    "目录",
+    "目次",
+    "法定代表人身份证明",
+    "法定代表人身份证明书",
+    "授权委托书",
+    "中小企业声明函",
+    "残疾人福利性单位声明函",
+}
+_CHAPTER_MARKS = (
+    "投标保证金",
+    "已标价工程量清单",
+    "已标价的工程量清单",
+    "工程量清单",
+    "已标价",
+    "营业执照",
+    "开户许可",
+    "基本账户",
+    "基本户",
+    "信用中国",
+    "财务审计",
+    "财务报表",
+    "类似项目",
+    "资质证明",
+    "资质证书",
+    "安全生产许可",
+    "检测报告",
+    "授权委托",
+)
+_KEY_CHAPTER = {
+    "bond": "投标保证金",
+    "license": "营业执照",
+    "bank_permit": "开户许可",
+    "perf": "类似项目",
+    "finance": "财务审计",
+    "credit": "信用中国",
+    "iso": "资质证书",
+    "quote": "工程量清单",
+}
+
+
+def _heading_core(text: str) -> str:
+    n = _compact_para(text)
+    if not n or len(n) > 36 or "如有" in n or "。" in n or n.startswith(("（", "(")):
+        return ""
+    core = _level1_core(text)
+    if core:
+        return core
+    # 组成清单里的「身份证明或授权委托书」不是专章
+    if any(x in n for x in ("或", "；", ";", "，", "须", "提供")):
+        return ""
+    if len(n) > 18:
+        return ""
+    for mark in _CHAPTER_MARKS:
+        if n == mark or (n.endswith(mark) and len(n) - len(mark) <= 2):
+            return n
+    return ""
+
+
+def _letter_block(doc: Document) -> list:
+    """投标函标题到下一章之前。这段正文不能插附件。"""
+    els = []
+    inside = False
+    for para in doc.paragraphs:
+        n = _compact_para(para.text or "")
+        core = _level1_core(_section_label(para._p))
+        if core:
+            inside = core == "投标函" or core.startswith("投标函")
+            if inside:
+                els.append(para._p)
+            continue
+        if n.startswith("投标函") or n.startswith("（一）投标函") or n.startswith("(一)投标函"):
+            inside = True
+            els.append(para._p)
+            continue
+        if inside and _is_other_title(para.text or ""):
+            inside = False
+            continue
+        if inside and _heading_core(para.text or "") and not _paste_ban(para.text or ""):
+            inside = False
+            continue
+        if inside:
+            els.append(para._p)
+    return els
+
+
+def _chapter_last(heading_el):
+    head = _para_text(heading_el)
+    stop_sub = _is_other_title(head) or bool(_SUB_HEAD.match(_compact_para(head)))
+    last = heading_el
+    el = heading_el.getnext()
+    while el is not None and el.tag != qn("w:sectPr"):
+        if el.tag == qn("w:p"):
+            text = _para_text(el)
+            if _sec_head(_section_label(el)) or _paste_ban(text):
+                break
+            if stop_sub and _OTHER_PREFIX.match(_compact_para(text)):
+                break
+        if el.tag in {qn("w:p"), qn("w:tbl")}:
+            last = el
+        el = el.getnext()
+    return last
+
+
+def _move_after(doc: Document, last_el, marker) -> None:
+    body = doc.element.body
+    moved = []
+    seen = marker is None
+    for child in list(body):
+        if not seen:
+            if child is marker:
+                seen = True
+            continue
+        if child.tag == qn("w:sectPr"):
+            continue
+        moved.append(child)
+    anchor = _body_block(last_el)
+    clearance = _floating_table_cm(anchor)
+    if clearance:
+        # wrapNone 的浮动原表不占正文高度；只给新增附件预留它的占位，原表 XML 不动。
+        spacer = doc.add_paragraph()
+        if _SLOT_CLEARANCE_STYLE not in doc.styles:
+            doc.styles.add_style(_SLOT_CLEARANCE_STYLE, WD_STYLE_TYPE.PARAGRAPH)
+        spacer.style = _SLOT_CLEARANCE_STYLE
+        pf = spacer.paragraph_format
+        pf.space_before = pf.space_after = Pt(0)
+        pf.keep_with_next = False
+        pf.keep_together = True
+        pf.line_spacing = Cm(min(clearance, _page_body_cm(doc) - 0.5))
+        spacer.add_run().font.size = Pt(1)
+        anchor.addnext(spacer._p)
+        anchor = spacer._p
+    for child in moved:
+        parent = child.getparent()
+        if parent is not None:
+            parent.remove(child)
+        anchor.addnext(child)
+        anchor = child
+    _merge_slot_gaps(doc)
+
+
+def _body_block(anchor):
+    """单元格、表格行或文本框内的锚点必须提升到正文直属块。"""
+    while anchor.getparent() is not None and anchor.getparent().tag != qn("w:body"):
+        anchor = anchor.getparent()
+    return anchor
+
+
+def _floating_table_cm(block) -> float:
+    """浮动范本表的占用高度；Choice/Fallback 取最大值，不能重复累加。"""
+    heights = []
+    for anchor in block.iter(qn("wp:anchor")):
+        if next(anchor.iter(qn("w:tbl")), None) is None or anchor.find(qn("wp:wrapNone")) is None:
+            continue
+        extent = anchor.find(qn("wp:extent"))
+        position = anchor.find(qn("wp:positionV"))
+        offset = position.find(qn("wp:posOffset")) if position is not None else None
+        if extent is not None:
+            heights.append((int(extent.get("cy", "0")) + max(0, int(offset.text or "0") if offset is not None else 0)) / _EMU_PER_CM)
+    for shape in block.iter("{urn:schemas-microsoft-com:vml}shape"):
+        if next(shape.iter(qn("w:tbl")), None) is None:
+            continue
+        style = shape.get("style", "")
+        if "position:absolute" not in style.replace(" ", ""):
+            continue
+        values = {}
+        for key, value, unit in re.findall(r"(?:^|;)\s*(height|margin-top)\s*:\s*(-?[\d.]+)(pt|cm|mm|in)", style):
+            values[key] = float(value) * {"pt": 2.54 / 72, "cm": 1, "mm": 0.1, "in": 2.54}[unit]
+        heights.append(values.get("height", 0) + max(0, values.get("margin-top", 0)))
+    if block.tag == qn("w:tbl"):
+        positioning = block.find("w:tblPr/w:tblpPr", block.nsmap)
+        if positioning is not None:
+            heights.append(_tbl_cm(block) + max(0, int(positioning.get(qn("w:tblpY"), "0"))) / _TWIPS_PER_CM)
+    return max(heights, default=0.0)
+
+
+def _slot_anchor(anchor):
+    """附件放在本节分页符前；说明后紧接的原范本表格必须先保留。"""
+    anchor = _body_block(anchor)
+    # _span_last/_chapter_last 会包含末尾空白分节段；在它后面插入等于另起一页。
+    while anchor.tag == qn("w:p") and not _para_text(anchor).strip():
+        if any(next(anchor.iter(qn("w:" + name)), None) is not None for name in ("drawing", "pict", "object", "tbl")):
+            break
+        ppr = anchor.find(qn("w:pPr"))
+        page_before = ppr.find(qn("w:pageBreakBefore")) if ppr is not None else None
+        boundary = (
+            next(anchor.iter(qn("w:sectPr")), None) is not None
+            or any(br.get(qn("w:type")) == "page" for br in anchor.iter(qn("w:br")))
+            or (page_before is not None and page_before.get(qn("w:val"), "true") not in {"0", "false", "off"})
+        )
+        previous = anchor.getprevious()
+        if not boundary or previous is None:
+            break
+        anchor = previous
+    # 不能把资料插在说明与原表之间；连续原表也作为同一个范本块保留。
+    cursor = anchor.getnext()
+    while cursor is not None and next(cursor.iter(qn("w:tbl")), None) is not None:
+        text = _para_text(cursor)
+        if "此处粘贴" in text or _INPLACE in text:
+            break
+        if _sec_head(_section_label(cursor)):
+            break
+        anchor = cursor
+        cursor = cursor.getnext()
+    return anchor
+
+
+def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Path], *, wording: str = "", complete: bool = False) -> bool:
+    anchor_el = _slot_anchor(anchor_el)
+    marker = _last_body_child(doc)
+    placed = False
+    if files:
+        key = (slot.key or "").strip()
+        n = _insert_slot_media(
+            doc,
+            files if complete else files[:2],
+            max_pages=2**31 - 1 if complete else _SLOT_PDF_MAX_PAGES,
+            compact_pair=key in {"id_legal", "id_agent"},
+        )
+        placed = n > 0
+    if not placed:
+        _draw_box(doc, slot, wording=wording)
+    _move_after(doc, anchor_el, marker)
+    return placed
+
+
+def _drop_on_chapter(doc: Document, heading, slot: PlaceholderItem, files: list[Path]) -> bool:
+    return _drop_after(doc, _chapter_last(heading._element), slot, files, complete=True)
+
+
+_QUAL_VETO_MARKS = ("资质证明", "资质证书", "企业资质", "资质文件")
+_OTHER_CHAPTERS = {"其他资料", "其他材料", "其他有必要提供的材料", "其他有必要提供的资料"}
+_OTHER_PREFIX = re.compile(
+    r"^(?:[（(][一二三四五六七八九十0-9]+[)）]|[一二三四五六七八九十0-9]+[、.])"
+)
+_SUB_HEAD = re.compile(r"^[（(][一二三四五六七八九十0-9]+[)）]")
+_CHAPTER_LEVEL = re.compile(
+    r"^(?:第[一二三四五六七八九十0-9]+[章节]|[一二三四五六七八九十]{1,3}、)"
+)
+_INPLACE = "此处应粘贴对应的资料附件或图片"
+_NONE_TITLE = "资格审查其他材料无"
+_STRONG_CUES = (
+    "应在此提供",
+    "在此提供",
+    "在此附",
+    "本表后应附",
+    "本表后附",
+    "后应附",
+    "应附",
+    "须附",
+    "需附",
+    "应提供",
+    "需提供",
+    "须提供",
+    "粘贴",
+    "复印件或扫描件",
+    "扫描件",
+)
+_NEAR_CUES = ("材料", "证明", "报表", "证书", "合同", "发票", "执照", "截图", "审计", "纳税", "社保")
+
+
+def _wants_attach(text: str) -> bool:
+    n = _compact_para(text)
+    if not n or "此处粘贴" in n or _INPLACE in n:
+        return False
+    if n.startswith("注") and "附" in n:
+        return True
+    if any(k in n for k in _STRONG_CUES):
+        return True
+    i = 0
+    while True:
+        j = n.find("提供", i)
+        if j < 0:
+            return False
+        window = n[max(0, j - 12) : j + 14]
+        if any(k in window for k in _NEAR_CUES):
+            return True
+        i = j + 2
+
+
+def _paste_ban(text: str) -> bool:
+    n = _compact_para(text)
+    if not n or len(n) > 36 or "。" in n:
+        return False
+    if any(x in n for x in ("或", "；", ";", "，", "须", "提供")):
+        return False
+    n = re.sub(r"[（(]如有[)）]", "", n)
+    n = _OTHER_PREFIX.sub("", n)
+    n = re.sub(r"^第[一二三四五六七八九十0-9]+[章节]", "", n)
+    n = re.sub(r"^[一二三四五六七八九十]{1,3}、", "", n)
+    if n in _NO_PASTE:
+        return True
+    return n.startswith("投标函") and len(n) <= 16
+
+
+def _qual_mark(text: str) -> str:
+    n = "".join((text or "").split())
+    for mark in _QUAL_VETO_MARKS:
+        if mark in n:
+            return mark
+    return ""
+
+
+_SCATTER_CUES = (
+    "应附",
+    "须附",
+    "需附",
+    "应提供",
+    "须提供",
+    "需提供",
+    "应包含",
+    "须包含",
+    "复印件",
+    "扫描件",
+)
+_NAME_CUT = re.compile(
+    r"(?:应附|须附|需附上|需附|应提供|须提供|需提供|应包含|须包含)"
+    r"([^，。；;、（(]{2,18})"
+)
+
+
+def _clip_material_name(text: str, target: str) -> str:
+    title = "".join((target or "").split())
+    if 2 <= len(title) <= 18:
+        return title
+    n = "".join((text or "").split())
+    hit = _NAME_CUT.search(n)
+    if hit is None:
+        return ""
+    name = hit.group(1)
+    for tail in ("复印件", "扫描件", "原件"):
+        if name.endswith(tail) and len(name) > len(tail):
+            name = name[: -len(tail)]
+    if len(name) < 2 or len(name) > 18:
+        return ""
+    return name
+
+
+def _merge_scattered_materials(
+    by_key: dict[str, PlaceholderItem],
+    keys: list[str],
+    requirements,
+    vol_of: dict[str, str],
+    volume: str,
+) -> list[str]:
+    from api.services.tenders.match import (
+        _clean_attach_section,
+        find_catalog_item,
+        same_library_material,
+        scan_slot_key,
+    )
+
+    vol = (volume or "").strip().lower()
+    have = set(keys)
+    added: list[str] = []
+    seen_names: set[str] = set()
+    catalog = list(by_key.values())
+    for item in requirements or []:
+        text = getattr(item, "text", "") or ""
+        n = "".join(text.split())
+        if not any(cue in n for cue in _SCATTER_CUES):
+            continue
+        if n.startswith(("（", "(")) and "如有" in n:
+            continue
+        if (getattr(item, "matchStatus", "") or "") == "format":
+            continue
+        if (getattr(item, "targetKind", "") or "") == "format":
+            continue
+        if (getattr(item, "strength", "") or "") == "mandatory" and _qual_mark(text):
+            continue
+        item_vol = (getattr(item, "volume", "") or "").strip().lower()
+        if vol in {"business", "technical"} and item_vol in {"business", "technical"} and item_vol != vol:
+            continue
+        name = _clip_material_name(text, getattr(item, "targetTitle", "") or "")
+        if not name or name in seen_names:
+            continue
+        if any(same_library_material(name, (by_key[k].title or "")) for k in have if k in by_key):
+            seen_names.add(name)
+            continue
+        sk = (getattr(item, "slotKey", "") or "").strip()
+        found = None
+        if sk and sk in by_key:
+            found = by_key[sk]
+        if found is None:
+            found = find_catalog_item(catalog, key=sk, title=name, hint="")
+        key = (found.key or "").strip() if found is not None else ""
+        if not key:
+            guessed = scan_slot_key(name, catalog)
+            if guessed:
+                key = guessed
+                found = by_key.get(guessed)
+        if key and key in have:
+            seen_names.add(name)
+            continue
+        if not key:
+            key = "scatter_" + name
+        if key in have:
+            seen_names.add(name)
+            continue
+        section = _clean_attach_section(getattr(item, "attachToSection", "") or "")
+        if found is None or key not in by_key:
+            by_key[key] = PlaceholderItem(
+                key=key,
+                title=(found.title if found is not None and found.title else name),
+                hint="",
+                attachToSection=section,
+            )
+            catalog.append(by_key[key])
+        elif section and not (by_key[key].attachToSection or "").strip():
+            by_key[key].attachToSection = section
+        keys.append(key)
+        have.add(key)
+        seen_names.add(name)
+        if item_vol in {"business", "technical"}:
+            vol_of[key] = item_vol
+        added.append(by_key[key].title or name)
+    return added
+
+
+def _merge_unmatched_qual(by_key: dict[str, PlaceholderItem], keys: list[str], requirements) -> None:
+    """否决项里的资质证明没对上资料时，补一个挂在「资格审查其他材料」的空位。"""
+    seen: set[str] = set()
+    have = set(keys)
+    for item in requirements or []:
+        if (getattr(item, "strength", "") or "") != "mandatory":
+            continue
+        if (getattr(item, "matchStatus", "") or "") == "matched":
+            continue
+        if (getattr(item, "volume", "") or "") == "technical":
+            continue
+        mark = _qual_mark(getattr(item, "text", "") or "")
+        if not mark or mark in seen:
+            continue
+        sk = (getattr(item, "slotKey", "") or "").strip()
+        if sk and sk in have and sk in by_key:
+            seen.add(mark)
+            continue
+        seen.add(mark)
+        key = f"veto_{mark}"
+        if key in by_key:
+            if key not in have:
+                keys.append(key)
+            continue
+        by_key[key] = PlaceholderItem(
+            key=key,
+            title=mark,
+            hint="否决项要求提供，未匹配到扫描件，请在此补",
+            attachToSection="资格审查其他材料",
+        )
+        keys.append(key)
+
+
+def _is_other_title(text: str) -> bool:
+    n = _compact_para(text)
+    if not n or len(n) > 28 or "。" in n or "如有" in n:
+        return False
+    n = _OTHER_PREFIX.sub("", n)
+    if n in _OTHER_CHAPTERS:
+        return True
+    return n.startswith("其他有必要提供") and len(n) <= 16
+
+
+def _already_placed(doc: Document, slot: PlaceholderItem) -> bool:
+    title = _compact_para(slot.title)
+    if len(title) < 4:
+        return False
+    mark = f"此处粘贴{title}"
+    for para in doc.paragraphs:
+        if mark in _compact_para(para.text or ""):
+            return True
+    for tbl in doc.element.body.iter(qn("w:tbl")):
+        blob = "".join(t.text or "" for t in tbl.iter(qn("w:t")))
+        if mark in "".join(blob.split()):
+            return True
+    if (slot.key or "") != "id_legal" and "身份证" not in title:
+        return False
+    # 身份证明页已经贴过图或虚线框，卷末和其他资料里不再来一份
+    for para in doc.paragraphs:
+        n = _compact_para(para.text or "")
+        if "法定代表人身份证" not in n or "委托" in n:
+            continue
+        if not (n.startswith("附") or "正反面" in n):
+            continue
+        sib = para._p.getnext()
+        for _ in range(6):
+            if sib is None or (sib.tag == qn("w:p") and _heading_core(_para_text(sib))):
+                break
+            xml = sib.xml
+            if "w:drawing" in xml or "w:pict" in xml or "此处粘贴" in xml:
+                return True
+            sib = sib.getnext()
+    return False
+
+
+def _other_heading(doc: Document, toc_els: list):
+    for para in doc.paragraphs:
+        if para._p in toc_els:
+            continue
+        if _is_other_title(para.text or ""):
+            return para
+    return None
+
+
+def _slot_marks(slot: PlaceholderItem) -> list[str]:
+    title = _compact_para(slot.title)
+    hint = _compact_para(slot.hint)
+    blob = title + hint
+    marks: list[str] = []
+    sec = _level1_core(slot.attachToSection) or _compact_para(slot.attachToSection)
+    if (
+        sec
+        and sec not in _OTHER_CHAPTERS
+        and sec not in _NO_PASTE
+        and "如有" not in sec
+        and not _paste_ban(slot.attachToSection or "")
+    ):
+        marks.append(sec)
+    key = (slot.key or "").strip()
+    if key in _KEY_CHAPTER:
+        marks.append(_KEY_CHAPTER[key])
+    if key == "credit":
+        marks.append("国家企业信用信息公示系统")
+    elif key == "finance":
+        marks.append("财务状况")
+    for mark in _CHAPTER_MARKS:
+        if mark in blob:
+            marks.append(mark)
+    if 4 <= len(title) <= 16:
+        marks.append(title)
+    marks.sort(key=len, reverse=True)
+    out: list[str] = []
+    for mark in marks:
+        if mark and mark not in out:
+            out.append(mark)
+    return out
+
+
+def _locate_chapter(doc: Document, slot: PlaceholderItem, toc_els: list, letter_els: list | None = None):
+    """对上正文专章就用那一章。目录、投标函和「如有」列举处不算。"""
+    banned = letter_els or []
+    best = None
+    best_n = 0
+    label = ""
+    for para in doc.paragraphs:
+        if para._p in toc_els or para._p in banned or _paste_ban(para.text or ""):
+            continue
+        source = _section_label(para._p)
+        core = _level1_core(source) or (_SUB_HEAD.sub("", source) if _SUB_HEAD.match(source) else _heading_core(source))
+        if not core or core in _NO_PASTE or core in _OTHER_CHAPTERS or core.startswith("投标函"):
+            continue
+        if "工作经历" in core or "简历" in core:
+            continue
+        for mark in _slot_marks(slot):
+            if mark in core or core in mark:
+                if len(core) > best_n:
+                    best = para
+                    best_n = len(core)
+                    label = _compact_para(para.text or "")
+                break
+    return best, label
+
+
+def _real_chapter(text: str) -> bool:
+    n = _compact_para(text)
+    if not n or len(n) > 36 or "。" in n or "如有" in n or n.startswith(("（", "(")):
+        return False
+    if not _CHAPTER_LEVEL.match(n):
+        return False
+    if _paste_ban(text) or _is_other_title(text):
+        return False
+    return True
+
+
+def _form_els(doc: Document) -> set:
+    banned = set(_letter_block(doc))
+    inside = False
+    for child in doc.element.body:
+        if child.tag == qn("w:sectPr"):
+            break
+        if child.tag == qn("w:p"):
+            text = _para_text(child)
+            if _paste_ban(text):
+                inside = True
+                banned.add(child)
+                continue
+            if inside and (
+                _real_chapter(_section_label(child))
+                or (_SUB_HEAD.match(_compact_para(_section_label(child))) and not _paste_ban(text))
+                or (_heading_core(text) and not _paste_ban(text))
+            ):
+                inside = False
+                continue
+            if inside:
+                banned.add(child)
+        elif inside and child.tag == qn("w:tbl"):
+            banned.add(child)
+    return banned
+
+
+def _note_score(title: str, text: str) -> int:
+    name = _compact_para(title)
+    n = _compact_para(text)
+    if len(name) < 4 or not _wants_attach(n):
+        return 0
+    if name in n:
+        return len(name)
+    hit = re.search(r"(?:在此附|本表后应附|本表后附|后应附|应附|应提供|需提供|须提供|须附|需附)([^。]{0,80})", n)
+    if hit is None:
+        return 0
+    best = 0
+    raw = re.split(r"[；;]", hit.group(1))[0]
+    for part in re.split(r"或|、|及|和", raw):
+        part = re.sub(r"(复印件|扫描件|原件|等)$", "", part).strip("（）()：:，,")
+        if len(part) < 4:
+            continue
+        if part in name or name in part:
+            best = max(best, min(len(part), len(name)))
+    return best
+
+
+def _near_label(el) -> str:
+    prev = el.getprevious()
+    while prev is not None:
+        if prev.tag == qn("w:tbl"):
+            break
+        if prev.tag == qn("w:p"):
+            text = _compact_para(_para_text(prev))
+            if text and not text.startswith("注") and "。" not in text and len(text) <= 32:
+                return text
+        prev = prev.getprevious()
+    return ""
+
+
+def _locate_note(doc: Document, slot: PlaceholderItem, banned: set, toc_els: list):
+    best = None
+    best_n = 0
+    label = ""
+    title = slot.title or ""
+    for child in doc.element.body:
+        if child.tag == qn("w:sectPr"):
+            break
+        if child in banned or child in toc_els:
+            continue
+        if child.tag == qn("w:p"):
+            score = _note_score(title, _para_text(child))
+        elif child.tag == qn("w:tbl"):
+            blob = "".join(t.text or "" for t in child.iter(qn("w:t")))
+            score = _note_score(title, blob)
+        else:
+            continue
+        if score <= 0 or score < best_n:
+            continue
+        best = child
+        best_n = score
+        label = _near_label(child) or "附注"
+    return best, label
+
+
+def _sec_head(text: str) -> bool:
+    n = _compact_para(text)
+    if not n or len(n) > 36 or "。" in n:
+        return False
+    if _paste_ban(text):
+        return True
+    if "如有" in n or n.startswith("注"):
+        return False
+    if _real_chapter(text) or _heading_core(text):
+        return True
+    return bool(_SUB_HEAD.match(n))
+
+
+def _section_label(el) -> str:
+    """原格式章的编号常只存在于标题书签中，浮动表格也可作为章节边界。"""
+    for mark in el.iter(qn("w:bookmarkStart")):
+        name = mark.get(qn("w:name"), "")
+        if _real_chapter(name) or _SUB_HEAD.match(name):
+            return name
+    return _para_text(el)
+
+
+def _owner(el):
+    cur = el
+    while cur is not None:
+        if cur.tag == qn("w:p") and _sec_head(_section_label(cur)):
+            return cur
+        cur = cur.getprevious()
+    return None
+
+
+def _span_taken(head) -> bool:
+    el = head.getnext()
+    while el is not None and el.tag != qn("w:sectPr"):
+        if el.tag == qn("w:p") and _sec_head(_section_label(el)):
+            break
+        blob = "".join(t.text or "" for t in el.iter(qn("w:t")))
+        flat = "".join(blob.split())
+        if "此处粘贴" in flat or _INPLACE in flat or _NONE_TITLE in flat:
+            return True
+        if el.tag == qn("w:p") and ("w:drawing" in el.xml or "w:pict" in el.xml):
+            return True
+        el = el.getnext()
+    return False
+
+
+def _span_last(head):
+    last = head
+    el = head.getnext()
+    while el is not None and el.tag != qn("w:sectPr"):
+        if el.tag == qn("w:p") and _sec_head(_section_label(el)):
+            break
+        if el.tag in {qn("w:p"), qn("w:tbl")}:
+            last = el
+        el = el.getnext()
+    return last
+
+
+def _cue_anchor(head):
+    found = None
+    el = head.getnext()
+    while el is not None and el.tag != qn("w:sectPr"):
+        if el.tag == qn("w:p") and _sec_head(_section_label(el)):
+            break
+        if el.tag == qn("w:p"):
+            text = _para_text(el)
+        elif el.tag == qn("w:tbl"):
+            text = "".join(t.text or "" for t in el.iter(qn("w:t")))
+        else:
+            el = el.getnext()
+            continue
+        if _wants_attach(text):
+            flat = _compact_para(text)
+            if flat.startswith("注") or "注：" in flat or "注:" in flat:
+                return el
+            if found is None:
+                found = el
+        el = el.getnext()
+    return found
+
+
+def _embed_files(slot: PlaceholderItem, media, key: str) -> list[Path]:
+    out = []
+    for item in (media or {}).get(key) or []:
+        path = item if isinstance(item, Path) else Path(str(item))
+        try:
+            if not path.is_file():
+                continue
+        except OSError:
+            continue
+        if path.suffix.lower() in _IMAGE_EXT | {".pdf"}:
+            out.append(path)
+    return out
+
+
+def _files_for_blurb(text: str, by_key: dict, media):
+    from api.services.tenders.match import find_catalog_item, scan_slot_key
+
+    name = _clip_material_name(text, "")
+    if not name:
+        hit = re.search(
+            r"(?:在此附|后应附|应附|应提供|需提供|须提供)([^，。；;、（(]{2,18})",
+            _compact_para(text),
+        )
+        name = hit.group(1) if hit else ""
+    if len(name) < 2:
+        return [], None
+    catalog = list(by_key.values())
+    found = find_catalog_item(catalog, title=name, hint="")
+    key = (found.key or "").strip() if found is not None else ""
+    if not key:
+        key = scan_slot_key(name, catalog)
+        if key:
+            found = by_key.get(key)
+    if not key:
+        return [], None
+    slot = found if found is not None else PlaceholderItem(key=key, title=name)
+    return _embed_files(slot, media, key), slot
+
+
+def _review_plate(doc: Document, toc_els: list, ban: set):
+    for para in doc.paragraphs:
+        if para._p in toc_els or para._p in ban:
+            continue
+        n = _compact_para(para.text or "")
+        if "资格审查其他材料" in n and len(n) <= 28 and "。" not in n:
+            return para
+    return None
+
+
+def _write_none_letter(doc: Document, head) -> str:
+    if _span_taken(head):
+        return ""
+    last = _span_last(head)
+    marker = _last_body_child(doc)
+    doc.add_paragraph(_NONE_TITLE)
+    doc.add_paragraph("我方无需要补充的其他资格审查材料。")
+    _move_after(doc, last, marker)
+    return "「资格审查其他材料」栏为空，已补无声明"
+
+
+def _sweep_inplace(doc: Document, by_key: dict, media, filled: set, toc_els: list, ban: set, plate_el, notes: list[str]) -> None:
+    for child in doc.element.body:
+        if child.tag == qn("w:sectPr"):
+            break
+        if child.tag != qn("w:p") or child in toc_els or child in ban:
+            continue
+        if not _sec_head(_para_text(child)) or _paste_ban(_para_text(child)):
+            continue
+        if plate_el is not None and child is plate_el:
+            continue
+        if child in filled or _span_taken(child):
+            filled.add(child)
+            continue
+        anchor = _cue_anchor(child)
+        if anchor is None:
+            continue
+        if anchor.tag == qn("w:p"):
+            text = _para_text(anchor)
+        else:
+            text = "".join(t.text or "" for t in anchor.iter(qn("w:t")))
+        files, slot = _files_for_blurb(text, by_key, media)
+        if slot is None:
+            slot = PlaceholderItem(key="inplace", title="")
+        put = _drop_after(doc, anchor, slot, files, wording=_INPLACE, complete=True)
+        filled.add(child)
+        label = _compact_para(_para_text(child))[:24] or "附注"
+        if put:
+            notes.append(f"「{label}」已按说明贴上资料")
+        else:
+            notes.append(f"「{label}」说明要求附资料，已在附注后画虚线框")
+
+
+def _place_requested_materials(
+    doc: Document, by_key: dict[str, PlaceholderItem], media: dict | None,
+    toc_els: list, ban: set, skipped: set[str], filled: set, notes: list[str],
+) -> set[str]:
+    """从正文说明逐项落位。图片/框只代表这一资料已填，不代表整章完成。"""
+    from api.services.tenders.match import attachment_catalog_item, attachment_requests
+
+    body = list(doc.element.body)
+    existing = {b.get(qn("w:name")) for b in doc.element.body.iter(qn("w:bookmarkStart"))}
+    next_id = max((int(b.get(qn("w:id"), "0")) for b in doc.element.body.iter(qn("w:bookmarkStart"))), default=0) + 1
+    handled = set()
+    occurrences: dict[str, int] = {}
+    consumed = set()
+    catalog = sorted(by_key.values(), key=lambda item: not bool((media or {}).get(item.key)))
+    for index, child in enumerate(body):
+        if child in consumed or child in toc_els or child in ban or child.tag not in {qn("w:p"), qn("w:tbl")}:
+            continue
+        text = "".join(t.text or "" for t in child.iter(qn("w:t")))
+        # 只处理原说明，不把生成的框或其提示再次解释成要求。
+        if "此处粘贴" in text or _INPLACE in text or any(
+            (b.get(qn("w:name")) or "").startswith("material_") for b in child.iter(qn("w:bookmarkStart"))
+        ):
+            continue
+        anchor = child
+        if _wants_attach(text) and child.tag == qn("w:p"):
+            # PDF 转 Word 的一句说明可能拆成多个普通段落，等句子结束后再插入。
+            for following in body[index + 1:index + 9]:
+                if text.rstrip().endswith(("。", "；", ";")):
+                    break
+                if following in toc_els or following in ban or following.tag != qn("w:p"):
+                    break
+                continuation = _para_text(following)
+                if _sec_head(_section_label(following)) or not continuation.strip():
+                    break
+                text += continuation
+                anchor = following
+                consumed.add(following)
+        requests = attachment_requests(text)
+        owner = _owner(child)
+        label = _section_label(owner) if owner is not None else ""
+        if _wants_attach(text) and "类似项目" in label and (not requests or all(r.title == "相关证明材料" for r in requests)):
+            requests = [PlaceholderItem(key="perf", title="类似项目业绩证明")]
+        if "上述途径查询结果截图" in text and ("企业信用" in label or "信用中国" in label):
+            requests = [PlaceholderItem(key="credit", title="国家企业信用信息公示系统查询截图")]
+        # 清单章要求提供已填写的清单，即使格式说明未写「扫描件」也须留就地位置。
+        core = _compact_para(text)
+        if len(core) < 36 and re.search(r"已标价的?工程量清单$", core) and _sec_head(_section_label(child)):
+            anchor = _span_last(child)
+            requests = [PlaceholderItem(key="boq", title="已标价工程量清单表")]
+        if not requests:
+            continue
+        signature = text.strip()
+        ordinal = occurrences.get(signature, 0)
+        occurrences[signature] = ordinal + 1
+        for request in requests:
+            found = attachment_catalog_item(request, catalog)
+            key = found.key if found is not None else request.key
+            if key in skipped or request.key in skipped:
+                continue
+            handled.add(key)
+            handled.update(item.key for item in catalog if attachment_catalog_item(request, [item]) is not None)
+            token = hashlib.sha1(f"{signature}|{ordinal}|{request.key}".encode()).hexdigest()[:24]
+            marker_name = "material_" + token
+            if marker_name in existing:
+                if owner is not None:
+                    filled.add(owner)
+                continue
+            slot = request.model_copy(update={"key": key})
+            # 按明确说明选中的 PDF 与图片均可就地嵌入，不能把已上传 PDF 当成缺件。
+            files = []
+            for item in (media or {}).get(key) or []:
+                path = Path(item)
+                if path.is_file() and path.suffix.lower() in _IMAGE_EXT | {".pdf"}:
+                    files.append(path)
+            # 模板已有具名粘贴框时复用该位置，不能因整章已有一个框就跳过其他资料。
+            old_box = None
+            cursor = anchor.getnext()
+            names = [request.title, found.title if found is not None else ""]
+            while cursor is not None and cursor.tag != qn("w:sectPr"):
+                if cursor.tag == qn("w:p") and _sec_head(_section_label(cursor)):
+                    break
+                blob = _compact_para(_para_text(cursor))
+                if (cursor.tag == qn("w:tbl") or _is_slot_box(cursor)) and any(name and "此处粘贴" + _compact_para(name) in blob for name in names):
+                    old_box = cursor
+                    break
+                cursor = cursor.getnext()
+            if old_box is not None and not files:
+                if owner is not None:
+                    filled.add(owner)
+                continue
+            target = _slot_anchor(old_box if old_box is not None else anchor)
+            put = _drop_after(doc, target, slot, files, complete=True)
+            first = target.getnext()
+            while _is_slot_gap(first) or _is_slot_clearance(first):
+                first = first.getnext()
+            if old_box is not None:
+                old_box.getparent().remove(old_box)
+                _merge_slot_gaps(doc)
+            # 标记只放在新增块内，原正文、段落属性及表格 XML 保持原样。
+            para = first if first.tag == qn("w:p") else next(first.iter(qn("w:p")))
+            start = OxmlElement("w:bookmarkStart")
+            start.set(qn("w:id"), str(next_id))
+            start.set(qn("w:name"), marker_name)
+            end = OxmlElement("w:bookmarkEnd")
+            end.set(qn("w:id"), str(next_id))
+            para.append(start)
+            para.append(end)
+            next_id += 1
+            existing.add(marker_name)
+            # 下一资料跟在刚插入块之后，保持说明中的顺序。
+            anchor = first
+            while anchor.getnext() is not None and anchor.getnext() not in body:
+                anchor = anchor.getnext()
+            if owner is not None:
+                filled.add(owner)
+            notes.append(f"「{request.title}」已按正文说明就地" + ("贴上资料" if put else "画虚线框（资料待补）"))
+    return handled
+
+
+def place_unmatched_slots(
+    doc: Document,
+    *,
+    slots: list[PlaceholderItem] | None,
+    media: dict | None,
+    required_keys: list[str] | None,
+    volume: str = "",
+    skip_keys: set[str] | None = None,
+    requirements: list | None = None,
+) -> list[str]:
+    """按正文说明或专章就地放置；无对应位置只报告缺口，不追加卷末附件章。"""
+    keys = [str(k or "").strip() for k in (required_keys or []) if str(k or "").strip()]
+    by_key = {item.key: item for item in (slots or []) if (item.key or "").strip()}
+    if not by_key:
+        by_key = {item.key: item for item in DEFAULT_SLOTS if item.key}
+    _merge_unmatched_qual(by_key, keys, requirements)
+    vol_of: dict[str, str] = {}
+    scattered = _merge_scattered_materials(by_key, keys, requirements, vol_of, volume)
+    vol = (volume or "").strip().lower()
+    skipped = {str(k) for k in (skip_keys or set())}
+    from api.services.tenders.categories import slot_volume
+    from api.services.tenders.pdf_format import toc_block_ids
+
+    toc_els = toc_block_ids(doc)
+    letter_els = _letter_block(doc)
+    ban = _form_els(doc)
+    notes: list[str] = []
+    leftover: list[PlaceholderItem] = []
+    plate_items: list[PlaceholderItem] = []
+    filled: set = set()
+    plate = None if vol == "technical" else _review_plate(doc, toc_els, ban)
+    plate_el = plate._element if plate is not None else None
+    handled = _place_requested_materials(doc, by_key, media, toc_els, ban, skipped, filled, notes)
+    for key in keys:
+        if key in {TECH_DRAWING_KEY, "seal"} or key in skipped or key in handled:
+            continue
+        slot = by_key.get(key)
+        if slot is None:
+            continue
+        want = vol_of.get(key, "")
+        if vol in {"business", "technical"}:
+            if want in {"business", "technical"}:
+                if want != vol:
+                    continue
+            elif slot_volume(key, slot.title or "") != vol:
+                continue
+        if _already_placed(doc, slot):
+            continue
+        files = []
+        for item in (media or {}).get(key) or []:
+            path = item if isinstance(item, Path) else Path(str(item))
+            try:
+                if path.is_file():
+                    files.append(path)
+            except OSError:
+                continue
+        anchor, note_label = _locate_note(doc, slot, ban, toc_els)
+        if anchor is not None:
+            owner = _owner(anchor)
+            if owner is not None and (owner in filled or _span_taken(owner)):
+                notes.append(f"「{slot.title}」与同一章节已有占位重复，未再画框")
+                continue
+            embed = _embed_files(slot, {key: files}, key)
+            put = _drop_after(doc, anchor, slot, embed, wording=_INPLACE, complete=True)
+            if owner is not None:
+                filled.add(owner)
+            if put:
+                notes.append(f"「{slot.title}」已贴到「{note_label}」附注后")
+            else:
+                notes.append(f"「{slot.title}」没有扫描件，已在「{note_label}」附注后画虚线框")
+            continue
+        heading, section = _locate_chapter(doc, slot, toc_els, letter_els)
+        if heading is not None:
+            if heading._element in filled or _span_taken(heading._element):
+                notes.append(f"「{slot.title}」与同一章节已有占位重复，未再画框")
+                continue
+            put = _drop_on_chapter(doc, heading, slot, files)
+            filled.add(heading._element)
+            if put:
+                notes.append(f"「{slot.title}」已贴到「{section}」正文后")
+            else:
+                notes.append(f"「{slot.title}」没有扫描件，已在「{section}」正文后画虚线框")
+            continue
+        if plate is not None:
+            _drop_on_chapter(doc, plate, slot, files)
+            plate_items.append(slot)
+            continue
+        leftover.append(slot)
+    _sweep_inplace(doc, by_key, media, filled, toc_els, ban, plate_el, notes)
+    if plate_items:
+        titles = "、".join(item.title for item in plate_items if item.title)
+        notes.append(f"无归属材料已集中到「资格审查其他材料」：{titles}")
+    if plate is not None:
+        blank = _write_none_letter(doc, plate_el)
+        if blank:
+            notes.append(blank)
+    if leftover:
+        titles = "、".join(item.title for item in leftover if item.title)
+        notes.append(f"未找到对应正文章节，待指定资料落位：{titles}")
+    if scattered:
+        notes.insert(0, "正文散落要求已纳入占位：" + "、".join(scattered))
+    return notes
+
+
 def draw_placeholder_box(doc: Document, slot: PlaceholderItem | None = None, *, after=None) -> None:
     """在文档中画虚线粘贴框；after 为段落时插到该段之后（用于技术标图纸）。"""
+    marker = _last_body_child(doc)
     _draw_box(doc, slot or PlaceholderItem(key="pending", title="待补资料"))
     if after is None:
+        _merge_slot_gaps(doc)
         return
-    body = doc.element.body
-    tables = body.findall(qn("w:tbl"))
-    if not tables:
-        return
-    after._element.addnext(tables[-1])
+    _move_after(doc, _slot_anchor(after._element), marker)
 
 
 def fill_perf_placeholders(table: Table) -> None:
@@ -506,6 +1601,9 @@ def _used_on_page_cm(doc: Document) -> float:
             continue
         if child.tag != qn("w:p"):
             continue
+        if _is_slot_gap(child):
+            used += _SLOT_GAP_CM
+            continue
         if any(br.get(qn("w:type")) == "page" for br in child.iter(qn("w:br"))):
             used = 0.35
             continue
@@ -553,8 +1651,9 @@ def _first_media_cm(files: list[Path], *, width_cm: float = 15.5, max_h: float |
 
 def _break_before_slot(doc: Document, need_cm: float) -> None:
     """标题和附件必须同页：剩余高度不够时，标题改到下一页开头。"""
-    used = _used_on_page_cm(doc)
-    remain = _page_body_cm(doc) - used
+    body_cm = _page_body_cm(doc)
+    used = _used_on_page_cm(doc) % body_cm
+    remain = body_cm - used
     if remain + 0.2 >= need_cm:
         return
     if used <= 0.6:
@@ -572,22 +1671,87 @@ def _write_subheading(doc: Document, index: int, title: str) -> None:
     _font(run, 14, bold=True)
 
 
-def _draw_box(doc: Document, slot: PlaceholderItem) -> None:
-    table = doc.add_table(rows=1, cols=1)
-    _set_dashed_borders(table)
-    table.autofit = False
-    cell = table.rows[0].cells[0]
-    cell.width = Cm(16.0)
-    cell.vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-    _set_row_height(table.rows[0], 4.8)
-    _set_cell_margins(cell, top=160, bottom=160, left=180, right=180)
-    cell.text = ""
-    mark = cell.paragraphs[0]
+def _is_slot_gap(el) -> bool:
+    if el is None or el.tag != qn("w:p"):
+        return False
+    style = el.find("w:pPr/w:pStyle", el.nsmap)
+    return style is not None and style.get(qn("w:val")) == _SLOT_GAP_STYLE
+
+
+def _is_slot_clearance(el) -> bool:
+    if el is None or el.tag != qn("w:p"):
+        return False
+    style = el.find("w:pPr/w:pStyle", el.nsmap)
+    return style is not None and style.get(qn("w:val")) == _SLOT_CLEARANCE_STYLE
+
+
+def _is_slot_box(el) -> bool:
+    return el is not None and el.tag == qn("w:p") and el.find("w:pPr/w:pBdr", el.nsmap) is not None and (
+        "此处粘贴" in _para_text(el) or _INPLACE in _para_text(el)
+    )
+
+
+def _merge_slot_gaps(doc: Document) -> None:
+    """相邻附件共用一个留白段，不叠加成 1 cm。"""
+    previous_gap = False
+    for node in list(doc.element.body):
+        gap = _is_slot_gap(node)
+        if gap and previous_gap:
+            doc.element.body.remove(node)
+        previous_gap = gap
+
+
+def _space_slot_block(doc: Document, block) -> None:
+    """只在新增附件外放 0.5 cm 空段；不修改相邻原文或表格。"""
+    if _SLOT_GAP_STYLE not in doc.styles:
+        style = doc.styles.add_style(_SLOT_GAP_STYLE, WD_STYLE_TYPE.PARAGRAPH)
+        style.font.size = Pt(1)
+        pf = style.paragraph_format
+        pf.space_before = pf.space_after = Pt(0)
+        pf.line_spacing = Cm(_SLOT_GAP_CM)
+        pf.left_indent = pf.right_indent = pf.first_line_indent = Cm(0)
+        pf.keep_with_next = False
+        pf.page_break_before = False
+    for before in (True, False):
+        gap = doc.add_paragraph(style=_SLOT_GAP_STYLE)
+        # 留白本身就是正文空段，直接写高度，避免依赖阅读器解析自定义样式。
+        gap.paragraph_format.space_before = gap.paragraph_format.space_after = Pt(0)
+        gap.paragraph_format.line_spacing = Cm(_SLOT_GAP_CM)
+        gap.add_run().font.size = Pt(1)
+        # 身份证图原有的“与下段同页”继续连到签章段，不能被尾部留白截断。
+        keep_next = block.tag == qn("w:p") and Paragraph(block, doc._body).paragraph_format.keep_with_next is True
+        gap.paragraph_format.keep_with_next = before or keep_next
+        if before:
+            block.addprevious(gap._p)
+        else:
+            block.addnext(gap._p)
+
+
+def _draw_box(doc: Document, slot: PlaceholderItem, *, wording: str = "") -> None:
+    """普通文字段落带虚线边框，选中整段（含段落标记）即可 Delete 删除。"""
+    mark = doc.add_paragraph()
     mark.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    m_run = mark.add_run("（在此粘贴扫描件）")
-    _font(m_run, 10.5, bold=False)
-    m_run.font.color.rgb = RGBColor(0x7A, 0x7A, 0x7A)
-    _ = slot
+    pf = mark.paragraph_format
+    pf.left_indent = pf.right_indent = pf.first_line_indent = Cm(0)
+    pf.space_before = pf.space_after = Pt(0)
+    pf.line_spacing = Pt(12)
+    pf.keep_together = True
+    pf.keep_with_next = False
+    pf.page_break_before = False
+    borders = OxmlElement("w:pBdr")
+    for edge in ("top", "left", "bottom", "right"):
+        border = OxmlElement("w:" + edge)
+        for name, value in (("val", "dashed"), ("sz", "18"), ("space", "8"), ("color", "7A7A7A")):
+            border.set(qn("w:" + name), value)
+        borders.append(border)
+    mark._p.get_or_add_pPr().append(borders)
+    title = (slot.title or "").strip()
+    line = wording or (f"此处粘贴{title}" if title else "")
+    text = line if wording else line + "\n（在此粘贴扫描件）"
+    run = mark.add_run("\n" * 4 + text + "\n" * 4)
+    _font(run, 10.5, bold=False)
+    run.font.color.rgb = RGBColor(0x7A, 0x7A, 0x7A)
+    _space_slot_block(doc, mark._p)
 
 
 def _insert_slot_media(
@@ -600,6 +1764,7 @@ def _insert_slot_media(
     force_landscape: bool = False,
     sharp: bool = False,
 ) -> int:
+    original_nodes = set(doc.element.body)
     if compact_pair:
         prepared = _collect_scan_jpegs(
             files,
@@ -608,7 +1773,9 @@ def _insert_slot_media(
             max_pages=max(_SLOT_PDF_MAX_PAGES, _ID_PAIR_MAX_IMAGES),
             force_landscape=force_landscape,
         )
-        return _insert_id_cards(doc, prepared)
+        inserted = _insert_id_cards(doc, prepared)
+        _space_new_slot_media(doc, original_nodes)
+        return inserted
 
     inserted = 0
     for path in files:
@@ -628,7 +1795,21 @@ def _insert_slot_media(
                         budget["left"] = max(0, int(budget["left"]) - 1)
         except Exception:
             logger.exception("insert slot media failed: %s", path)
+    _space_new_slot_media(doc, original_nodes)
     return inserted
+
+
+def _space_new_slot_media(doc: Document, original_nodes: set) -> None:
+    for node in list(doc.element.body):
+        if node in original_nodes or node.tag != qn("w:p"):
+            continue
+        if next(node.iter(qn("w:drawing")), None) is None:
+            continue
+        # 外侧留白统一交给空段，避免与旧的图片段前/段后距离叠加。
+        para = Paragraph(node, doc._body)
+        para.paragraph_format.space_before = Pt(0)
+        para.paragraph_format.space_after = Pt(0)
+        _space_slot_block(doc, node)
 
 
 def _render_pdf_page_jpeg(

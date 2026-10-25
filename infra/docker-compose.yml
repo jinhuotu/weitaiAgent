@@ -63,6 +63,9 @@ services:
     image: onlyoffice/documentserver:8.2.2
     container_name: weitai-onlyoffice
     restart: unless-stopped
+    # 打满只重启本容器。不封顶时 WSL 会崩，并把内存转储写满 C 盘。
+    mem_limit: 4g
+    memswap_limit: 4g
     ports:
       - "8082:80"
     extra_hosts:
@@ -70,6 +73,13 @@ services:
     environment:
       JWT_ENABLED: "true"
       JWT_SECRET: onlyoffice-dev-secret-change-me
+      # 文档服务要来拉本机 API 上的 docx。默认拒绝私网地址，不放开就会「下载失败」。
+      ALLOW_PRIVATE_IP_ADDRESS: "true"
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
     volumes:
       - onlyoffice_data:/var/www/onlyoffice/Data
       - onlyoffice_logs:/var/log/onlyoffice

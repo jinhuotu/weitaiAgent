@@ -206,6 +206,85 @@ def bid_performance_lines(lines: list[PerformanceLine] | None) -> list[Performan
     return out
 
 
+PERF_PLACEHOLDER_PREFIX = "待补充类似业绩"
+
+
+def is_perf_placeholder(line: PerformanceLine) -> bool:
+    return (line.projectName or "").strip().startswith(PERF_PLACEHOLDER_PREFIX)
+
+
+def _auto_placeholder(line: PerformanceLine) -> bool:
+    """程序补的空行。用户改过名称以外的字段，或取消勾选，就留下。"""
+    if not is_perf_placeholder(line):
+        return False
+    if not bool(getattr(line, "includeInBid", True)):
+        return False
+    if any((getattr(line, key, "") or "").strip() for key in ("client", "spec", "contact", "location")):
+        return False
+    if float(line.amountYuan or 0) > 0:
+        return False
+    summary = (line.summary or "").strip()
+    if summary and summary != "待补充":
+        return False
+    note = (line.note or "").strip()
+    if note and "资料库未匹配" not in note:
+        return False
+    return True
+
+
+def pad_performance_placeholders(
+    lines: list[PerformanceLine] | None,
+    requirement: PerformanceRequirement | None,
+) -> list[PerformanceLine]:
+    """招标书有业绩要求、资料库没对上的，先补空行，不拦生成。"""
+    kept = [item for item in (lines or []) if not _auto_placeholder(item)]
+    if not requirement_active(requirement):
+        return kept
+    assert requirement is not None
+    need = int(requirement.minCount or 0)
+    passed = 0
+    held = 0
+    for item in kept:
+        if is_perf_placeholder(item):
+            if bool(getattr(item, "includeInBid", True)):
+                held += 1
+            continue
+        if not (item.projectName or "").strip() or is_weak_title(item.projectName):
+            continue
+        if not bool(getattr(item, "includeInBid", True)):
+            continue
+        if match_performance_line(item, requirement).passed:
+            passed += 1
+    if need > 0:
+        gap = max(0, need - passed - held)
+    elif passed == 0 and held == 0:
+        gap = 1
+    else:
+        gap = 0
+    label = format_requirement(requirement)
+    used = {(item.projectName or "").strip() for item in kept}
+    n = 1
+    for _ in range(gap):
+        while True:
+            name = f"{PERF_PLACEHOLDER_PREFIX}{n}"
+            n += 1
+            if name not in used:
+                break
+        note = "资料库未匹配到符合门槛的合同，生成时先占位，可手工补。"
+        if label:
+            note = f"招标要求：{label}。{note}"
+        kept.append(
+            PerformanceLine(
+                projectName=name,
+                summary="待补充",
+                note=note,
+                includeInBid=True,
+            )
+        )
+        used.add(name)
+    return kept
+
+
 def apply_include_in_bid(
     lines: list[PerformanceLine],
     requirement: PerformanceRequirement | None,
@@ -526,16 +605,24 @@ def performance_match_issues(
         return []
     assert requirement is not None
     selected = bid_performance_lines(lines)
+    placeholders = [item for item in selected if is_perf_placeholder(item)]
+    selected = [item for item in selected if not is_perf_placeholder(item)]
     listed = [
         item
         for item in (lines or [])
-        if (item.projectName or "").strip() and not is_weak_title(item.projectName)
+        if (item.projectName or "").strip()
+        and not is_weak_title(item.projectName)
+        and not is_perf_placeholder(item)
     ]
     passed = sum(1 for item in selected if match_performance_line(item, requirement).passed)
     label = format_requirement(requirement)
     if not listed:
+        if placeholders:
+            return [f"类似业绩资料库未匹配到，已按招标要求占位 {len(placeholders)} 条（{label}）"]
         return [f"类似业绩为空，招标要求：{label}"]
     if not selected:
+        if placeholders:
+            return [f"类似业绩资料库未匹配到，已按招标要求占位 {len(placeholders)} 条（{label}）"]
         return [f"类似业绩未勾选写入本标，招标要求：{label}"]
     if requirement.minCount > 0 and passed < requirement.minCount:
         return [f"类似业绩符合招标要求 {passed} 条，招标要求至少 {requirement.minCount} 个（{label}）"]

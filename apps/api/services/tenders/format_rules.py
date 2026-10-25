@@ -9,7 +9,7 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt
 
-from api.services.tenders.schema import DocumentFormat
+from api.services.tenders.schema import DocumentFormat, VolumeFormat
 
 _CN_DIGITS = "一二三四五六七八九"
 
@@ -32,7 +32,7 @@ _CN_PT = {
 _PT_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(?:磅|pt|PT)")
 _CN_SIZE = re.compile(r"(小初|初号|小一|一号|小二|二号|小三|三号|小四|四号|小五|五号|小六|六号)")
 _TENDER_NO = re.compile(
-    r"(?:招标编号|项目编号|采购编号|招标文件编号)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_/]{2,31})"
+    r"(?:招标编号|项目编号|采购编号|招标文件编号)\s*[:：为]?\s*([A-Za-z0-9][A-Za-z0-9\-_/]{2,31})"
 )
 _ALL_MARGIN = re.compile(
     r"页边距[^。\n]{0,24}(?:均为|全部为|都为)\s*(\d+(?:\.\d+)?)\s*(cm|CM|厘米|mm|MM|毫米)"
@@ -73,6 +73,7 @@ def extract_document_format(text: str) -> DocumentFormat:
         notes.append(f"招标编号 {no}")
     fmt.notes = notes
     fmt.specified = bool(notes)
+    fmt.businessFormat, fmt.technicalFormat = _volume_formats(raw)
     return fmt
 
 
@@ -145,6 +146,97 @@ def toc_page_cache(index: int, fmt: DocumentFormat) -> str:
     return str(index + 2)
 
 
+_CANON_L1 = re.compile(r"^([一二三四五六七八九十]{1,3})、")
+_CANON_L2 = re.compile(r"^[（(]([一二三四五六七八九十]{1,3})[)）]")
+_CANON_DOT = re.compile(r"^(\d+(?:\.\d+)+)")
+_TOC_LEAD = re.compile(
+    r"^(?:"
+    r"[一二三四五六七八九十]{1,3}、"
+    r"|[（(][一二三四五六七八九十0-9]+[)）]"
+    r"|\d+(?:\.\d+)+[、.．\s]*"
+    r"|第[一二三四五六七八九十百0-9]+[章节篇][、.\s]*"
+    r"|[A-Ha-h][.．、]"
+    r"|附(?:件)?[（(]?[一二三四五六七八九十0-9]*[)）]?[：:、.\s]*"
+    r")"
+)
+
+
+def title_canon(text: str) -> tuple[int, str]:
+    """规范编号：一级「一、」、二级「（一）」、三级「1.1」。不合这三套的返回 0。"""
+    raw = (text or "").strip()
+    m = _CANON_L1.match(raw)
+    if m:
+        return 1, m.group(1)
+    m = _CANON_L2.match(raw)
+    if m:
+        return 2, m.group(1)
+    m = _CANON_DOT.match(raw)
+    if m:
+        return 3, m.group(1)
+    return 0, ""
+
+
+def peel_toc_lead(text: str) -> str:
+    raw = (text or "").strip()
+    peeled = _TOC_LEAD.sub("", raw).strip(" ：:、.")
+    return peeled or raw
+
+
+def _bump_level(counts: list[int], level: int) -> None:
+    level = max(1, min(4, level))
+    while len(counts) < level:
+        counts.append(0)
+    del counts[level:]
+    counts[level - 1] += 1
+
+
+def _free_cn(used: set[str]) -> str:
+    n = 1
+    while cn_ordinal(n) in used and n < 80:
+        n += 1
+    label = cn_ordinal(n)
+    used.add(label)
+    return label
+
+
+def toc_numbered_lines(rows: list[tuple[int, str]]) -> list[str]:
+    """目录显示文字。已有规范编号的原样沿用；裸行和不合规范的前缀按层级补号。"""
+    used: dict[int, set[str]] = {1: set(), 2: set(), 3: set()}
+    kinds: list[tuple[int, str]] = []
+    for _level, title in rows:
+        kind, key = title_canon(title)
+        kinds.append((kind, key))
+        if kind:
+            used[kind].add(key)
+    counts: list[int] = []
+    out: list[str] = []
+    for (level, title), (kind, _key) in zip(rows, kinds, strict=True):
+        level = max(1, min(4, int(level or 1)))
+        raw = (title or "").strip()
+        _bump_level(counts, level)
+        if kind and raw:
+            out.append(raw)
+            continue
+        bare = peel_toc_lead(raw)
+        if level <= 1:
+            out.append(f"{_free_cn(used[1])}、{bare}")
+        elif level == 2:
+            out.append(f"（{_free_cn(used[2])}）{bare}")
+        else:
+            parent = 1
+            for n in counts[:-1]:
+                if n:
+                    parent = n
+            slot = used[3]
+            i = 1
+            while f"{parent}.{i}" in slot and i < 80:
+                i += 1
+            key = f"{parent}.{i}"
+            slot.add(key)
+            out.append(f"{key} {bare}".rstrip())
+    return out
+
+
 def section_page_flags(
     section_index: int, fmt: DocumentFormat, *, body_section: int
 ) -> tuple[bool, bool]:
@@ -200,11 +292,281 @@ def apply_footer_page_number(
 
 def format_brief_notes(fmt: DocumentFormat) -> list[str]:
     if fmt.specified and fmt.notes:
-        return ["已按招标书抽出排版要求：" + "；".join(fmt.notes[:8])]
-    return [
-        "招标书未写页边距/字体/页码等排版条款，"
-        "生成用默认 A4、宋体，封面和目录不编页码、从正文起页底居中编码"
-    ]
+        lines = ["已按招标书抽出排版要求：" + "；".join(fmt.notes[:8])]
+    else:
+        lines = [
+            "招标书未写页边距/字体/页码等排版条款，"
+            "生成用默认 A4、宋体，封面和目录不编页码、从正文起页底居中编码"
+        ]
+    for label, spec in (("商务标", fmt.businessFormat), ("技术标", fmt.technicalFormat)):
+        if spec.notes:
+            lines.append(f"{label}写明：" + "；".join(spec.notes[:6]))
+    return lines
+
+
+_SIGN_MARK = ("盖章", "签字", "签章", "法定代表人", "委托代理人")
+_SHORT_TITLE = (
+    "技术标",
+    "技术方案",
+    "技术偏离",
+    "技术偏差",
+    "施工组织",
+    "技术规格",
+    "暗标",
+    "技术要求",
+    "投标函",
+    "报价",
+    "授权委托",
+    "身份证明",
+    "营业执照",
+    "商务偏离",
+    "商务偏差",
+    "业绩",
+    "法定代表人",
+    "目录",
+)
+_HEADISH = re.compile(
+    r"^(?:第[一二三四五六七八九十0-9]+[章节]|[一二三四五六七八九十]、)"
+)
+_VOL_TECH = re.compile(r"技术标|技术部分|技术文件|暗标")
+_VOL_BIZ = re.compile(r"商务标|商务部分|商务文件")
+_RULE_WORD = re.compile(r"页边距|字体|正文|页码|磅|小四|小三|四号|三号")
+
+
+def apply_volume_format(doc, spec: VolumeFormat, *, where: str = "副本") -> list[str]:
+    """只改这一卷写明的页边距、正文和页码。表格、签章栏不动。"""
+    if spec is None:
+        return []
+    notes: list[str] = []
+    if spec.marginSet:
+        for section in doc.sections:
+            section.left_margin = Cm(spec.marginLeftCm)
+            section.right_margin = Cm(spec.marginRightCm)
+            section.top_margin = Cm(spec.marginTopCm)
+            section.bottom_margin = Cm(spec.marginBottomCm)
+        notes.append(
+            f"已按标书改{where}页边距"
+            f" 上{spec.marginTopCm:g} 下{spec.marginBottomCm:g}"
+            f" 左{spec.marginLeftCm:g} 右{spec.marginRightCm:g}cm"
+        )
+    if spec.fontSet or spec.bodySizeSet:
+        before = _sample_body_font(doc)
+        n = _paint_body_runs(doc, spec)
+        if n:
+            want = _spec_font_label(spec)
+            if before:
+                notes.append(f"范本正文{before}，标书要求{want}，已改{where}")
+            else:
+                notes.append(f"已按标书把{where}正文改成{want}，表格和签章栏未动")
+    if spec.pagePosSet:
+        _apply_page_pos(doc, spec.pageNumberPos or "bottom-center", spec.fontName or "宋体")
+        notes.append(f"已按标书改{where}页码位置")
+    if spec.pageStartSet:
+        _apply_page_start(doc, spec.pageNumberStart or "body")
+        notes.append(f"已按标书改{where}页码起编")
+    return notes
+
+
+def _volume_formats(raw: str) -> tuple[VolumeFormat, VolumeFormat]:
+    biz = VolumeFormat()
+    tech = VolumeFormat()
+    scope = "both"
+    for line in re.split(r"[\r\n]+", raw or ""):
+        compact = re.sub(r"\s+", "", line)
+        if not compact:
+            continue
+        if len(compact) <= 40 and not _RULE_WORD.search(compact):
+            head = _line_scope(compact)
+            if head:
+                scope = head
+                continue
+            if _HEADISH.match(compact):
+                scope = "both"
+                continue
+        parts = [line]
+        if "商务" in compact and ("技术" in compact or "暗标" in compact):
+            parts = [p for p in re.split(r"[。；;，,]", line) if p.strip()]
+        for part in parts:
+            part_scope = _line_scope(re.sub(r"\s+", "", part)) or scope
+            _absorb_volume(part, part_scope, biz, tech)
+    return biz, tech
+
+
+def _line_scope(compact: str) -> str:
+    tech = bool(_VOL_TECH.search(compact)) and "商务" not in compact
+    biz = bool(_VOL_BIZ.search(compact)) and "技术" not in compact and "暗标" not in compact
+    if tech and not biz:
+        return "technical"
+    if biz and not tech:
+        return "business"
+    return ""
+
+
+def _absorb_volume(text: str, scope: str, biz: VolumeFormat, tech: VolumeFormat) -> None:
+    targets: list[VolumeFormat] = []
+    if scope in {"both", "business"}:
+        targets.append(biz)
+    if scope in {"both", "technical"}:
+        targets.append(tech)
+    if not targets:
+        return
+    tmp = DocumentFormat()
+    notes: list[str] = []
+    blob = re.sub(r"\s+", "", text)
+    _apply_margins(tmp, text, notes)
+    _apply_fonts(tmp, text, blob, notes)
+    _apply_page_numbers(tmp, blob, notes)
+    margin_note = next((n for n in notes if "页边距" in n), "")
+    font_note = next((n for n in notes if n.startswith("正文字体")), "")
+    size_note = next((n for n in notes if n.startswith("正文 ") or n.startswith("正文小四")), "")
+    pos_note = next(
+        (
+            n
+            for n in notes
+            if n.startswith("页码") and "连续" not in n and "起编" not in n and "不编" not in n
+        ),
+        "",
+    )
+    start_note = next((n for n in notes if "起编" in n or "不编" in n or "自封面" in n), "")
+    overwrite = scope != "both"
+    for spec in targets:
+        if margin_note and (overwrite or not spec.marginSet):
+            spec.marginSet = True
+            spec.marginLeftCm = tmp.marginLeftCm
+            spec.marginRightCm = tmp.marginRightCm
+            spec.marginTopCm = tmp.marginTopCm
+            spec.marginBottomCm = tmp.marginBottomCm
+            _put_note(spec, "页边距", margin_note)
+        if font_note and (overwrite or not spec.fontSet):
+            spec.fontSet = True
+            spec.fontName = tmp.fontName
+            _put_note(spec, "正文字体", font_note)
+        if size_note and (overwrite or not spec.bodySizeSet):
+            spec.bodySizeSet = True
+            spec.bodySizePt = tmp.bodySizePt
+            _put_note(spec, "正文", size_note)
+        if pos_note and (overwrite or not spec.pagePosSet):
+            spec.pagePosSet = True
+            spec.pageNumberPos = tmp.pageNumberPos
+            _put_note(spec, "页码", pos_note)
+        if start_note and (overwrite or not spec.pageStartSet):
+            spec.pageStartSet = True
+            spec.pageNumberStart = tmp.pageNumberStart
+            _put_note(spec, "起编", start_note)
+
+
+def _put_note(spec: VolumeFormat, kind: str, text: str) -> None:
+    kept: list[str] = []
+    for note in spec.notes:
+        if kind == "页边距" and note.startswith("页边距"):
+            continue
+        if kind == "正文字体" and note.startswith("正文字体"):
+            continue
+        if kind == "正文" and (note.startswith("正文 ") or note.startswith("正文小四")):
+            continue
+        if kind == "页码" and note.startswith("页码"):
+            continue
+        if kind == "起编" and ("起编" in note or "不编" in note or "自封面" in note):
+            continue
+        kept.append(note)
+    kept.append(text)
+    spec.notes = kept
+
+
+def _body_para(text: str) -> bool:
+    n = re.sub(r"\s+", "", text or "")
+    if not n or any(k in n for k in _SIGN_MARK):
+        return False
+    if len(n) <= 40 and _HEADISH.match(n):
+        return False
+    if len(n) <= 18 and any(k in n for k in _SHORT_TITLE):
+        return False
+    return True
+
+
+def _sample_body_font(doc) -> str:
+    for para in doc.paragraphs:
+        if not _body_para(para.text):
+            continue
+        for run in para.runs:
+            name = _run_east_asia(run)
+            size = run.font.size.pt if run.font.size is not None else None
+            if name and size:
+                return f"{name} {size:g}磅"
+            if name:
+                return name
+            if size:
+                return f"{size:g}磅"
+    return ""
+
+
+def _spec_font_label(spec: VolumeFormat) -> str:
+    bits: list[str] = []
+    if spec.fontSet and spec.fontName:
+        bits.append(spec.fontName)
+    if spec.bodySizeSet:
+        bits.append(f"{spec.bodySizePt:g}磅")
+    return " ".join(bits) or "标书字体"
+
+
+def _paint_body_runs(doc, spec: VolumeFormat) -> int:
+    n = 0
+    for para in doc.paragraphs:
+        if not _body_para(para.text) or not para.runs:
+            continue
+        for run in para.runs:
+            if spec.fontSet and spec.fontName:
+                run.font.name = spec.fontName
+                rpr = run._element.get_or_add_rPr()
+                rfonts = rpr.get_or_add_rFonts()
+                rfonts.set(qn("w:ascii"), spec.fontName)
+                rfonts.set(qn("w:hAnsi"), spec.fontName)
+                rfonts.set(qn("w:eastAsia"), spec.fontName)
+            if spec.bodySizeSet:
+                run.font.size = Pt(spec.bodySizePt)
+        n += 1
+    return n
+
+
+def _run_east_asia(run) -> str:
+    rpr = run._element.find(qn("w:rPr"))
+    if rpr is not None:
+        rfonts = rpr.find(qn("w:rFonts"))
+        if rfonts is not None:
+            name = rfonts.get(qn("w:eastAsia")) or rfonts.get(qn("w:ascii")) or ""
+            if name:
+                return name
+    return run.font.name or ""
+
+
+def _apply_page_pos(doc, pos: str, font: str) -> None:
+    if pos not in {"bottom-center", "bottom-right"}:
+        return
+    align = WD_ALIGN_PARAGRAPH.RIGHT if pos == "bottom-right" else WD_ALIGN_PARAGRAPH.CENTER
+    for section in doc.sections:
+        footer = section.footer
+        footer.is_linked_to_previous = False
+        para = footer.paragraphs[0] if footer.paragraphs else footer.add_paragraph()
+        _clear_runs(para)
+        para.alignment = align
+        _add_page_field(para, font=font or "宋体", size_pt=10.5)
+
+
+def _apply_page_start(doc, start: str) -> None:
+    if start not in {"cover", "toc", "body"}:
+        return
+    sections = list(doc.sections)
+    if not sections:
+        return
+    if len(sections) == 1:
+        _set_pg_num_type(sections[0], start=1)
+        return
+    tmp = DocumentFormat(pageNumberStart=start)
+    body_si = 0 if start == "cover" else 1
+    for i, section in enumerate(sections):
+        numbered, restart = section_page_flags(i, tmp, body_section=body_si)
+        if numbered and restart:
+            _set_pg_num_type(section, start=1)
 
 
 def _to_cm(value: str, unit: str) -> float:

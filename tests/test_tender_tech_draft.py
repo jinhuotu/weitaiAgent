@@ -10,8 +10,12 @@ from api.services.tenders.tech_draft import (
     draft_deviations,
     draft_tech,
     fallback_draft,
+    pick_library_lines,
     quote_facts,
+    rank_past_hits,
     retrieve_past_fragments,
+    scrub_fragment,
+    tech_red_lines,
 )
 
 
@@ -19,6 +23,9 @@ def test_extract_prompt_not_charger_specific() -> None:
     assert "充电站" not in _SYSTEM
     assert "桩数" not in _SYSTEM
     assert "7kW" not in _SYSTEM
+    assert "纯章节标题列表页" in _SYSTEM
+    assert "attachToSection" in _SYSTEM
+    assert "绝不能进目录" in _SYSTEM
 
 
 def test_extract_outline_keeps_construction_org() -> None:
@@ -230,9 +237,169 @@ def test_default_volume_adds_tech_chapter_not_works_plan() -> None:
     brief = BidBrief(layoutMode="chapter5")
     tech = items_for_volume(brief, "technical")
     kinds = [item.kind for item in tech]
+    titles = [item.title for item in tech]
     assert "tech_dev" in kinds
     assert "tech_chapter" in kinds or "tech_plan" in kinds
     assert any(item.title in {"技术方案", "技术标（实施方案）"} or item.kind == "tech_chapter" for item in tech)
+    assert titles.index("技术方案") < titles.index("技术偏差表")
+    biz = [item.title for item in items_for_volume(brief, "business")]
+    assert biz.index("投标函") < biz.index("分项报价表") < biz.index("商务偏离表")
+    assert "技术方案" not in biz
+    assert "技术偏差表" not in biz
+
+
+def test_rank_prefers_won_and_drops_lost_body() -> None:
+    samples, avoid = rank_past_hits(
+        [
+            {"content": "普通写法一段", "tags": ["tech_bid"], "doc_id": "a"},
+            {"content": "中标写法一段", "tags": ["tech_bid", "outcome:won"], "doc_id": "b"},
+            {"content": "失败写法一段", "tags": ["tech_bid", "outcome:lost"], "doc_id": "c"},
+        ],
+        {
+            "c": {"verdict": "bad", "problemTags": ["工期"], "note": "交货写超了"},
+        },
+    )
+    assert samples == ["中标写法一段", "普通写法一段"]
+    assert "失败写法" not in " ".join(samples)
+    assert any("工期" in line and "交货写超了" in line for line in avoid)
+
+
+def test_scrub_drops_current_project_line() -> None:
+    brief = BidBrief(projectName="郑州高新新能源项目", tenderNo="26-GCZN-0150", tenderer="郑州某某建设集团")
+    text = scrub_fragment("中标响应写法如下\n郑州高新新能源项目报价128万\n质保期内远程支持", brief)
+    assert "中标响应写法" in text
+    assert "远程支持" in text
+    assert "郑州高新新能源项目" not in text
+    assert "26-GCZN-0150" not in text
+
+
+def test_tech_red_lines_skip_business() -> None:
+    brief = BidBrief(
+        bidRequirements=[
+            BidRequirement(text="技术负偏离作废标处理", volume="technical", strength="mandatory"),
+            BidRequirement(text="未盖章按否决投标处理", volume="business", strength="mandatory"),
+            BidRequirement(text="售后服务方案具有针对性", category="scoring", volume="technical"),
+        ]
+    )
+    lines = tech_red_lines(brief)
+    assert lines == ["技术负偏离作废标处理"]
+
+
+def test_library_cites_cert_not_person_name() -> None:
+    item = OutlineItem(id="t1", title="企业资质", kind="tech_chapter", inviteExcerpt="须提供资质证书")
+    bundles = [
+        {
+            "key": "资质",
+            "role": "company",
+            "fields": [
+                {"name": "证书编号", "value": "A1234567", "conf": 0.9},
+                {"name": "姓名", "value": "郭志伟", "conf": 1},
+            ],
+        }
+    ]
+    lines = pick_library_lines(item, ["资质证书齐全"], bundles)
+    assert lines == ["证书编号：A1234567"]
+    assert pick_library_lines(
+        OutlineItem(id="t2", title="培训方案", kind="tech_chapter"),
+        [],
+        bundles,
+    ) == []
+
+
+def test_draft_searches_score_and_keeps_red_line() -> None:
+    import asyncio
+
+    brief = BidBrief(
+        projectName="郑州高新新能源项目",
+        outlineItems=[
+            OutlineItem(id="t1", title="售后服务方案", kind="tech_chapter", inviteExcerpt="质保三年"),
+        ],
+        bidRequirements=[
+            BidRequirement(
+                text="售后服务方案具有针对性",
+                category="scoring",
+                targetKind="tech_chapter",
+                targetTitle="售后服务方案",
+            ),
+            BidRequirement(text="技术负偏离作废标处理", volume="technical", strength="mandatory"),
+            BidRequirement(text="未盖章按否决投标处理", volume="business", strength="mandatory"),
+        ],
+    )
+    queries: list[str] = []
+
+    async def _search(_db, *, query, top_k=3, kb_ids=None):
+        queries.append(query)
+        if "针对性" in query:
+            return [{"content": "按评分点写响应节奏\n郑州高新新能源项目不该出现", "tags": ["tech_bid", "outcome:won"]}]
+        return [
+            {"content": "中标售后写法", "tags": ["tech_bid", "outcome:won"]},
+            {"content": "失败售后写法", "tags": ["tech_bid", "outcome:lost"]},
+        ]
+
+    out, notes = asyncio.run(
+        draft_tech(
+            brief,
+            search=_search,
+            client=None,
+            catalog_facts=[
+                {
+                    "key": "资质",
+                    "role": "company",
+                    "fields": [
+                        {"name": "证书编号", "value": "A1234567", "conf": 1},
+                        {"name": "姓名", "value": "郭志伟", "conf": 1},
+                    ],
+                }
+            ],
+        )
+    )
+    item = next(i for i in out.outlineItems if i.id == "t1")
+    assert any("针对性" in q for q in queries)
+    assert "技术负偏离作废标处理" in item.draftBody
+    assert "未盖章" not in item.draftBody
+    assert "评分点响应参考" in item.draftBody
+    assert "郑州高新新能源项目" not in item.draftBody
+    assert "禁止再犯" in item.draftBody
+    assert any("避开" in n for n in notes)
+    assert any("评分点检索" in n for n in notes)
+    # 售后章对不上资质资料，不把证照号塞进来
+    assert "A1234567" not in item.draftBody
+    assert "郭志伟" not in item.draftBody
+
+
+def test_draft_quotes_library_cert() -> None:
+    import asyncio
+
+    brief = BidBrief(
+        outlineItems=[
+            OutlineItem(id="t1", title="企业资质", kind="tech_chapter", inviteExcerpt="提供资质证书"),
+        ]
+    )
+
+    async def _search(_db, *, query, top_k=3, kb_ids=None):
+        return []
+
+    out, notes = asyncio.run(
+        draft_tech(
+            brief,
+            search=_search,
+            client=None,
+            catalog_facts=[
+                {
+                    "key": "资质",
+                    "role": "company",
+                    "fields": [
+                        {"name": "证书编号", "value": "A1234567", "conf": 0.95},
+                        {"name": "姓名", "value": "郭志伟", "conf": 1},
+                    ],
+                }
+            ],
+        )
+    )
+    item = next(i for i in out.outlineItems if i.id == "t1")
+    assert "A1234567" in item.draftBody
+    assert "郭志伟" not in item.draftBody
+    assert any("资料库" in n for n in notes)
 
 
 def test_scoring_requirement_maps_to_empty_chapter() -> None:

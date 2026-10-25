@@ -602,13 +602,12 @@ def test_assemble_follows_outline_item_order(tmp_path) -> None:
     dest = tmp_path / "order.docx"
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     paras = [p.text.strip() for p in Document(str(dest)).paragraphs if p.text.strip()]
-    toc_letter = next(t for t in paras if t.startswith("一、投标函"))
+    assert not any(t.startswith("一、投标函") or t == "投标函" for t in paras)
     assert any("法定代表人身份证明" in t for t in paras)
     assert any("授权委托书" in t for t in paras)
-    assert paras.index(toc_letter) < next(
-        i for i, t in enumerate(paras) if "法定代表人身份证明" in t or "授权委托书" in t
+    assert paras.index(next(t for t in paras if "授权委托书" in t)) < paras.index(
+        next(t for t in paras if "法定代表人身份证明" in t)
     )
-    assert paras.index("法定代表人身份证明") < paras.index("授权委托书")
 
 
 def test_assemble_keeps_one_biz_dev_table(tmp_path) -> None:
@@ -745,7 +744,7 @@ def test_assemble_letter_without_body_still_writes_module(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.tenderer = "某热电有限公司"
     brief.bidPriceYuan = 518800
     brief.includePlaceholders = False
@@ -862,7 +861,7 @@ def test_assemble_modules_fill_brief_not_invitation_body(tmp_path) -> None:
     from api.services.tenders.commitment import _CLAUSES
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.projectName = "数智制造管理系统"
     brief.tenderer = "某市分公司"
     brief.bidDate = "2026-09-08"
@@ -1131,6 +1130,19 @@ def test_generate_bid_respects_layout_mode(tmp_path, monkeypatch) -> None:
     assert called["outline"] == 3
     assert called["vols"][-1] == "business"
 
+    from api.services.tenders.generate import generate_pair, volume_pair_status
+
+    pair = generate_pair(outline_brief)
+    assert called["vols"][-2:] == ["business", "technical"]
+    assert pair.get("docxFile")
+    assert pair.get("techDocxFile")
+    assert "商务标.docx" in str(pair.get("downloadName") or "")
+    assert "技术标.docx" in str(pair.get("techDownloadName") or "")
+    note = volume_pair_status("business", business_ready=True, technical_ready=False)
+    assert note["otherVolume"] == "technical"
+    assert note["otherVolumeReady"] is False
+    assert "技术标尚未生成" in str(note["otherVolumeNote"])
+
 
 def _run_underlined(run) -> bool:
     rpr = run._element.find(qn("w:rPr"))
@@ -1145,7 +1157,6 @@ def _run_underlined(run) -> bool:
 
 def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     from docx import Document
-    from docx.enum.text import WD_ALIGN_PARAGRAPH
 
     from api.services.tenders.assemble import assemble_bid_docx
 
@@ -1184,62 +1195,12 @@ def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
     )
     assert "PAGEREF" in instr
     assert any("业绩证明资料" in p.text for p in doc.paragraphs)
-    assert any("2.1 法定代表人身份证明" in p.text or p.text.startswith("2.1") for p in doc.paragraphs)
-    assert any("资格审查资料" in p.text for p in doc.paragraphs)
-
-    name_line = next(
-        p
-        for p in doc.paragraphs
-        if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
-    )
-    assert any(_run_underlined(run) for run in name_line.runs if "伟泰" in (run.text or ""))
-
-    stamped = [
-        p
-        for p in doc.paragraphs
-        if "盖单位公章" in (p.text or "")
-        and "河南伟泰" in (p.text or "")
-        and "投标人" in "".join((p.text or "").split())
-    ]
-    assert stamped
-    auth_sign = next(
-        p
-        for p in stamped
-        if p.alignment != WD_ALIGN_PARAGRAPH.RIGHT
-        and (float(p.paragraph_format.left_indent.cm) if p.paragraph_format.left_indent else 0) >= 3.0
-    )
-    indent = float(auth_sign.paragraph_format.left_indent.cm) if auth_sign.paragraph_format.left_indent else 0
-    assert indent >= 3.0
-    assert any(_run_underlined(run) for run in auth_sign.runs if "河南伟泰" in (run.text or ""))
-    letter_sign = next(
-        p
-        for p in stamped
-        if "投标人" in "".join((p.text or "").split())
-        and (
-            p.text.startswith("投　标　人：")
-            or p.text.startswith("投标人：")
-            or (
-                p.paragraph_format.left_indent
-                and float(p.paragraph_format.left_indent.cm) >= 6.0
-            )
-        )
-    )
-    left = float(letter_sign.paragraph_format.left_indent.cm) if letter_sign.paragraph_format.left_indent else 0
-    assert left >= 4.0
-    assert any(_run_underlined(run) for run in letter_sign.runs if "河南伟泰" in (run.text or ""))
-    spacers = []
-    for para in doc.paragraphs:
-        p_pr = para._p.find(qn("w:pPr"))
-        if p_pr is None:
-            continue
-        sp = p_pr.find(qn("w:spacing"))
-        if sp is None or (sp.get(qn("w:lineRule")) or "") != "exact":
-            continue
-        if "".join((para.text or "").replace("\u200b", "").split()):
-            continue
-        spacers.append(int(sp.get(qn("w:line")) or "0"))
-    assert spacers
-    assert max(spacers) >= int(1.4 * 567)
+    assert any(p.text.startswith("二、法定代表人身份证明") for p in doc.paragraphs)
+    assert not any("资格审查资料" in p.text for p in doc.paragraphs)
+    blob = "\n".join(texts)
+    assert "我方已仔细研究了" not in blob
+    assert "单位性质" not in blob
+    assert "本次由法定代表人亲自投标" not in blob
 
 
 def test_assemble_auth_sign_single_line_aligned(tmp_path) -> None:
@@ -1249,7 +1210,7 @@ def test_assemble_auth_sign_single_line_aligned(tmp_path) -> None:
     from api.services.tenders.document import _em_len
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
     brief.attachQualifications = False
@@ -1417,20 +1378,16 @@ def test_assemble_legal_id_copy_stays_on_form(tmp_path) -> None:
     doc = Document(str(dest))
     texts = [p.text.strip() for p in doc.paragraphs]
     nonempty = [t for t in texts if t]
-    assert "特此证明。" in nonempty
+    blob = "\n".join(nonempty)
+    assert "投标人名称" in blob
+    assert "系" in blob and "法定代表人" in blob
+    assert "单位性质" not in blob
+    assert "本次由法定代表人亲自投标" not in blob
     assert all(t != "成立时" and t != "间：" for t in nonempty)
-    rel = next(t for t in nonempty if "法定代表人" in t and "系" in t)
-    assert "郭志伟" in rel
-    assert "河南伟泰光电科技有限公司" in rel
-    person = next(t for t in nonempty if "姓名" in t and "职务" in t)
-    assert "郭志伟" in person
-    assert "执行董事" in person
-    assert any(p.text.startswith("一、投标函") for p in doc.paragraphs)
     toc = next(
         p
         for p in doc.paragraphs
-        if "法定代表人身份证明" in (p.text or "")
-        and (p.text.startswith("二、") or p.text.startswith("2.1") or p.text.startswith("三、"))
+        if (p.text or "").startswith("三、法定代表人身份证明")
     )
     instr = "".join(t.text or "" for el in toc._p.iter(qn("w:instrText")) for t in [el])
     assert "PAGEREF" in instr
@@ -1453,7 +1410,7 @@ def test_assemble_inlines_id_cards_not_in_appendix(tmp_path) -> None:
     Image.new("RGB", (220, 350), (140, 120, 160)).save(agent_b)
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.includePlaceholders = True
     brief.includeCommitment = False
     brief.attachQualifications = False
@@ -1542,7 +1499,7 @@ def test_assemble_seal_register_fills_company_table(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
     brief.attachQualifications = False
@@ -1584,7 +1541,7 @@ def test_assemble_drops_duplicate_seal_register_page(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
 
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
     brief.attachQualifications = False
@@ -1874,10 +1831,9 @@ def test_assemble_skips_invite_format_pack_pages(tmp_path) -> None:
     assert "我方已仔细研究" in blob
     assert "中小企业声明" not in blob
     assert "残疾人" not in blob
-    assert "施工组织设计" not in blob
-    assert "管理人员简历" not in blob
-    assert "基本情况表" not in blob
     assert "暗标" not in blob
+    assert "施工组织设计" not in blob
+    assert "基本情况" in blob
 
 
 
@@ -2125,7 +2081,7 @@ def test_assemble_seal_register_uses_one_page_grid(tmp_path) -> None:
         "备注：本表中三处备案印鉴为红色章。"
     )
     brief = default_brief()
-    brief.layoutMode = "outline"
+    brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
     brief.attachQualifications = False
@@ -2619,14 +2575,11 @@ def test_assemble_biz_essentials_use_title_and_box(tmp_path) -> None:
     dest = tmp_path / "biz-essentials.docx"
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     blob = _docx_text(Document(str(dest)))
-    assert "投标函" in blob
-    assert "营业执照" in blob
-    assert "商务偏离表" in blob
-    assert "无违法承诺函" in blob
-    assert "投标保证金" in blob
-    assert "在此粘贴扫描件" in blob
-    assert "附件：资料库扫描件" not in blob
     assert "我方确认收到贵方提供的招标文件" in blob
+    assert "MOM平台总费用" in blob
+    assert "营业执照" not in blob
+    assert "无违法承诺函" not in blob
+    assert "投标保证金" not in blob
 
 
 def test_assemble_embeds_library_license_by_title(tmp_path) -> None:
@@ -2755,11 +2708,9 @@ def test_assemble_messy_letter_uses_module_not_ocr(tmp_path) -> None:
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     doc = Document(str(dest))
     blob = _docx_text(doc)
-    assert "-189-" not in blob
-    assert "-190-" not in blob
-    assert "发包人指定的接收人" not in blob
-    assert "我方已仔细研究了" in blob
-    assert blob.count("特此证明。") == 1
+    assert "我方郑重承诺按招标文件参加投标" in blob
+    assert "我方已仔细研究了" not in blob
+    assert "单位性质" not in blob
     assert "设备数采" in blob
     assert "招标产品功能需求清单" in blob
 
@@ -2868,12 +2819,8 @@ def test_assemble_copied_letter_title_salute_and_fields(tmp_path) -> None:
     after = body_hit.paragraph_format.space_after
     if after is not None:
         assert after <= Pt(4)
-    li = next(i for i, t in enumerate(texts) if t == legal.text.strip())
-    nearby = texts[li : li + 8]
-    assert not any(
-        compact_title(t).startswith(("地址", "网址", "电话", "传真", "邮政编码", "项目联系人", "邮箱"))
-        for t in nearby
-    )
+    assert any(compact_title(t).startswith("地址") for t in texts)
+    assert any("电话" in compact_title(t) for t in texts)
     appendix = next(p for p in paras if compact_title(p.text) == "（二）投标函附录")
     assert appendix.alignment == WD_ALIGN_PARAGRAPH.CENTER
     assert appendix.runs and appendix.runs[0].font.size >= Pt(16)
@@ -2936,7 +2883,7 @@ def test_assemble_letter_recovers_signoff_when_ocr_stuck_after_appendix(tmp_path
         return "投标函附录" in n and "及" not in n and len(n) <= 16
 
     # 跳过封面/目录，取正文第一处投标函标题
-    letter_i = next(i for i, p in enumerate(paras) if _is_letter_heading(p.text) and i >= 20)
+    letter_i = next(i for i, p in enumerate(paras) if _is_letter_heading(p.text))
     app_i = next(i for i, p in enumerate(paras) if i > letter_i and _is_app_heading(p.text))
     letter_part = [p.text.strip() for p in paras[letter_i:app_i]]
     assert any(
@@ -3010,7 +2957,6 @@ def test_assemble_response_letter_layout_right_sign_centered_title(tmp_path) -> 
         for i, p in enumerate(paras)
         if compact_title(p.text) == "合同条款响应书"
         and "\t" not in (p.text or "")
-        and i > 15
     )
     head = paras[head_i]
     assert "二、" not in (head.text or "")
@@ -3068,6 +3014,32 @@ def test_pipe_table_stops_before_signoff_and_next_section() -> None:
     assert "日期" not in blob
 
 
+def test_pipe_table_merges_ruled_spans() -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import _try_write_pipe_table
+    from api.services.tenders.schema import DocumentFormat
+
+    doc = Document()
+    lines = [
+        "项目名称 |  | >>",
+        " |  | ",
+        "投标总报价 | 措施费 | 大写",
+        "^^ | 暂列金额 | 小写",
+    ]
+    nxt = _try_write_pipe_table(doc, lines, 0, fmt=DocumentFormat(), title="投标函附录")
+    assert nxt == 4
+    assert len(doc.tables[0].rows) == 4
+    xml = doc.tables[0]._tbl.xml
+    assert "gridSpan" in xml
+    assert "vMerge" in xml
+    blob = "".join(c.text or "" for r in doc.tables[0].rows for c in r.cells)
+    assert "项目名称" in blob
+    assert ">>" not in blob
+    assert "^^" not in blob
+    assert "/" not in blob
+
+
 def test_assemble_response_letter_one_date_notice_no_underline(tmp_path) -> None:
     from docx import Document
 
@@ -3106,7 +3078,7 @@ def test_assemble_response_letter_one_date_notice_no_underline(tmp_path) -> None
     head_i = next(
         i
         for i, p in enumerate(paras)
-        if compact_title(p.text) == "合同条款响应书" and i > 10
+        if compact_title(p.text) == "合同条款响应书" and "\t" not in (p.text or "")
     )
     chunk = paras[head_i : head_i + 12]
     texts = [p.text.strip() for p in chunk]
@@ -3155,17 +3127,611 @@ def test_assemble_tech_dev_ignores_dirty_ocr_body(tmp_path) -> None:
     dest = tmp_path / "tech-dev-clean.docx"
     assemble_bid_docx(brief, dest, qualification_pdf=None)
     doc = Document(str(dest))
-    tech = next(
-        t
-        for t in doc.tables
-        if any("支持单点登录" in (c.text or "") for r in t.rows for c in r.cells)
+    blob = _docx_text(doc)
+    assert "招标文件要求" in blob
+    assert "交货期" in blob
+    assert "支持单点登录" not in blob
+
+
+def test_outline_letter_keeps_tender_close_and_appendix_table(tmp_path) -> None:
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = BidBrief(
+        layoutMode="outline",
+        projectName="郑州高新技术产业开发区新能源充（换）电站基础设施集群项目",
+        tenderer="郑州天健智慧园区运营管理有限公司",
+        bidderName="河南伟泰光电科技有限公司",
+        bidPriceYuan=986000,
+        deliveryDays=90,
+        bidValidityDays=90,
+        quality="合格",
+        includePlaceholders=False,
+        attachQualifications=False,
+        outlineItems=[
+            OutlineItem(id="p", title="投标函及投标函附录", rawTitle="一、投标函及投标函附录", kind="letter"),
+            OutlineItem(
+                id="a",
+                title="投标函",
+                rawTitle="（一）投标函",
+                kind="letter",
+                body=(
+                    "（一）投标函\n"
+                    "致：郑州天健智慧园区运营管理有限公司：\n"
+                    "1.我方已仔细研究了招标文件的全部内容，愿意以人民币（大写）的投标总报价，工期日历天。\n"
+                    "2.我方的投标文件包括下列内容：\n"
+                    "（1）投标函及投标函附录；\n"
+                    "电话：\n"
+                    "传真：\n"
+                    "邮政编码：\n"
+                    "网址：\n"
+                    "地址：\n"
+                    "投标人：（盖单位章）\n"
+                    "法定代表人或其委托代理人：\n"
+                    "（签字或盖章）\n"
+                    "年 月 日\n"
+                ),
+            ),
+            OutlineItem(
+                id="b",
+                title="投标函附录",
+                rawTitle="（二）投标函附录",
+                kind="letter",
+                body=(
+                    "（二）投标函附录\n"
+                    "项目名称：\n投标人：\n投标范围：\n投标总报价\n"
+                    "安全生产措施费\n暂列金额\n投标工期\n投标质量\n"
+                    "投标有效期\n缺陷责任期\n技术标准和要求\n项目经理\n"
+                ),
+            ),
+        ],
     )
-    heads = [c.text.strip() for c in tech.rows[0].cells]
-    assert len(heads) in {3, 4}
-    assert "序号" in heads[0]
-    cell_blob = "".join(c.text or "" for r in tech.rows for c in r.cells)
-    assert "四、响应方案" not in cell_blob
-    assert "盖章" not in cell_blob
-    assert "支持单点登录" in cell_blob
+    dest = tmp_path / "letter.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    blob = _docx_text(doc)
+    assert "我方承诺在投标有效期内不修改、撤销投标文件" not in blob
+    assert "我方的投标文件包括下列内容" in blob
+    assert "地址" in blob and "网址" in blob and "传真" in blob
+    assert "项目名称" in blob and "安全生产措施费" in blob
+    assert "投标总报价（元）" not in blob
+
+
+def _page(doc, *lines: str) -> None:
+    from docx.enum.text import WD_BREAK
+
+    for line in lines:
+        doc.add_paragraph(line)
+    end = doc.add_paragraph()
+    end.add_run().add_break(WD_BREAK.PAGE)
+
+
+def test_outline_uses_invite_cover_and_skips_blank_pages(tmp_path, monkeypatch) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    src = tmp_path / "ch8.docx"
+    raw = Document()
+    _page(raw, "第八章、投标文件格式")
+    _page(raw, "-185-")
+    _page(
+        raw,
+        "（项目名称）标段施工",
+        "投标文件",
+        "招标编号：",
+        "投标人或联合体牵头人：（盖单位章）",
+        "年 月 日",
+    )
+    _page(raw, "-184-")
+    _page(raw, "目录", "一、投标函及投标函附录", "二、法定代表人身份证明", "三、授权委托书")
+    _page(raw, "-187-")
+    raw.add_paragraph("（一）投标函")
+    raw.add_paragraph("致：郑州天健智慧园区运营管理有限公司")
+    raw.add_paragraph("1.我方已仔细研究了招标文件的全部内容。")
+    table = raw.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "项目名称"
+    table.rows[1].cells[0].text = "安全生产措施费"
+    raw.save(src)
+
+    monkeypatch.setattr(
+        "api.services.tenders.pdf_format._ready_format_docx",
+        lambda invitation_id: src if invitation_id else None,
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.invitationId = "abc123abc123"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="法定代表人身份证明", kind="legal_id", source="generate"),
+    ]
+    dest = tmp_path / "pasted.docx"
+    _path, warnings = assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    blob = _docx_text(doc)
+    assert "标段施工" in blob
+    assert "商 务 标" not in blob
+    assert "封面加盖公章" not in blob
+    assert "第八章、投标文件格式" not in blob
+    assert "-185-" not in blob and "-184-" not in blob and "-187-" not in blob
+    assert "投标函及投标函附录" in blob
+    assert "我方已仔细研究了" in blob
+    assert "安全生产措施费" in blob
+    assert "单位性质" not in blob
+    assert "PAGEREF" not in doc.element.xml
+    assert "未定义书签" not in blob
+    assert any("原版" in w for w in warnings)
+
+
+def test_outline_splits_pdf_section_pages(tmp_path, monkeypatch) -> None:
+    """pdf2docx 用分节换页。扉页、原封面、原目录不能再整章贴进来。"""
+    from docx import Document
+    from docx.enum.section import WD_SECTION
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    def add_page(doc: Document, *lines: str) -> None:
+        if doc.paragraphs:
+            doc.add_section(WD_SECTION.NEW_PAGE)
+        for line in lines:
+            doc.add_paragraph(line)
+
+    src = tmp_path / "ch8-sect.docx"
+    raw = Document()
+    add_page(raw, "第八章、投标文件格式", "-185-")
+    add_page(
+        raw,
+        "（项目名称）标段施工",
+        "投标文件",
+        "招标编号：",
+        "投标人或联合体牵头人：（盖单位章）",
+        "年 月 日",
+        "-186-",
+    )
+    add_page(raw, "目录", "一、投标函及投标函附录", "二、法定代表人身份证明", "三、授权委托书", "-187-")
+    add_page(raw, "（一）投标函", "1.我方已仔细研究了 （项目名称） 招标文件的全部内容。", "-188-")
+    raw.add_paragraph("投标人：          （盖单位章）法定代表人或其委托代理人： （签字或盖章）")
+    phone = raw.add_table(rows=1, cols=2)
+    phone.rows[0].cells[0].text = "电"
+    phone.rows[0].cells[1].text = "话："
+    table = raw.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "项目名称"
+    table.rows[1].cells[0].text = "安全生产措施费"
+    add_page(
+        raw,
+        "三、授权委托书",
+        "本人系投标人的法定代表人，现委托代理人签署投标文件。",
+        "标段施工投标文件、签订合同。",
+        "投标人：（盖单位章）",
+    )
+    add_page(raw, "六、项目管理机构")
+    raw.save(src)
+
+    monkeypatch.setattr(
+        "api.services.tenders.pdf_format._ready_format_docx",
+        lambda invitation_id: src if invitation_id else None,
+    )
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.invitationId = "abc123abc123"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="o01", title="法定代表人身份证明", kind="legal_id", source="generate"),
+    ]
+    dest = tmp_path / "pasted-sect.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+    blob = _docx_text(doc)
+    assert blob.count("目录") == 1
+    assert "标段施工" in blob
+    assert "封面加盖公章" not in blob
+    assert "第八章、投标文件格式" not in blob
+    assert "一、投标函及投标函附录" in blob
+    assert "我方已仔细研究了" in blob
+    assert "河南伟泰光电科技有限公司" in blob
+    cover = next(p for p in doc.paragraphs if "标段施工" in (p.text or "") and "招标项目" not in (p.text or ""))
+    assert "（项目名称）" in (cover.text or "") and "标段施工" in (cover.text or "")
+    bidder = next(p for p in doc.paragraphs if "联合体牵头人" in (p.text or ""))
+    assert "伟泰" in (bidder.text or "") and "（盖单位章）" in (bidder.text or "")
+    assert "授权委托书" in blob and "项目管理机构" in blob
+    assert "-185-" not in blob and "-186-" not in blob and "-187-" not in blob and "-188-" not in blob
+    assert "PAGEREF" in doc.element.xml
+    assert "TOC" in doc.element.xml
+
+
+def test_pasted_auth_underline_and_id_scan(tmp_path) -> None:
+    from docx import Document
+    from docx.oxml.ns import qn
+    from PIL import Image
+
+    from api.services.tenders.pdf_format import fill_pasted_format
+
+    doc = Document()
+    doc.add_paragraph("目录")
+    doc.add_paragraph("三、授权委托书")
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "撤回、修改"
+    table.rows[0].cells[1].text = "（项目名称）"
+    table.rows[1].cells[0].text = ""
+    doc.add_paragraph("标段施工投标文件、签订合同和处理有关事宜，其法律后果由我方承担。")
+    doc.add_paragraph("附：法定代表人身份证复印件或扫描件")
+    doc.add_paragraph("投标人： （盖单位章）")
+    doc.add_paragraph("年    月    日")
+    img = tmp_path / "id.png"
+    Image.new("RGB", (80, 48), "white").save(img)
+    brief = default_brief()
+    brief.projectName = "郑州项目"
+    brief.bidDate = "2026-10-21"
+    fill_pasted_format(doc, brief, media={"id_legal": [img]})
+    blob = _docx_text(doc)
+    assert "撤回、修改" in blob and "郑州项目" in blob
+    assert "（项目名称）" not in blob
+    assert all("撤回" not in _docx_text_table(t) for t in doc.tables)
+    line = next(p for p in doc.paragraphs if "撤回、修改" in (p.text or ""))
+    assert any(r.underline and "郑州项目" in (r.text or "") for r in line.runs)
+    assert "2026" in blob and "10" in blob and "21" in blob
+    assert "w:drawing" in doc.element.xml
+    # 身份证贴在落款前，不甩到文末
+    body = list(doc.element.body)
+    draw_at = next(i for i, el in enumerate(body) if el.findall(".//" + qn("w:drawing")) or qn("w:drawing") in el.xml)
+    sign_at = next(i for i, el in enumerate(body) if "投标人" in "".join(t.text or "" for t in el.iter(qn("w:t"))))
+    assert draw_at < sign_at
+
+
+def _docx_text_table(table) -> str:
+    return "\n".join(cell.text or "" for row in table.rows for cell in row.cells)
+
+
+def _format_slice(tmp_path, invite: str):
+    from docx import Document
+
+    raw = Document()
+    raw.add_paragraph("投标函")
+    raw.add_paragraph("投标函正文")
+    raw.add_paragraph("已标价工程量清单")
+    raw.add_paragraph("清单合计")
+    raw.add_paragraph("施工组织设计")
+    raw.add_paragraph("组织设计正文 河南伟泰光电科技有限公司")
+    src = tmp_path / f"{invite}.format.docx"
+    raw.save(src)
+    src.with_name(src.name + ".source").write_text("docx-raw", encoding="utf-8")
+    return src
+
+
+def _patch_format(monkeypatch, invite: str, src) -> None:
+    monkeypatch.setattr(
+        "api.services.tenders.pdf_format._word_format_file",
+        lambda invitation_id: src if invitation_id == invite else None,
+    )
+
+
+def test_full_slice_keeps_works_plan(tmp_path, monkeypatch) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    invite = "abc123abc201"
+    src = _format_slice(tmp_path, invite)
+    _patch_format(monkeypatch, invite, src)
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.invitationId = invite
+    brief.generateVolume = "full"
+    path, notes = assemble_bid_docx(brief, tmp_path / "full.docx", volume="full")
+    blob = _docx_text(Document(str(path)))
+    assert "施工组织设计" in blob
+    assert "投标函" in blob
+    assert not any("已去掉格式章里的技术部分" in n for n in notes)
+    assert not any("只保留格式章里的技术部分" in n for n in notes)
+
+
+def test_split_drops_tech_from_business_and_letter_from_technical(tmp_path, monkeypatch) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    invite = "abc123abc202"
+    src = _format_slice(tmp_path, invite)
+    _patch_format(monkeypatch, invite, src)
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.invitationId = invite
+    brief.splitSlice = True
+    path, notes = assemble_bid_docx(brief, tmp_path / "biz.docx", volume="business")
+    blob = _docx_text(Document(str(path)))
+    assert "投标函" in blob
+    assert "工程量清单" in blob
+    assert "施工组织设计" not in blob
+    assert any("已去掉格式章里的技术部分" in n for n in notes)
+
+    tech = brief.model_copy(update={"splitSlice": False})
+    path_t, _ = assemble_bid_docx(tech, tmp_path / "tech.docx", volume="technical")
+    blob_t = _docx_text(Document(str(path_t)))
+    assert "施工组织设计" in blob_t
+    assert "投标函" not in blob_t
+    assert "工程量清单" not in blob_t
+
+
+def test_plain_business_slice_still_keeps_works_plan(tmp_path, monkeypatch) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    invite = "abc123abc203"
+    src = _format_slice(tmp_path, invite)
+    _patch_format(monkeypatch, invite, src)
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.invitationId = invite
+    path, _ = assemble_bid_docx(brief, tmp_path / "biz.docx", volume="business")
+    blob = _docx_text(Document(str(path)))
+    assert "施工组织设计" in blob
+    assert "投标函" in blob
+
+
+def test_anonymous_tech_hides_names_business_keeps_company(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+
+    brief = default_brief()
+    brief.layoutMode = "chapter5"
+    brief.includeCommitment = False
+    brief.includePlaceholders = False
+    brief.attachQualifications = False
+    brief.techAnonymous = True
+    brief.bidderName = "河南伟泰光电科技有限公司"
+    brief.legalPersonName = "郭志伟"
+    brief.agentName = "张委托"
+    brief.pmName = "李项目"
+    tech_path, notes = assemble_bid_docx(brief, tmp_path / "tech.docx", volume="technical")
+    tech_doc = Document(str(tech_path))
+    blob = _docx_text(tech_doc)
+    assert "河南伟泰" not in blob
+    assert "郭志伟" not in blob
+    assert "张委托" not in blob
+    assert "李项目" not in blob
+    assert any("暗标专轮" in n for n in notes)
+    assert (tech_doc.core_properties.author or "") == ""
+    assert (tech_doc.core_properties.last_modified_by or "") == ""
+    company = ""
+    from lxml import etree
+
+    for rel in tech_doc.part.package.rels.values():
+        if "extended-properties" not in (rel.reltype or ""):
+            continue
+        root = etree.fromstring(rel.target_part.blob)
+        for child in root:
+            if child.tag.rsplit("}", 1)[-1] == "Company":
+                company = child.text or ""
+    assert company == ""
+    assert brief.bidderName == "河南伟泰光电科技有限公司"
+
+    marked = tmp_path / "marked.docx"
+    raw = Document()
+    raw.add_paragraph("封面投标人：河南伟泰光电科技有限公司")
+    raw.core_properties.author = "郭志伟"
+    raw.core_properties.last_modified_by = "张委托"
+    raw.save(marked)
+    stamped = Document(str(marked))
+    for rel in stamped.part.package.rels.values():
+        if "extended-properties" not in (rel.reltype or ""):
+            continue
+        root = etree.fromstring(rel.target_part.blob)
+        for child in root:
+            if child.tag.rsplit("}", 1)[-1] == "Company":
+                child.text = "河南伟泰光电科技有限公司"
+        rel.target_part._blob = etree.tostring(
+            root, xml_declaration=True, encoding="UTF-8", standalone=True
+        )
+    stamped.save(marked)
+    before = ""
+    saved = Document(str(marked))
+    for rel in saved.part.package.rels.values():
+        if "extended-properties" not in (rel.reltype or ""):
+            continue
+        root = etree.fromstring(rel.target_part.blob)
+        for child in root:
+            if child.tag.rsplit("}", 1)[-1] == "Company":
+                before = child.text or ""
+    assert before == "河南伟泰光电科技有限公司"
+    from api.services.tenders.pdf_format import scrub_anonymous_docx
+
+    scrub_anonymous_docx(marked, brief)
+    washed = Document(str(marked))
+    assert "河南伟泰" not in _docx_text(washed)
+    assert (washed.core_properties.author or "") == ""
+    assert (washed.core_properties.last_modified_by or "") == ""
+    company = ""
+    for rel in washed.part.package.rels.values():
+        if "extended-properties" not in (rel.reltype or ""):
+            continue
+        root = etree.fromstring(rel.target_part.blob)
+        for child in root:
+            if child.tag.rsplit("}", 1)[-1] == "Company":
+                company = child.text or ""
+    assert company == ""
+
+    biz_path, biz_notes = assemble_bid_docx(brief, tmp_path / "biz.docx", volume="business")
+    biz_blob = _docx_text(Document(str(biz_path)))
+    assert "河南伟泰光电科技有限公司" in biz_blob
+    assert not any("暗标专轮" in n for n in biz_notes)
+
+
+def test_generate_pair_slices_only_for_split_advice(tmp_path, monkeypatch) -> None:
+    from api.services.tenders.generate import generate_bid, generate_pair
+
+    seen = []
+
+    def fake_assemble(brief, dest, **kwargs):
+        seen.append((kwargs.get("volume"), bool(brief.splitSlice), bool(brief.techAnonymous)))
+        dest.write_bytes(b"PK\x03\x04")
+        return dest, []
+
+    monkeypatch.setattr("api.services.tenders.assemble.assemble_bid_docx", fake_assemble)
+    monkeypatch.setattr("api.services.tenders.generate.tenders_output_dir", lambda: tmp_path)
+    split = BidBrief(volumeAdvice="split", layoutMode="chapter5", includePlaceholders=False, attachQualifications=False)
+    generate_pair(split)
+    assert seen[-2:] == [("business", True, False), ("technical", False, False)]
+    seen.clear()
+    whole = split.model_copy(update={"volumeAdvice": "full"})
+    generate_pair(whole)
+    assert seen[-2:] == [("business", False, False), ("technical", False, False)]
+    seen.clear()
+    out = generate_bid(whole.model_copy(update={"generateVolume": "full"}))
+    assert seen[-1][0] == "full"
+    assert "投标文件.docx" in str(out.get("downloadName") or "")
+    assert out.get("docxFile")
+    assert not out.get("techDocxFile")
+
+
+def _pageref_cache(para) -> str:
+    in_result = False
+    for run in para._p.iter(qn("w:r")):
+        fld = run.find(qn("w:fldChar"))
+        if fld is not None:
+            kind = fld.get(qn("w:fldCharType"))
+            if kind == "separate":
+                in_result = True
+            elif kind == "end":
+                in_result = False
+            continue
+        if not in_result:
+            continue
+        text_el = run.find(qn("w:t"))
+        if text_el is not None and (text_el.text or "").strip():
+            return text_el.text.strip()
+    return ""
+
+
+def _bookmark_para_text(doc, name: str) -> str:
+    for el in doc.element.iter(qn("w:bookmarkStart")):
+        if el.get(qn("w:name")) != name:
+            continue
+        node = el
+        while node is not None and node.tag != qn("w:p"):
+            node = node.getparent()
+        assert node is not None
+        cur = node
+        while cur is not None:
+            assert cur.tag != qn("w:tbl")
+            cur = cur.getparent()
+        return "".join(t.text or "" for t in node.iter(qn("w:t")))
+    raise AssertionError(name)
+
+
+def test_verbatim_toc_keeps_body_numbers_and_table_pages(tmp_path) -> None:
+    from docx import Document
+
+    from api.services.tenders.assemble import assemble_bid_docx
+    from api.services.tenders.document import _estimate_bookmark_pages, _pageref_bookmark
+    from api.services.tenders.format_rules import toc_numbered_lines
+
+    shows = toc_numbered_lines(
+        [
+            (2, "（三）项目管理机构组成表"),
+            (3, "人员分工"),
+            (2, "拟分包项目情况表"),
+        ]
+    )
+    assert shows[0] == "（三）项目管理机构组成表"
+    assert shows[1].startswith("1.1 ")
+    assert shows[2].startswith("（一）")
+
+    table = "| 序号 | 项目名称 | 备注 |\n| 1 | 塔吊 | 一台 |"
+    brief = default_brief()
+    brief.layoutMode = "outline"
+    brief.includePlaceholders = False
+    brief.includeCommitment = False
+    brief.attachQualifications = False
+    brief.outlineItems = [
+        OutlineItem(id="letter", title="投标函", kind="other", level=1, body="投标函正文写在这里凑够字数，不要带编号。"),
+        OutlineItem(
+            id="org",
+            title="现场组织安排",
+            rawTitle="（一）现场组织安排",
+            kind="other",
+            level=2,
+            body="（一）现场组织安排\n" + table,
+        ),
+        OutlineItem(
+            id="sub",
+            title="材料进场计划",
+            kind="other",
+            level=2,
+            body="材料进场计划\n材料进场说明写在正文里，目录要按二级补号。",
+        ),
+        OutlineItem(
+            id="qa",
+            title="质量保证措施",
+            rawTitle="（三）质量保证措施",
+            kind="other",
+            level=3,
+            body="（三）质量保证措施\n质量措施正文写在这里，目录不能改成点分编号。",
+        ),
+        OutlineItem(
+            id="crew",
+            title="人员分工",
+            kind="other",
+            level=3,
+            body="人员分工\n人员分工正文写在这里用来核对目录补了点分编号。",
+        ),
+        OutlineItem(id="gear", title="拟投入设备表", kind="other", level=2, body=table),
+    ]
+    dest = tmp_path / "toc-pages.docx"
+    assemble_bid_docx(brief, dest, qualification_pdf=None)
+    doc = Document(str(dest))
+
+    def toc_line(prefix: str):
+        return next(p for p in doc.paragraphs if (p.text or "").startswith(prefix) and "PAGEREF" in p._p.xml)
+
+    org = toc_line("（一）现场组织安排")
+    sub = toc_line("（二）材料进场计划")
+    qa = toc_line("（三）质量保证措施")
+    crew = toc_line("2.1 ")
+    gear = toc_line("（四）拟投入设备表")
+    assert not (crew.text or "").startswith("（")
+    for para, level in ((org, 2), (qa, 3), (gear, 2)):
+        tabs = para._p.find(qn("w:pPr")).find(qn("w:tabs")).find(qn("w:tab"))
+        assert tabs.get(qn("w:leader")) == "dot"
+        assert "\t" in (para.text or "")
+        left = para.paragraph_format.left_indent
+        assert left is not None
+        assert abs(float(left.cm) - 0.74 * (level - 1)) < 0.05
+    body_org = [p for p in doc.paragraphs if (p.text or "").strip() == "（一）现场组织安排"]
+    assert len(body_org) == 1
+    body_sub = [p for p in doc.paragraphs if (p.text or "").strip() == "材料进场计划"]
+    assert len(body_sub) == 1
+    assert _bookmark_para_text(doc, "toc_org") == "（一）现场组织安排"
+    gear_text = _bookmark_para_text(doc, "toc_gear")
+    assert gear_text == "拟投入设备表"
+    host = None
+    for el in doc.element.iter(qn("w:bookmarkStart")):
+        if el.get(qn("w:name")) == "toc_gear":
+            host = el
+            while host is not None and host.tag != qn("w:p"):
+                host = host.getparent()
+            break
+    assert host is not None and host.getnext() is not None and host.getnext().tag == qn("w:tbl")
+
+    pages = _estimate_bookmark_pages(doc)
+    assert "toc_org" in pages and "toc_gear" in pages
+    base = min(pages.values())
+    linked = 0
+    for para in doc.paragraphs:
+        bookmark = _pageref_bookmark(para)
+        if not bookmark or not bookmark.startswith("toc_"):
+            continue
+        assert bookmark in pages
+        assert _pageref_cache(para) == str(max(1, pages[bookmark] - base + 1))
+        linked += 1
+    assert linked >= 6
+
 
 

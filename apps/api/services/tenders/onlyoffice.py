@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
@@ -15,6 +17,9 @@ from api.services.tenders.generate import resolve_output_file
 from common.config import Settings, get_settings
 
 logger = logging.getLogger("api.tenders.onlyoffice")
+
+# 预览模板打开的是标书输出目录里的副本。生成读的是邀请书目录那份。
+_FORMAT_NAME_RE = re.compile(r"^[a-f0-9]{10,16}\.format\.docx$", re.I)
 
 
 def onlyoffice_enabled() -> bool:
@@ -33,7 +38,7 @@ def document_key(path: Path) -> str:
     stat = path.stat()
     raw = f"{path.name}-{stat.st_mtime_ns}-{stat.st_size}"
     # 后缀用于作废 OnlyOffice 对「转换失败」的缓存；失败后同一 key 会一直弹「下载失败」。
-    return hashlib.sha256(raw.encode()).hexdigest()[:32] + "-g3"
+    return hashlib.sha256(raw.encode()).hexdigest()[:32] + "-g4"
 
 
 def create_download_token(file_name: str, *, settings: Settings | None = None) -> str:
@@ -180,6 +185,7 @@ async def handle_callback(file_name: str, body: dict) -> dict[str, int]:
 
     path = resolve_output_file(file_name)
     path.write_bytes(data)
+    _keep_format_template(file_name, path)
     logger.info(
         "onlyoffice saved file=%s bytes=%s status=%s key=%s",
         file_name,
@@ -188,3 +194,20 @@ async def handle_callback(file_name: str, body: dict) -> dict[str, int]:
         payload.get("key"),
     )
     return {"error": 0}
+
+
+def _keep_format_template(file_name: str, src: Path) -> None:
+    """格式章改稿写回邀请书目录，下次预览和按本标生成都用这份。"""
+    name = Path(file_name).name
+    if not _FORMAT_NAME_RE.fullmatch(name):
+        return
+    from api.services.tenders.pdf_format import format_docx_path
+
+    dest = format_docx_path(name.split(".", 1)[0])
+    if dest is None:
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.resolve() == src.resolve():
+        return
+    shutil.copyfile(src, dest)
+    logger.info("onlyoffice format template synced file=%s bytes=%s", dest.name, src.stat().st_size)

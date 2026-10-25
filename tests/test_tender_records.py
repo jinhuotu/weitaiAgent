@@ -197,3 +197,59 @@ def test_clear_mine_records_admin_deletes_locked(tmp_path, monkeypatch):
 
     asyncio.run(run())
 
+
+def test_publish_draft_lists_record(tmp_path, monkeypatch):
+    import asyncio
+    from types import SimpleNamespace
+
+    from api.services.tenders import records as records_mod
+
+    out = tmp_path / "tenders"
+    out.mkdir()
+    monkeypatch.setattr(records_mod, "tenders_output_dir", lambda: out)
+
+    row = TenderRecord(
+        id=3,
+        public_id="draft00000000001",
+        user_id=1,
+        username="admin",
+        project_name="草稿",
+        tenderer="",
+        bid_price_yuan=0,
+        legal_person_name="",
+        docx_file="",
+        download_name="",
+        warnings=[],
+        brief_json={},
+        status="draft",
+        created_at=datetime(2026, 10, 22, 1, 0, tzinfo=timezone.utc),
+    )
+
+    class FakeResult:
+        def scalar_one_or_none(self):
+            return row
+
+    class FakeDb:
+        async def execute(self, *_args, **_kwargs):
+            return FakeResult()
+
+        async def commit(self):
+            return None
+
+        async def refresh(self, _row):
+            return None
+
+    async def run():
+        data = await records_mod.publish_record(
+            FakeDb(),  # type: ignore[arg-type]
+            "draft00000000001",
+            user=SimpleNamespace(id=1, username="admin"),  # type: ignore[arg-type]
+            admin=False,
+        )
+        assert row.status == "processing"
+        assert data["status"] == "processing"
+        assert records_mod.STATUS_DRAFT not in records_mod.TASK_STATUSES
+        assert records_mod.workflow_locked("draft") is False
+
+    asyncio.run(run())
+

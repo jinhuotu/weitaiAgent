@@ -40,7 +40,7 @@ from api.services.tenders.document import (
     _ymd,
 )
 from api.services.tenders.money import rmb_figure, rmb_pair, rmb_uppercase
-from api.services.tenders.outline import bid_is_works, compact_title, is_seal_register, letter_role
+from api.services.tenders.outline import compact_title, is_seal_register, letter_role
 from api.services.tenders.placeholders import (
     _insert_slot_media,
     _set_row_height,
@@ -92,8 +92,12 @@ def render_module(
 
 
 def _letter(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
-    if letter_role(item.title) == "appendix":
+    role = letter_role(item.title)
+    if role == "appendix":
         return _letter_appendix(doc, brief)
+    # 「投标函及投标函附录」只是目录总题，正文在（一）（二）。不要另写一套固定函。
+    if role == "pack":
+        return []
     price_cn = rmb_uppercase(brief.bidPriceYuan)
     price_en = rmb_figure(brief.bidPriceYuan)
     tenderer = (brief.tenderer or "").strip() or "　　　　"
@@ -553,7 +557,7 @@ _WORKS_PLAN = (
 
 def _scrub_anon(text: str, brief: BidBrief) -> str:
     out = text or ""
-    for name in (brief.bidderName, brief.legalPersonName, brief.agentName):
+    for name in (brief.bidderName, brief.legalPersonName, brief.agentName, brief.pmName):
         n = (name or "").strip()
         if len(n) >= 2:
             out = out.replace(n, "")
@@ -563,10 +567,12 @@ def _scrub_anon(text: str, brief: BidBrief) -> str:
 def _tech_plan(
     doc: Document, brief: BidBrief, item: OutlineItem, media: dict | None = None
 ) -> list[str]:
-    body = _scrub_anon(chapter_draft_text(item, brief), brief)
+    raw = chapter_draft_text(item, brief)
+    # 只有招标文件判成暗标才抹名字。明标正文照草稿署名。
+    if bool(getattr(brief, "techAnonymous", False)):
+        raw = _scrub_anon(raw, brief)
+    body = raw or ""
     notes: list[str] = []
-    if bid_is_works(brief) or "施工组织" in compact_title(item.title):
-        _para(doc, "本部分按技术暗标编制，不出现投标人名称、徽标和人员姓名。", indent=True)
     for block in _split_blocks(body):
         _para(doc, block, indent=True)
     if _chapter_wants_drawings(item):
@@ -628,7 +634,10 @@ def _dev_table(doc: Document, brief: BidBrief, item: OutlineItem) -> None:
 
 
 def _perf_table(doc: Document, line: PerformanceLine) -> None:
+    from api.services.tenders.performance import is_perf_placeholder
+
     amount = _perf_amount_text(float(line.amountYuan or 0))
+    pending = is_perf_placeholder(line)
     rows = [
         ("项目名称", (line.projectName or "").strip()),
         ("项目所在地", (line.location or "").strip()),
@@ -639,6 +648,8 @@ def _perf_table(doc: Document, line: PerformanceLine) -> None:
         ("项目概况", (line.summary or "").strip()),
         ("备注", (line.note or "").strip()),
     ]
+    if pending:
+        rows = [(label, value or "待补充") for label, value in rows]
     _kv_table(doc, rows)
 
 

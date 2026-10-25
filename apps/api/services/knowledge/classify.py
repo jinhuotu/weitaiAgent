@@ -117,7 +117,8 @@ def classify_kb_document(
     tags: list | None = None,
 ) -> KbClass:
     # 投标资料库扫描件是公司自有资质/合同，必须进 RAG，不受「整份投标书」启发式影响
-    if any(str(t).strip() == "投标资料" for t in (tags or [])):
+    labels = {str(t).strip() for t in (tags or [])}
+    if "投标资料" in labels or "tech_bid" in labels:
         return KbClass(False, "")
     if name_looks_like_bid_package(name):
         return KbClass(True, "文件名像整份投标文件/投标函，已保留原件但不向量化，检索将跳过")

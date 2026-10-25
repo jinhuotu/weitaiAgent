@@ -7,6 +7,7 @@ import csv
 import io
 import logging
 import re
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from common.config import get_settings
 from common.errors import AppError, ErrorCode
 
 from api.services.knowledge.ocr.factory import get_ocr_provider
+from api.services.word_convert import LEGACY_WORD_HINT, WordConversionError, convert_doc_to_docx
 
 logger = logging.getLogger("api.kb.parsers")
 
@@ -27,6 +29,7 @@ SUPPORTED_EXTENSIONS = frozenset(
         "yaml",
         "yml",
         "pdf",
+        "doc",
         "docx",
         "xlsx",
         "xls",
@@ -43,12 +46,13 @@ SUPPORTED_EXTENSIONS = frozenset(
 )
 IMAGE_EXTENSIONS = frozenset({"png", "jpg", "jpeg", "webp", "gif", "bmp"})
 ALLOWED_HINT = (
-    "pdf / docx / xlsx / xls / pptx / txt / md / csv / json / xml / yaml / "
+    "pdf / doc / docx / xlsx / xls / pptx / txt / md / csv / json / xml / yaml / "
     "png / jpg / webp / mp4 / webm"
 )
 
 _CONTENT_TYPE_EXT = {
     "application/pdf": "pdf",
+    "application/msword": "doc",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
     "application/vnd.ms-excel": "xls",
@@ -74,7 +78,8 @@ _XLSX_MAX_SHEETS = 40
 _XLSX_MAX_ROWS = 8000
 _XLSX_MAX_COLS = 40
 _COUNT_RE = re.compile(r"[\u4e00-\u9fffA-Za-z0-9]")
-_CJK_SPACE_RE = re.compile(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])")
+# 只收掉字间空格。「证明\n投标人」这种换行是下一栏，不能并成一行。
+_CJK_SPACE_RE = re.compile(r"(?<=[\u4e00-\u9fff])[^\S\n]+(?=[\u4e00-\u9fff])")
 _BLIP_NS = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
 _EMBED_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
 _FORMULA_NOTE = "[说明：部分单元格未经 Excel 计算，已保留公式原文]"
@@ -100,12 +105,6 @@ def sniff_extension(filename: str | None, content_type: str | None = None) -> st
 
 def assert_supported(ext: str) -> str:
     kind = (ext or "").lower().lstrip(".")
-    if kind == "doc":
-        raise AppError(
-            ErrorCode.VALIDATION,
-            "旧版 .doc 请另存为 .docx 后上传",
-            status_code=422,
-        )
     if kind in SUPPORTED_EXTENSIONS:
         return kind
     if kind:
@@ -162,6 +161,15 @@ async def extract_text_from_file(path: Path, *, ext: str | None = None) -> Extra
         result = await _read_pdf(path)
     elif kind == "docx":
         result = await _read_docx(path)
+    elif kind == "doc":
+        with tempfile.TemporaryDirectory(prefix="legacy-word-") as temp:
+            converted = Path(temp) / "document.docx"
+            try:
+                await asyncio.to_thread(convert_doc_to_docx, path, converted)
+            except (WordConversionError, OSError) as exc:
+                logger.warning("legacy Word conversion failed file=%r: %s", path.name, exc)
+                raise AppError(ErrorCode.VALIDATION, LEGACY_WORD_HINT, status_code=422) from exc
+            result = await _read_docx(converted)
     elif kind == "xlsx":
         result = await _read_xlsx(path)
     elif kind == "xls":
@@ -274,6 +282,221 @@ def _render_pdf_page_jpeg(pdf_path: Path, page_index: int) -> bytes:
         return buf.getvalue()
     finally:
         doc.close()
+
+
+_RULED_TABLE = {
+    "vertical_strategy": "lines",
+    "horizontal_strategy": "lines",
+    "snap_tolerance": 4,
+    "join_tolerance": 4,
+    "intersection_tolerance": 5,
+    # 字高左右的短线是下划线，不是表框
+    "edge_min_length": 18,
+}
+_HSPAN = ">>"
+_VSPAN = "^^"
+
+
+def _cell_pipe(value: object) -> str:
+    s = re.sub(r"\s+", " ", str(value or "").replace("|", "／")).strip()
+    return s
+
+
+def _pipe_rows(rows: list[list[object]]) -> str:
+    lines: list[str] = []
+    width = 0
+    cleaned: list[list[str]] = []
+    for row in rows:
+        cells = [_cell_pipe(c) for c in (row or [])]
+        if not any(cells):
+            continue
+        width = max(width, len(cells))
+        cleaned.append(cells)
+    if len(cleaned) < 2 or width < 2:
+        return ""
+    for cells in cleaned:
+        if len(cells) < width:
+            cells = cells + [""] * (width - len(cells))
+        lines.append(" | ".join(cells[:width]))
+    return "\n".join(lines)
+
+
+def _cluster_edges(vals: list[float], tol: float = 2.0) -> list[float]:
+    xs = sorted(vals)
+    groups: list[list[float]] = []
+    for x in xs:
+        if not groups or x - groups[-1][-1] > tol:
+            groups.append([x])
+        else:
+            groups[-1].append(x)
+    return [sum(g) / len(g) for g in groups]
+
+
+def _edge_index(edges: list[float], x: float) -> int:
+    return min(range(len(edges)), key=lambda i: abs(edges[i] - x))
+
+
+def _grid_from_cells(rows: list[list[tuple[tuple | None, str | None]]]) -> list[list[str]]:
+    """按格子坐标还原 colspan / rowspan。>> 向左并，^^ 向上并。"""
+    bands: list[float | None] = []
+    edges_raw: list[float] = []
+    for row in rows:
+        tops = [box[1] for box, _text in row if box is not None]
+        bands.append(min(tops) if tops else None)
+        for box, _text in row:
+            if box is None:
+                continue
+            edges_raw.extend((box[0], box[2]))
+    edges = _cluster_edges(edges_raw)
+    if len(edges) < 3 or len(rows) < 2:
+        return []
+    ncols = len(edges) - 1
+    grid: list[list[str | None]] = [[None] * ncols for _ in rows]
+    spans: list[tuple[int, int, int, int, str]] = []
+    for ri, row in enumerate(rows):
+        for box, text in row:
+            if box is None:
+                continue
+            c0 = _edge_index(edges, box[0])
+            c1 = _edge_index(edges, box[2])
+            if c1 <= c0:
+                c1 = min(ncols, c0 + 1)
+            r1 = ri
+            for rj in range(ri + 1, len(rows)):
+                nxt = bands[rj]
+                if nxt is None:
+                    continue
+                if box[3] > nxt + 4:
+                    r1 = rj
+                else:
+                    break
+            spans.append((ri, c0, r1, c1, _cell_pipe(text)))
+    for ri, c0, r1, c1, text in spans:
+        if grid[ri][c0] in (None, "", _HSPAN, _VSPAN):
+            grid[ri][c0] = text
+        for c in range(c0 + 1, c1):
+            if grid[ri][c] is None:
+                grid[ri][c] = _HSPAN
+        for r in range(ri + 1, r1 + 1):
+            if grid[r][c0] is None:
+                grid[r][c0] = _VSPAN
+            for c in range(c0 + 1, c1):
+                if grid[r][c] is None:
+                    grid[r][c] = _HSPAN
+    out: list[list[str]] = []
+    for row in grid:
+        out.append([("" if c is None else c) for c in row])
+    return out
+
+
+def _grid_usable(grid: list[list[str]]) -> bool:
+    if len(grid) < 2 or max((len(r) for r in grid), default=0) < 2:
+        return False
+    texts: list[str] = []
+    for row in grid:
+        for c in row:
+            if c in {_HSPAN, _VSPAN}:
+                continue
+            s = re.sub(r"\s+", "", c or "")
+            if s:
+                texts.append(s)
+    long = [s for s in texts if len(s) >= 2]
+    if len(long) < 2:
+        return False
+    short = sum(1 for s in texts if len(s) <= 1)
+    if texts and short / len(texts) > 0.45:
+        return False
+    # 1.1.2 这种条款号格子多半是正文被线切碎，不是要还原的表
+    numish = sum(
+        1 for s in texts if re.fullmatch(r"\d+(?:\.\d+)+|[（(]\d+[)）]", s)
+    )
+    if texts and numish / len(texts) >= 0.2:
+        return False
+    return True
+
+
+def _grid_pipe(grid: list[list[str]]) -> str:
+    if not _grid_usable(grid):
+        return ""
+    width = max(len(r) for r in grid)
+    lines: list[str] = []
+    blanks = 0
+    for row in grid:
+        cells = list(row) + [""] * (width - len(row))
+        if not any((c or "").strip() for c in cells):
+            blanks += 1
+            if blanks > 24:
+                continue
+        else:
+            blanks = 0
+        lines.append(" | ".join(cells[:width]))
+    if len(lines) < 2:
+        return ""
+    return "\n".join(lines)
+
+
+def _compose_ruled_page(lines: list[dict], tables: list[tuple[tuple, str]]) -> str:
+    """线框表按纵坐标插回正文，表内的字不再重复出现。"""
+    boxes = [box for box, _pipe in tables]
+
+    def inside(top: float, bottom: float) -> bool:
+        mid = (top + bottom) / 2
+        for x0, t, x1, b in boxes:
+            if t - 2 <= mid <= b + 2:
+                return True
+        return False
+
+    events: list[tuple[float, int, str]] = []
+    for ln in lines:
+        text = (ln.get("text") or "").strip()
+        if not text or inside(float(ln.get("top") or 0), float(ln.get("bottom") or 0)):
+            continue
+        events.append((float(ln.get("top") or 0), 0, text))
+    for box, pipe in tables:
+        if pipe:
+            events.append((float(box[1]), 1, pipe))
+    events.sort(key=lambda e: (e[0], e[1]))
+    return "\n".join(e[2] for e in events if e[2].strip())
+
+
+def _table_cells(table) -> list[list[tuple[tuple | None, str | None]]]:
+    extracted = table.extract() or []
+    rows = []
+    for ri, row in enumerate(table.rows):
+        texts = extracted[ri] if ri < len(extracted) else []
+        rows.append(
+            [
+                (box, texts[ci] if ci < len(texts) else None)
+                for ci, box in enumerate(row.cells)
+            ]
+        )
+    return rows
+
+
+def _ruled_page_text(plumber_page) -> str:
+    try:
+        found = plumber_page.find_tables(_RULED_TABLE) or []
+    except Exception:  # noqa: BLE001
+        return ""
+    tables: list[tuple[tuple, str]] = []
+    for table in found:
+        try:
+            pipe = _grid_pipe(_grid_from_cells(_table_cells(table)))
+        except Exception:  # noqa: BLE001
+            continue
+        if not pipe:
+            continue
+        box = tuple(table.bbox)
+        if box[2] - box[0] < 40 or box[3] - box[1] < 12:
+            continue
+        tables.append((box, pipe))
+    if not tables:
+        return ""
+    try:
+        lines = plumber_page.extract_text_lines() or []
+    except Exception:  # noqa: BLE001
+        lines = []
+    return _compose_ruled_page(lines, tables)
 
 
 async def _read_pdf(path: Path) -> ExtractResult:

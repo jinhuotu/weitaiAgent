@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -16,10 +18,10 @@ from api.services.knowledge.ingest import search_knowledge_docs
 from api.services.knowledge.parsers import assert_supported, extract_text_from_file, sniff_extension
 from api.services.layouts.parse import extract_json_object
 from api.services.models.runtime import build_llm_client
+from api.services.word_convert import convert_doc_to_docx
 from api.services.tenders.assets import save_invitation_text, tender_invitations_dir
 from api.services.tenders.quote import (
     attach_sheet,
-    parse_quote_from_text,
     parse_quote_path,
     sheet_from_quote_records,
 )
@@ -56,6 +58,7 @@ _PATCHABLE = frozenset(
     {
         "projectName",
         "tenderer",
+        "tenderNo",
         "bidContent",
         "quality",
         "deliveryDays",
@@ -108,16 +111,21 @@ _MONEY_FIELDS = frozenset(
 )
 
 _SYSTEM = """你是投标文件助理。用户会上传甲方的投标邀请书或招标文件正文。
+商务标必须按照上传标书里的投标文件格式抽取，保持原文的章节、表格和条款，不能凭空想象，不能换成别的模板或自己补写一段。
 投标文件分商务标与技术标。商务标看有没有资格干（公司、资质、人员、业绩、报价、函件），缺资质或盖章错误会废标。
 技术标按本邀请书的技术章节和条款响应，不限定行业。识别阶段只抽字段和条款，不要写长篇方案，不要编造图纸、数量或工期。
-你的任务：抽出填「投标书表单」所需的项目侧字段，用 JSON 返回。
+你的任务：抽出填「投标书表单」所需的项目侧字段，用 JSON 返回。Word 由程序按上传文件排版，这一步不要自己写文档。
 硬性规则：
 1. 投标人永远是河南伟泰光电科技有限公司。不要把招标人、代理机构或其他公司写进投标人。
-2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体工程量。
-3. 不要输出思考过程、Word 或 Markdown，只输出一个完整 JSON 对象。
-4. 知识库摘录仅对照资格条款种类。出现其他公司投标文件、投标函或合同，一律忽略，不得当作伟泰资料。
+2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体工程量。上传文件里没有的表格、函件、证明格式，不要臆造。
+3. 不要输出思考过程或 Markdown，只输出一个完整 JSON 对象。
+4. 知识库摘录仅对照资格条款种类。出现其他公司投标文件、投标函或合同，一律忽略，不得当作伟泰资料，也不得用它们替换上传标书的格式。
 5. 工程量清单必须来自本邀请书或用户上传的表格。没有表格则 quoteLines 必须为 []，禁止用其它项目的数量或历史投标书顶替。
-6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、数量、合同业绩写入 JSON。
+6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、数量、合同业绩写入 JSON，禁止用历史标书的版式覆盖本次上传文件。
+7. 目录边界（最高优先级）：目录页是【纯章节标题列表页】，页内绝对禁止出现任何粘贴框、虚线框、扫描件、附件、工程量清单、图片或「此处粘贴 XX」占位说明。这类内容只能出现在正文对应章节的内容区或卷末附件区，绝不能画进目录页。
+8. 两类对象严格分开：a) 组卷目录条目＝正文章节的标题，只能进目录；b) 附件待贴位＝正文对应章节内的占位，只能进正文、绝不能进目录。
+9. 附件落位（最高优先级）：每个附件只允许贴到标书【专门要求提供该附件】的正文一级章节内。凡某内容只是被【列举或提及】、但该处并不要求实际粘贴/提供的，一律禁止在此画粘贴框。典型例子：投标函组成清单里写的「（4）投标保证金（如有）」只是列举投标文件包含哪些内容，不是粘贴位；投标保证金必须贴到标书专门的「四、投标保证金」章节（该章会写明"在此提供汇款凭证复印件/附基本账户开户证明/提供银行保函"）。目录页、投标函、法定代表人身份证明等仅提及处，一律不得落附件。
+10. 页码与目录排版：封面与目录所在页不编页码，正文从第 1 页起编；目录条目须能对应到正文章节页码。不得因插入任何正文或附件内容破坏目录排版。
 JSON 字段：
 projectName, tenderer, bidContent, quality,
 deliveryDays, warrantyYears, bidValidityDays, bidPriceYuan,
@@ -127,7 +135,12 @@ pmName, pmCertNo, pmGrade, defectPeriod, perfBond,
 quoteTitle, quoteTaxRate,
 quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
 notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
-requiredMaterials（对象数组，每项 key/reason；key 必须来自用户提供的资料库清单。禁止编造 key，禁止把其他项目的扫描件、合同或数量当作本标附件。名称不同但同属一类的必须用已有 key，例如资料库「信用截图」对应邀请书「信用中国/政府采购网/国家企业信用信息公示查询截图」）,
+requiredMaterials（对象数组，每项 key/reason/attachToSection：
+  key 必须来自用户提供的资料库清单，禁止编造；名称不同但同属一类的必须用已有 key。
+  reason 说明该附件对应哪条要求。
+  attachToSection 该附件应贴入的【正文一级章节标题】，必须取自本标书正文且为"专门要求提供该附件"的章节，
+  例如投标保证金 →「四、投标保证金」。若本标书没有专门章节、仅在某条款提及该内容，则不写 attachToSection，
+  由程序放入卷末附件区。禁止把 attachToSection 设为投标函、目录、法定代表人身份证明等仅列举/提及该内容的条款。) ,
 missingMaterials（对象数组，每项 title/reason，仅当资料库完全没有同类项、邀请书额外要求时才填。不要因标题更长就新建；不要填其他项目的文件名；程序会建空项等用户上传）,
 deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术条款或规格，禁止套用某一行业的固定参数。无条款则 []。response/deviation 可空，程序后续起草）,
 performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
@@ -168,6 +181,8 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
     for key in _PATCHABLE:
         if key not in patch:
             continue
+        if key == "tenderNo" and not _missing_project_fact(data.get(key)):
+            continue
         value = patch.get(key)
         if value is None:
             continue
@@ -198,6 +213,8 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
             applied.append(key)
             continue
         text = str(value).strip()
+        if key in {"projectName", "tenderer", "tenderNo"} and _missing_project_fact(text):
+            continue
         if _looks_like_other_bidder(text, key):
             continue
         data[key] = text
@@ -394,7 +411,9 @@ def notes_from_payload(patch: dict[str, Any]) -> list[str]:
 _YUAN_NUM = r"([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{1,2})?|[0-9]+(?:\.[0-9]{1,2})?)"
 
 
-def apply_invite_letter_fields(brief: BidBrief, invitation: str) -> BidBrief:
+def apply_invite_letter_fields(
+    brief: BidBrief, invitation: str, *, file_name: str = "",
+) -> BidBrief:
     """从招标书正文抽工期/有效期/控制价栏目，各标通用，不改投标人。"""
     text = invitation or ""
     data = brief.model_dump()
@@ -453,6 +472,7 @@ def apply_invite_letter_fields(brief: BidBrief, invitation: str) -> BidBrief:
     cert = re.search(r"(?:注册证号|证书编号)[：:]\s*([A-Za-z0-9\-_]{6,32})", text)
     if cert and not str(data.get("pmCertNo") or "").strip():
         data["pmCertNo"] = cert.group(1)
+    _fill_project_facts(data, text, file_name=file_name)
     defect = re.search(r"缺陷责任期[^\d]{0,10}(\d{1,3})\s*(个月|月|年|日历天)", text)
     if defect and not str(data.get("defectPeriod") or "").strip():
         data["defectPeriod"] = defect.group(1) + defect.group(2)
@@ -468,6 +488,185 @@ def apply_invite_letter_fields(brief: BidBrief, invitation: str) -> BidBrief:
     return BidBrief.model_validate(data)
 
 
+_PROJECT_NAME = re.compile(r"(?:招标)?项目名称\s*[：:]\s*([^\n；;]{4,80})")
+_TENDERER = re.compile(
+    r"招标人(?:名称)?\s*[：:为]\s*"
+    r"([\u4e00-\u9fffA-Za-z0-9（）()·]{4,40}?(?:公司|局|中心|委员会|集团|大学|医院))"
+)
+_BID_SCOPE = re.compile(
+    r"招标范围\s*[：:]\s*(.+?)(?=\s*2\.\d|\s*1\.\d\.\d|\s*计划工期|\s*合同估算价|\Z)",
+    re.S,
+)
+
+
+_FACT_LABELS = frozenset({
+    "项目名称", "采购项目名称", "招标项目名称", "工程名称", "采购人", "采购人名称",
+    "招标人", "招标人名称", "采购单位", "采购单位名称", "询价人", "询价单位",
+    "项目单位", "招标编号", "采购编号", "询价编号", "项目编号", "待填写", "待填",
+})
+_DOCUMENT_TITLE_END = re.compile(
+    r"(?:采购询价(?:文件|函)|询价采购文件|采购文件|采购公告|询价文件|询价函|询价公告|"
+    r"招标文件|招标公告|竞争性谈判文件|竞争性磋商文件|比选文件)"
+    r"(?:[（(](?:发出版|发布版|定稿版|最终版|修订版)[^（）()\n]{0,40}[)）])?\s*$"
+)
+
+
+def _missing_project_fact(value: Any) -> bool:
+    raw = re.sub(r"\s+", "", str(value or ""))
+    if not raw or raw.strip("（）()【】[]《》<>：:_—-….") in _FACT_LABELS:
+        return True
+    if re.fullmatch(r"[_—\-….]+|[xX×]{2,}", raw):
+        return True
+    return bool(re.search(
+        r"[（(【\[]\s*(?:项目名称|采购项目名称|采购人名称|招标人名称|采购人|招标人|"
+        r"招标编号|采购编号|询价编号)\s*[)）】\]]", raw,
+    ))
+
+
+def _project_name_candidate(value: str) -> str:
+    name = re.sub(r"\s+", "", value).strip("，,。；;《》\"“”")
+    if len(name) < 6 or len(name) > 400 or _missing_project_fact(name):
+        return ""
+    if any(word in name for word in ("由招标人", "示范文本", "请填写", "以下简称", "详见附件")):
+        return ""
+    if re.match(r"^(?:采购人|招标人|采购单位|询价单位|项目单位|采购编号|招标编号)[:：|]", name):
+        return ""
+    if name in {"项目名称", "建设项目", "采购项目", "采购询价文件", "招标文件", "订货技术要求"}:
+        return ""
+    return name
+
+
+def _project_from_title(value: str) -> str:
+    name = _DOCUMENT_TITLE_END.sub("", value.strip()).strip(" -_—：:")
+    name = _project_name_candidate(name)
+    return name if re.search(r"项目|工程|采购|系统|设备|建设", name) else ""
+
+
+def _project_from_cover(text: str) -> str:
+    lines = [line.strip() for line in text.splitlines() if line.strip()][:60]
+    for index, line in enumerate(lines):
+        if re.match(r"^(?:第[一二三四五六七八九十0-9]+[章部分]|总目录|目录$)", line):
+            break
+        if not _DOCUMENT_TITLE_END.search(line):
+            continue
+        inline = _project_from_title(line)
+        if inline:
+            return inline
+        # 封面常把项目名、包号和“采购询价函”写成相邻的三个段落。
+        for start in range(index - 1, max(-1, index - 6), -1):
+            if (
+                not re.search(r"项目|工程", lines[start])
+                or not _project_name_candidate(lines[start])
+            ):
+                continue
+            if re.search(r"[：:|。；;]|招标人|采购人|项目单位", lines[start]):
+                continue
+            pieces = [lines[start]]
+            for tail in lines[start + 1:index]:
+                if re.match(r"^(?:包[一二三四五六七八九十百0-9]+|第.+包|标段)", tail):
+                    pieces.append(tail)
+            candidate = _project_from_title("".join(pieces))
+            if candidate:
+                return candidate
+    return ""
+
+
+def _project_from_attachment(text: str) -> str:
+    candidates = set()
+    for match in re.finditer(
+        r"《([^》\n]{6,400}?)(?:订货技术要求|采购技术要求|技术规格书)》", text,
+    ):
+        context = text[max(0, match.start() - 50):match.start()]
+        if not re.search(r"附件|详见|祥见|本项目|本次采购", context):
+            continue
+        if re.search(r"类似业绩|历史项目|往年项目", context):
+            continue
+        candidate = _project_from_title(match.group(1))
+        if candidate:
+            candidates.add(candidate)
+    return next(iter(candidates)) if len(candidates) == 1 else ""
+
+
+def _project_from_filename(file_name: str) -> str:
+    name = Path(file_name.replace("\\", "/")).name
+    if Path(name).suffix.lower() in {".doc", ".docx"}:
+        name = name[: -len(Path(name).suffix)]
+    # 无项目语义的随机落盘 ID 和通用“询价文件”不能当项目名称。
+    if not _DOCUMENT_TITLE_END.search(name):
+        return ""
+    return _project_from_title(name)
+
+
+def _fill_project_facts(data: dict, text: str, *, file_name: str = "") -> None:
+    """模型没抽出时，从招标公告和投标人须知里补项目名称、招标人、编号、招标范围。"""
+    for key in ("projectName", "tenderer", "tenderNo"):
+        if _missing_project_fact(data.get(key)):
+            data[key] = ""
+    if not data.get("projectName"):
+        for hit in _PROJECT_NAME.finditer(text or ""):
+            if text[max(0, hit.start() - 2):hit.start()] in {"采购", "询价"}:
+                continue
+            name = re.sub(r"\s+", "", hit.group(1)).strip("，,。")
+            if not _project_name_candidate(name) or "示范" in name or "由招标人" in name:
+                continue
+            data["projectName"] = name
+            break
+    if not data.get("projectName"):
+        for hit in re.finditer(
+            r"(?:采购项目名称|询价项目名称|采购名称|询价名称)\s*[:：|]\s*([^\n；;|]{6,400})", text,
+        ):
+            name = _project_name_candidate(hit.group(1))
+            if name:
+                data["projectName"] = name
+                break
+    if not data.get("projectName"):
+        data["projectName"] = (
+            _project_from_cover(text) or _project_from_attachment(text)
+            or _project_from_filename(file_name)
+        )
+    if not str(data.get("tenderer") or "").strip():
+        for hit in _TENDERER.finditer(text or ""):
+            if not _missing_project_fact(hit.group(1)):
+                data["tenderer"] = re.sub(r"\s+", "", hit.group(1))
+                break
+    if not data.get("tenderer"):
+        labels = (
+            r"采购人(?:名称)?|采购单位(?:名称)?|询价人(?:名称)?|询价单位(?:名称)?|"
+            r"项目单位[（(](?:即)?(?:采购人|询价人)[)）]"
+        )
+        for hit in re.finditer(rf"(?:{labels})\s*[:：|]\s*([^\n；;|]{{4,160}})", text):
+            org = re.split(
+                r"\s+(?:地址|联系人|联系电话|采购编号|询价编号)\s*[:：]", hit.group(1),
+            )[0]
+            org = re.sub(r"[（(](?:盖章|盖单位章)[)）].*$", "", org)
+            org = re.sub(r"\s+", "", org).strip("，,。")
+            if not _missing_project_fact(org):
+                data["tenderer"] = org
+                break
+    if not str(data.get("tenderNo") or "").strip():
+        from api.services.tenders.format_rules import extract_tender_no
+
+        no = extract_tender_no(text or "")
+        if no and not _missing_project_fact(no):
+            data["tenderNo"] = no
+        else:
+            for hit in re.finditer(
+                r"(?:询价(?:文件|项目)?编号|采购项目编号)\s*[:：为|]?\s*"
+                r"([A-Za-z0-9][A-Za-z0-9\-_/]{2,63})", text,
+            ):
+                if not _missing_project_fact(hit.group(1)):
+                    data["tenderNo"] = hit.group(1)
+                    break
+    if not str(data.get("bidContent") or "").strip():
+        hit = _BID_SCOPE.search(text or "")
+        if hit:
+            body = re.sub(r"\[第\s*\d+\s*页\]", "", hit.group(1))
+            body = re.sub(r"(?m)^-\d{1,4}-$", "", body)
+            body = re.sub(r"\s+", "", body).strip("；;，,。")
+            if len(body) >= 8:
+                data["bidContent"] = body[:400]
+
+
 async def parse_invitation(
     db: AsyncSession,
     upload: UploadFile,
@@ -478,8 +677,9 @@ async def parse_invitation(
     quote_record_ids: list[str] | None = None,
     created_by: int | None = None,
     persist_library: bool = True,
+    volume_locked: bool = False,
 ) -> dict[str, Any]:
-    path = await _save_upload(upload)
+    path = await _save_invitation(upload)
     quote_path = None
     if quote_upload is not None and (quote_upload.filename or "").strip():
         quote_path = await _save_upload(quote_upload)
@@ -489,7 +689,7 @@ async def parse_invitation(
     settings = get_settings()
     max_ocr = max(0, int(settings.ocr_max_pages))
     if len(invitation) < 20:
-        hint = "邀请书解析正文过短，请换可检索的 PDF/Word"
+        hint = "邀请书解析正文过短，请换可检索的 Word（.doc / .docx）"
         if extracted.ocr_capped:
             hint += f"（已达 OCR 上限 {max_ocr} 页，可提高 OCR_MAX_PAGES 后重试）"
         elif path.suffix.lower().lstrip(".") in {
@@ -565,7 +765,7 @@ async def parse_invitation(
                 status_code=422,
             ) from second
     brief, filled = apply_extract_patch(current or default_brief(), patch)
-    brief = apply_invite_letter_fields(brief, invitation)
+    brief = apply_invite_letter_fields(brief, invitation, file_name=upload.filename or "")
     brief.invitationId = invitation_id
     company_profile = await latest_company_profile(db)
     brief, company_filled = fill_empty_company_fields(brief, current, company_profile)
@@ -591,13 +791,18 @@ async def parse_invitation(
         extract_tender_no,
         format_brief_notes,
     )
-    from api.services.tenders.classifier import apply_bid_requirements, extract_requirements
+    from api.services.tenders.classifier import (
+        apply_bid_requirements,
+        bind_requirements,
+        biz_clause_filled,
+        extract_requirements,
+        extract_veto_requirements,
+        merge_veto_requirements,
+    )
     from api.services.tenders.outline import (
-        apply_auth_outline,
         choose_layout_mode,
         extract_auth_need,
         extract_outline,
-        ensure_biz_essentials,
         has_invite_format_chapter,
         hydrate_tech_excerpts,
         unmash_invitation_text,
@@ -606,6 +811,7 @@ async def parse_invitation(
         extract_performance_requirement,
         format_requirement,
         merge_performance_requirement,
+        pad_performance_placeholders,
         performance_match_issues,
         requirement_from_payload,
     )
@@ -613,33 +819,30 @@ async def parse_invitation(
     chapter, outline_items = extract_outline(invitation)
     brief.authNeed = extract_auth_need(invitation, outline_items)
     brief.authEnabled = bool(brief.authEnabled)
-    outline_items = apply_auth_outline(
-        outline_items,
-        has_agent=has_agent,
-        auth_need=brief.authNeed,
-        auth_enabled=brief.authEnabled,
-    )
+    # 抽出的目录原样保留。按固定模板生成时不读这批条目；按本标生成时也不补公司固定章节。
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
-    if (brief.layoutMode or "").strip() == "outline":
-        outline_items = ensure_biz_essentials(outline_items)
-        outline_items = apply_auth_outline(
-            outline_items,
-            has_agent=has_agent,
-            auth_need=brief.authNeed,
-            auth_enabled=brief.authEnabled,
-        )
+    brief.formatConfirmed = False
     brief.outlineChapter = chapter
     brief.outlineItems = hydrate_tech_excerpts(outline_items)
     brief.documentFormat = extract_document_format(invitation)
     tender_no = extract_tender_no(invitation)
-    if tender_no:
+    if tender_no and not _missing_project_fact(tender_no) and _missing_project_fact(brief.tenderNo):
         brief.tenderNo = tender_no
+    for key in ("projectName", "tenderer", "tenderNo", "bidContent"):
+        if str(getattr(brief, key, "") or "").strip() and key not in filled:
+            filled.append(key)
     brief.performanceRequirement = merge_performance_requirement(
         extract_performance_requirement(invitation),
         requirement_from_payload(patch),
         invitation=invitation,
     )
-    req_notes = apply_bid_requirements(brief, extract_requirements(unmash_invitation_text(invitation)))
+    req_notes = apply_bid_requirements(
+        brief,
+        merge_veto_requirements(
+            extract_requirements(unmash_invitation_text(invitation)),
+            extract_veto_requirements(invitation),
+        ),
+    )
     brief.extraPlaceholders = extras
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
@@ -679,11 +882,30 @@ async def parse_invitation(
             lib_perf,
             requirement=brief.performanceRequirement,
         )
-        if brief.performanceLines and "performanceLines" not in filled:
-            filled = [*filled, "performanceLines"]
+    brief.performanceLines = pad_performance_placeholders(
+        brief.performanceLines,
+        brief.performanceRequirement,
+    )
+    if brief.performanceLines and "performanceLines" not in filled:
+        filled = [*filled, "performanceLines"]
 
     slots = collect_slots(extras, catalog=catalog, include_keys=include_keys)
     catalog_rows = await list_library_items(db)
+    file_counts = {
+        str(row.get("key") or ""): int(row.get("fileCount") or 0)
+        for row in catalog_rows
+        if row.get("key")
+    }
+    brief.bidRequirements = bind_requirements(
+        brief.bidRequirements,
+        catalog=catalog,
+        file_counts=file_counts,
+        outline_items=brief.outlineItems,
+        performance_lines=brief.performanceLines,
+        deviation_lines=brief.deviationLines,
+        layout_mode=brief.layoutMode,
+        biz_filled=biz_clause_filled(brief),
+    )
     from api.services.tenders.match import attachment_match_notes, build_attachment_match
 
     attachment_match = build_attachment_match(
@@ -728,6 +950,24 @@ async def parse_invitation(
     else:
         notes.insert(0, "已根据邀请书回填：" + "、".join(_label(k) for k in filled))
     notes.extend(attachment_match_notes(attachment_match))
+    fmt_note = ""
+    if brief.layoutMode == "outline" and path.suffix.lower() == ".docx":
+        from api.services.tenders.pdf_format import prepare_word_format_docx
+
+        fmt_note = await asyncio.to_thread(prepare_word_format_docx, path, invitation_id)
+    elif brief.layoutMode == "outline" and path.suffix.lower() == ".pdf":
+        fmt_note = "格式章只从 Word 原件截取，请将招标文件另存为 .docx 后重新上传"
+    if fmt_note:
+        notes.append(fmt_note)
+        src = tender_invitations_dir() / f"{invitation_id}.format.docx"
+        if src.is_file():
+            import shutil
+
+            from api.services.tenders.assets import tenders_output_dir
+
+            dest = tenders_output_dir() / src.name
+            await asyncio.to_thread(shutil.copyfile, src, dest)
+            notes.append(f"格式章空白稿已保存，可预览：{dest.name}")
     if outline_items:
         copied = sum(1 for item in outline_items if (item.body or "").strip())
         if brief.layoutMode == "outline":
@@ -748,7 +988,23 @@ async def parse_invitation(
         notes.append("招标书写了须授权委托；默认法人自签，要用委托人请打开「启用授权委托」")
     elif brief.authNeed == "optional":
         notes.append("招标书有授权委托书格式；未打开「启用授权委托」则跳过该页")
+    from api.services.tenders.library_kb import legal_persons_from_library
+
+    persons = await legal_persons_from_library(db, extract_missing=True)
+    if len(persons) > 1:
+        names = "、".join((item.get("name") or item.get("idNo") or "") for item in persons[:6])
+        notes.append(
+            f"资料库有 {len(persons)} 位法定代表人（{names}），请在下一步下拉选择本标使用的人和身份证"
+        )
+    elif len(persons) == 1:
+        who = persons[0].get("name") or persons[0].get("idNo") or ""
+        notes.append(f"资料库已识别法定代表人 {who}，下一步可核对；生成时只贴这一人的身份证正反面")
     notes.extend(format_brief_notes(brief.documentFormat))
+    from api.services.tenders.classifier import apply_volume_binding
+
+    brief = apply_volume_binding(brief, invitation, keep_volume=volume_locked)
+    if (brief.volumeNote or "").strip():
+        notes.append(brief.volumeNote)
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
     agent_hint = await latest_agent_profile(db)
@@ -876,7 +1132,6 @@ def apply_kb_format_suggestions(
     from api.services.tenders.format_rules import extract_document_format
     from api.services.tenders.outline import (
         choose_layout_mode,
-        ensure_biz_essentials,
         has_invite_format_chapter,
         hydrate_tech_excerpts,
         titles_from_format_text,
@@ -912,8 +1167,6 @@ def apply_kb_format_suggestions(
         if items:
             brief.outlineItems = hydrate_tech_excerpts(items)
             brief.layoutMode = choose_layout_mode(chapter, brief.outlineItems)
-            if (brief.layoutMode or "").strip() == "outline":
-                brief.outlineItems = hydrate_tech_excerpts(ensure_biz_essentials(brief.outlineItems))
             notes.append(f"目录 {len(items)} 条来自知识库（{src}），请核对，不套用其中正文")
     if not any(str(h or "").strip() for h in (brief.quoteHeaders or [])):
         layout = extract_quote_headers(blob)
@@ -1003,28 +1256,17 @@ def _merge_quote(
     quote_path,
     record_sheet=None,
 ) -> tuple[list[str], BidBrief, bool]:
-    del patch
+    del patch, invitation, invite_path
     notes: list[str] = []
     sheet = parse_quote_path(quote_path) if quote_path is not None else None
     source = "file" if sheet is not None else ""
-    if sheet is None and quote_path is not None:
-        notes.append("工程量清单文件未能按表格解析，已改从邀请书里找")
     if sheet is None and record_sheet is not None:
         sheet = record_sheet
         source = "record"
-    if sheet is None:
-        sheet = parse_quote_path(invite_path)
-        if sheet is not None:
-            source = "file"
-    if sheet is None:
-        sheet = parse_quote_from_text(invitation, title_hint=brief.projectName)
-        if sheet is not None:
-            source = "text"
-    if sheet is None:
-        notes.append(
-            "未解析到工程量清单。请另传 Excel/Word 清单，或勾选 AI 报价记录后重新识别再生成。"
-            "未采用模型或历史投标书中的台数。"
-        )
+    if sheet is None and quote_path is not None:
+        notes.append("报价清单未能按表格解析，生成时不填写报价分项。")
+    elif sheet is None:
+        notes.append("未上传报价清单，生成时不填写报价分项。未采用模型或历史投标书中的台数。")
         if brief.quoteLines:
             data = brief.model_dump()
             data["quoteLines"] = []
@@ -1044,12 +1286,19 @@ def _merge_quote(
     return notes, brief, True
 
 
-async def _save_upload(upload: UploadFile):
+_INVITE_WORD = {".doc", ".docx"}
+
+
+def invitation_word_ext(filename: str | None) -> str:
+    name = (filename or "").replace("\\", "/").split("/")[-1].strip()
+    ext = Path(name).suffix.lower()
+    if ext not in _INVITE_WORD:
+        raise AppError(ErrorCode.VALIDATION, "投标邀请书只支持 .doc 和 .docx", status_code=422)
+    return ext
+
+
+async def _dump_upload(upload: UploadFile, dest: Path) -> None:
     settings = get_settings()
-    filename = (upload.filename or "invitation.bin").replace("\\", "/").split("/")[-1]
-    ext = assert_supported(sniff_extension(filename, upload.content_type))
-    dest_dir = tender_invitations_dir()
-    dest = dest_dir / f"{uuid4().hex[:12]}.{ext}"
     max_bytes = int(settings.kb_upload_max_bytes)
     size = 0
     try:
@@ -1072,7 +1321,40 @@ async def _save_upload(upload: UploadFile):
     if size <= 0:
         dest.unlink(missing_ok=True)
         raise AppError(ErrorCode.VALIDATION, "上传文件为空", status_code=422)
+
+
+async def _save_upload(upload: UploadFile):
+    filename = (upload.filename or "invitation.bin").replace("\\", "/").split("/")[-1]
+    ext = assert_supported(sniff_extension(filename, upload.content_type))
+    dest = tender_invitations_dir() / f"{uuid4().hex[:12]}.{ext}"
+    await _dump_upload(upload, dest)
     return dest
+
+
+def _doc_to_docx(src: Path, dest: Path) -> None:
+    convert_doc_to_docx(src, dest)
+
+
+async def _save_invitation(upload: UploadFile):
+    ext = invitation_word_ext(upload.filename)
+    if ext == ".docx":
+        return await _save_upload(upload)
+    raw = tender_invitations_dir() / f"{uuid4().hex[:12]}.doc"
+    await _dump_upload(upload, raw)
+    docx = raw.with_suffix(".docx")
+    try:
+        await asyncio.to_thread(_doc_to_docx, raw, docx)
+    except Exception as exc:
+        logger.warning("doc to docx failed file=%r: %s", upload.filename, exc)
+        raw.unlink(missing_ok=True)
+        docx.unlink(missing_ok=True)
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "旧版 .doc 打不开，请在 Word 里另存为 .docx 后再上传",
+            status_code=422,
+        ) from exc
+    raw.unlink(missing_ok=True)
+    return docx
 
 
 def parse_kb_ids(raw: str | None) -> list[str]:

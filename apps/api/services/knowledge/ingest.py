@@ -914,6 +914,8 @@ async def ingest_text(
     uploader: str | None = None,
     created_by: int | None = None,
     public_id: str | None = None,
+    parent_id: str | None = None,
+    skip_dedup: bool = False,
 ) -> dict[str, Any]:
     text = content.strip()
     if len(text) < 4:
@@ -924,7 +926,9 @@ async def ingest_text(
 
     base = await get_base_by_public_id(db, base_public_id)
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
-    existing = await _find_by_content_hash(db, base_id=base.id, digest=digest)
+    existing = None
+    if not skip_dedup:
+        existing = await _find_by_content_hash(db, base_id=base.id, digest=digest)
     if existing is not None and existing.status != "failed":
         return _as_duplicate(existing, base_public_id=base.public_id)
     if existing is not None and existing.status == "failed":
@@ -953,6 +957,7 @@ async def ingest_text(
         char_count=len(text),
         chunk_count=0,
         content_hash=digest,
+        parent_id=(parent_id or "").strip() or None,
         tags=tag_list,
         uploader=uploader,
         status="parsing",

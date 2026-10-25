@@ -546,6 +546,8 @@ def rule_inspect(
         from api.services.tenders.performance import performance_match_issues
 
         for msg in performance_match_issues(brief.performanceLines, brief.performanceRequirement):
+            if "已按招标要求占位" in msg:
+                continue
             gaps.append(
                 _gap(
                     "类似业绩",
@@ -819,6 +821,57 @@ def grade_for(score: int) -> str:
     return "risk"
 
 
+def _reconcile(coverage: dict[str, Any] | None) -> dict[str, Any]:
+    cov = coverage or {}
+    gaps = []
+    for row in cov.get("rows") or []:
+        if row.get("matchStatus") in {"matched", "format"}:
+            continue
+        gaps.append(
+            {
+                "text": row.get("text") or "",
+                "source": row.get("sourceChapter") or "",
+                "suggest": row.get("matchNote") or "补齐对应资料后再交付",
+                "respond": row.get("respond") or "",
+            }
+        )
+    total = int(cov.get("mandatoryTotal") or 0)
+    covered = int(cov.get("mandatoryCovered") or 0)
+    rate = int(cov.get("coverageRate") if cov.get("coverageRate") is not None else (100 if not total else 0))
+    return {
+        "covered": covered,
+        "total": total,
+        "coverageRate": rate,
+        "passed": total == 0 or (rate >= 95 and not gaps),
+        "gaps": gaps,
+    }
+
+
+def _requirement_coverage(
+    brief: BidBrief | None,
+    *,
+    file_counts: dict[str, int] | None = None,
+    catalog: list | None = None,
+    volume: str = "",
+) -> dict[str, Any]:
+    from api.services.tenders.classifier import evidence_coverage
+
+    if brief is None:
+        return {
+            "redLine": False,
+            "mandatoryCovered": 0,
+            "mandatoryTotal": 0,
+            "formatCount": 0,
+            "rows": [],
+        }
+    return evidence_coverage(
+        brief,
+        catalog=catalog,
+        file_counts=file_counts,
+        volume=volume,
+    )
+
+
 def _grade_label(grade: str) -> str:
     return {
         "good": "响应较完整",
@@ -839,6 +892,8 @@ def build_report(
     upload_name: str | None = None,
     volume: str | None = None,
     brief: BidBrief | None = None,
+    file_counts: dict[str, int] | None = None,
+    catalog: list | None = None,
 ) -> dict[str, Any]:
     llm_score = int(llm["similarityScore"]) if llm and "similarityScore" in llm else None
     score = combine_score(int(rule.get("score") or 0), llm_score)
@@ -855,6 +910,9 @@ def build_report(
             summary = "未保存邀请书原文，仅按组卷大纲与表单做缺项检查。" + summary
     src = source if source in {_SOURCE_GENERATED, _SOURCE_UPLOAD} else _SOURCE_GENERATED
     vol = normalize_qa_volume(volume)
+    req_cov = _requirement_coverage(
+        brief, file_counts=file_counts, catalog=catalog, volume=vol
+    )
     out = {
         "recordId": record_id,
         "docxFile": docx_file,
@@ -872,6 +930,8 @@ def build_report(
         "coverage": rule.get("coverage") or {},
         "missing": missing,
         "letterChecklist": letter_checklist(brief) if brief is not None and vol != "technical" else [],
+        "requirementCoverage": req_cov,
+        "requirementReconcile": _reconcile(req_cov),
         "checkedAt": to_epoch_ms(datetime.now(UTC)),
         "source": src,
     }
@@ -1010,6 +1070,15 @@ async def inspect_bid(
         )
     invitation = load_invitation_text(brief.invitationId)
     missing_slots = await _missing_slot_titles(db, brief, volume=vol)
+    from api.services.tenders.library_kb import catalog_placeholders, list_library_items
+
+    catalog = await catalog_placeholders(db)
+    lib_rows = await list_library_items(db)
+    file_counts = {
+        str(row.get("key") or ""): int(row.get("fileCount") or 0)
+        for row in lib_rows
+        if row.get("key")
+    }
     rule = rule_inspect(brief, bid_text, missing_slot_titles=missing_slots, volume=vol)
     llm = await analyze_with_llm(
         db, invitation=invitation, bid_text=bid_text, brief=brief, volume=vol
@@ -1025,6 +1094,8 @@ async def inspect_bid(
         upload_name=upload_name,
         volume=vol,
         brief=brief,
+        file_counts=file_counts,
+        catalog=catalog,
     )
     save_qa_report(public_id, report, volume=vol)
     return report

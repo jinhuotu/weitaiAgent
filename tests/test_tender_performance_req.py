@@ -138,6 +138,21 @@ def test_requirement_from_payload_and_format() -> None:
     assert "至少2个" in label
 
 
+def test_pad_placeholders_when_library_misses() -> None:
+    from api.services.tenders.performance import pad_performance_placeholders
+
+    req = PerformanceRequirement(keywords=["充电桩"], minAmountYuan=200000, minCount=3)
+    padded = pad_performance_placeholders(
+        [PerformanceLine(projectName="电缆大额", amountYuan=900000, includeInBid=False)],
+        req,
+    )
+    names = [item.projectName for item in padded if item.projectName.startswith("待补充类似业绩")]
+    assert names == ["待补充类似业绩1", "待补充类似业绩2", "待补充类似业绩3"]
+    assert all(item.includeInBid for item in padded if item.projectName.startswith("待补充"))
+    again = pad_performance_placeholders(padded, req)
+    assert [item.projectName for item in again] == [item.projectName for item in padded]
+
+
 def test_performance_match_issues_count() -> None:
     req = PerformanceRequirement(keywords=["充电桩"], minAmountYuan=200000, minCount=3)
     lines = [

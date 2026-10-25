@@ -34,6 +34,19 @@ def _sample_quote_lines() -> list[QuoteLineIn]:
     ]
 
 
+def test_invitation_upload_only_word() -> None:
+    import pytest
+
+    from api.services.tenders.extract import invitation_word_ext
+    from common.errors import AppError
+
+    assert invitation_word_ext("招标文件.DOCX") == ".docx"
+    assert invitation_word_ext(r"C:\投标\邀请书.doc") == ".doc"
+    with pytest.raises(AppError) as ei:
+        invitation_word_ext("invite.pdf")
+    assert ".doc" in ei.value.msg
+
+
 def test_default_brief_project_fields_empty() -> None:
     from api.services.tenders.schema import default_brief
 
@@ -113,6 +126,29 @@ def test_apply_invite_letter_fields_generic() -> None:
     assert brief.controlPriceYuan == 5870581.86
 
 
+def test_apply_invite_letter_fields_project_facts() -> None:
+    from api.services.tenders.extract import apply_invite_letter_fields
+    from api.services.tenders.format_rules import extract_tender_no
+    from api.services.tenders.schema import BidBrief
+
+    text = """
+招标人：郑州天健智慧园区运营管理有限公司（盖单位章）
+2.1项目名称：郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）
+2.4招标范围：充电桩系统采购、安装、调试、验收、质保、服务。
+2.5合同估算价：587万元
+本项目招标编号为26-GCZN-0150；
+"""
+    assert extract_tender_no(text) == "26-GCZN-0150"
+    brief = apply_invite_letter_fields(BidBrief(), text)
+    assert "新能源充" in brief.projectName
+    assert brief.tenderer == "郑州天健智慧园区运营管理有限公司"
+    assert brief.tenderNo == "26-GCZN-0150"
+    assert "充电桩系统采购" in brief.bidContent
+    kept = apply_invite_letter_fields(BidBrief(projectName="手工项目", tenderer="手工招标人"), text)
+    assert kept.projectName == "手工项目"
+    assert kept.tenderer == "手工招标人"
+
+
 
 def test_build_bid_docx_fills_company(tmp_path) -> None:
     brief = BidBrief(
@@ -170,7 +206,7 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
     assert "附件五：" in text
     assert "我公司现做出如下承诺" in text
     assert "保证投标文件无虚假内容" in text
-    assert any('w:val="dashed"' in t._tbl.xml for t in doc.tables)
+    assert any('w:val="dashed"' in p._p.xml and 'w:pBdr' in p._p.xml for p in doc.paragraphs)
 
     toc = next(p for p in doc.paragraphs if "一、投标函及投标函附录" in p.text)
     toc_xml = toc._p.xml
@@ -869,7 +905,7 @@ def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) 
     xml = doc.element.body.xml
     assert "a:blip" in xml or "pic:blipFill" in xml
     table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
-    assert "（在此粘贴扫描件）" in table_text
+    assert "（在此粘贴扫描件）" in text
     assert any("未嵌入 Word" in n or "装订时请" in n for n in notes) or boxes >= 1
 
     finance = next(p for p in doc.paragraphs if "近三年财务审计报告" in (p.text or ""))
@@ -1266,7 +1302,7 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     issues = _brief_generate_issues(BidBrief(projectName="x"))
     assert "招标人" in issues
     assert "投标总价" in issues
-    assert "报价清单" in issues
+    assert "报价清单" not in issues
     assert "委托代理人（招标书要求授权委托）" not in issues
     assert "委托代理人" not in _brief_generate_issues(
         BidBrief(projectName="x", authNeed="required")
@@ -1282,7 +1318,7 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
             performanceRequirement=PerformanceRequirement(keywords=["MES"], minCount=3),
         )
     )
-    assert any("类似业绩" in x for x in perf_issues)
+    assert not any("类似业绩" in x for x in perf_issues)
     missing = _missing_required_titles(["id_legal"], slots, {})
     assert missing == ["法定代表人身份证正反面"]
     notes = _missing_slot_warnings(missing)
@@ -1326,7 +1362,16 @@ def test_slots_from_payload_maps_required_catalog_keys() -> None:
     extra = slots_from_payload(
         {
             "requiredMaterials": [
-                {"key": "iso_cert", "reason": "邀请书要求体系认证"},
+                {
+                    "key": "iso_cert",
+                    "reason": "邀请书要求体系认证",
+                    "attachToSection": "三、资质证明",
+                },
+                {
+                    "key": "id_legal",
+                    "reason": "函里提到",
+                    "attachToSection": "投标函",
+                },
                 {"key": "unknown", "reason": "应忽略"},
             ],
             "missingMaterials": [{"key": "safety", "title": "安全生产许可证", "reason": "第3条"}],
@@ -1335,6 +1380,10 @@ def test_slots_from_payload_maps_required_catalog_keys() -> None:
     )
     keys = [s.key for s in extra]
     assert "iso_cert" in keys
+    iso = next(s for s in extra if s.key == "iso_cert")
+    assert iso.attachToSection == "三、资质证明"
+    legal = next(s for s in extra if s.key == "id_legal")
+    assert legal.attachToSection == ""
     assert "unknown" not in keys
     assert any(s.title == "安全生产许可证" for s in extra)
 
@@ -1867,7 +1916,16 @@ def test_technical_soft_issues_do_not_block() -> None:
     assert any("技术偏差表" in item for item in notes)
     assert any("起草" in item or "技术方案" in item for item in notes)
     assert any("图纸" in item for item in notes)
-    assert any("类似业绩" in item for item in notes)
+    assert not any("类似业绩" in item for item in notes)
+    from api.services.tenders.schema import PerformanceRequirement
+
+    held = technical_soft_issues(
+        BidBrief(
+            performanceRequirement=PerformanceRequirement(keywords=["MES"], minCount=2),
+        ),
+        media={},
+    )
+    assert any("已按招标要求占位" in item for item in held)
 
 
 def test_technical_section_writes_construction_plan(tmp_path) -> None:
@@ -1901,8 +1959,8 @@ def test_technical_section_writes_construction_plan(tmp_path) -> None:
     assert "二、图纸" in text
     assert "先做基础，再安装直流桩" in text
     assert "箱变靠场地北侧" in text
-    assert "（在此粘贴扫描件）" in table_text
-    assert any('w:val="dashed"' in t._tbl.xml for t in doc.tables)
+    assert "（在此粘贴扫描件）" in text
+    assert any('w:val="dashed"' in p._p.xml and 'w:pBdr' in p._p.xml for p in doc.paragraphs)
     assert any("虚线框" in w for w in warnings)
 
     # 技术标必须写在正文「其他材料」位置，不能插进目录页
@@ -2145,6 +2203,7 @@ def test_merge_quote_ignores_llm_patch_and_clears_old_qty(tmp_path) -> None:
     assert filled is False
     assert brief.quoteLines == []
     joined = " ".join(notes)
+    assert "不填写报价分项" in joined
     assert "未采用模型或历史" in joined
     assert "已清空上次表单里的分项" in joined
     assert all(row.qty != 133 for row in brief.quoteLines)

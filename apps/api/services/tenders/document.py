@@ -25,6 +25,7 @@ from api.services.tenders.commitment import append_commitment_letter
 from api.services.tenders.format_rules import (
     apply_footer_page_number,
     apply_section_page,
+    cn_ordinal,
     flatten_toc_tree,
     format_brief_notes,
     section_page_flags,
@@ -90,7 +91,6 @@ _HEADING_BOOKMARKS: tuple[tuple[str, str], ...] = (
     ("投标函附录", "toc_letter_app"),
     ("支付条件", "toc_pay"),
 )
-_CN_NUM = "一二三四五六七八九"
 
 
 def _compact(text: str) -> str:
@@ -635,7 +635,10 @@ def _rewrite_date_line(
     _use_body_style(para)
     if kw.get("nowrap"):
         _set_word_wrap(para, enabled=False)
-    label = str(kw.get("label") or "日期：")
+    if "label" in kw:
+        label = str(kw.get("label") or "")
+    else:
+        label = "日期："
     label_width = kw.get("label_width")
     if label_width:
         label = _align_sign_label(label, int(label_width))
@@ -1206,7 +1209,7 @@ def _date_line(iso: str) -> str:
     return f"{year}    年    {month}    月    {day}    日"
 
 
-def _set_dot_tab(paragraph: Paragraph, pos_cm: float) -> None:
+def _set_dot_tab(paragraph: Paragraph, pos_cm: float, *, normalize_runs: bool = False) -> None:
     p_pr = paragraph._p.get_or_add_pPr()
     for old in p_pr.findall(qn("w:tabs")):
         p_pr.remove(old)
@@ -1217,6 +1220,31 @@ def _set_dot_tab(paragraph: Paragraph, pos_cm: float) -> None:
     tab.set(qn("w:pos"), str(int(Cm(pos_cm).twips)))
     tabs.append(tab)
     p_pr.append(tabs)
+    if normalize_runs:
+        # 原格式章复制来的左制表位和 Tab 字体不能与新增页码行混用。
+        title_nodes = []
+        for run in paragraph.runs:
+            if any(True for _ in run._r.iter(qn("w:tab"))):
+                _set_dot_leader_font(run)
+                _no_underline(run)
+            if not title_nodes or title_nodes[-1] is not None:
+                if (next(run._r.iter(qn("w:tab")), None) is not None
+                        or next(run._r.iter(qn("w:fldChar")), None) is not None):
+                    title_nodes.append(None)
+                else:
+                    title_nodes.extend(run._r.iter(qn("w:t")))
+        label_nodes = title_nodes[:title_nodes.index(None)] if None in title_nodes else title_nodes
+        label = "".join(node.text or "" for node in label_nodes)
+        leader = re.search(r"[.．·…]{3,}\s*$", label)
+        if leader:
+            remove = len(label) - leader.start()
+            for node in reversed(label_nodes):
+                old = node.text or ""
+                count = min(remove, len(old))
+                node.text = old[:len(old) - count]
+                remove -= count
+                if not remove:
+                    break
 
 
 def _toc_tab_pos_cm(para: Paragraph) -> float:
@@ -1312,6 +1340,55 @@ def _bookmark_paragraph(para: Paragraph, name: str) -> None:
     para._p.append(end)
 
 
+def _subset_bookmarks(doc: Document, items) -> list[str]:
+    """仅新建子集使用：缺失、重复或不合法的条目 ID 不生成同名书签。"""
+    used = {el.get(qn("w:name")) for el in doc.element.iter(qn("w:bookmarkStart"))}
+    names: list[str] = []
+    for i, item in enumerate(items):
+        stem = "toc_" + re.sub(r"[^\w]", "_", item.id or f"o{i + 1:02d}")[:30]
+        name = stem
+        suffix = 2
+        while name in used:
+            name = f"{stem}_{suffix}"
+            suffix += 1
+        used.add(name)
+        names.append(name)
+    return names
+
+
+def _ensure_subset_toc_caches(doc: Document) -> None:
+    """仅子集兜底；不可更新的引用显示明确占位，避免空白或伪造第 1 页。"""
+    for para in doc.paragraphs:
+        bookmark = _pageref_bookmark(para)
+        if not bookmark or not bookmark.startswith("toc_"):
+            continue
+        in_result = False
+        texts = []
+        separator = None
+        for run in para._p.iter(qn("w:r")):
+            field = run.find(qn("w:fldChar"))
+            if field is not None:
+                kind = field.get(qn("w:fldCharType"))
+                if kind == "separate":
+                    in_result = True
+                    separator = run
+                elif kind == "end":
+                    in_result = False
+                continue
+            if in_result:
+                texts.extend(run.findall(qn("w:t")))
+        if any((node.text or "").strip() for node in texts):
+            continue
+        if texts:
+            texts[0].text = "待更新"
+        elif separator is not None:
+            result = OxmlElement("w:r")
+            node = OxmlElement("w:t")
+            node.text = "待更新"
+            result.append(node)
+            separator.addnext(result)
+
+
 def _add_pageref_run(para: Paragraph, bookmark: str, cache: str) -> None:
     """插入 PAGEREF 域，打开 Word/WPS 后按实际页码更新。"""
     begin = para.add_run()
@@ -1354,12 +1431,13 @@ def _clear_toc_tabs(para: Paragraph) -> None:
         p_pr.remove(old)
 
 
-def _apply_toc_indent(para: Paragraph, level: int) -> None:
+def _apply_toc_indent(para: Paragraph, level: int, *, preserve_spacing: bool = False) -> None:
     pf = para.paragraph_format
     pf.left_indent = Cm(0.74 * max(0, int(level) - 1))
     pf.first_line_indent = Cm(0)
-    pf.space_before = Pt(3 if level <= 1 else 1)
-    pf.space_after = Pt(3 if level <= 1 else 1)
+    if not preserve_spacing:
+        pf.space_before = Pt(3 if level <= 1 else 1)
+        pf.space_after = Pt(3 if level <= 1 else 1)
 
 
 def _write_toc_line(
@@ -1375,7 +1453,10 @@ def _write_toc_line(
 ) -> None:
     _strip_toc_numbering(para)
     _apply_toc_indent(para, level)
-    prefix = label if label is not None else f"{_CN_NUM[index]}、"
+    if label is not None:
+        prefix = label
+    else:
+        prefix = f"{cn_ordinal(index + 1)}、"
     size = 12.0 if level <= 1 else 10.5
     bold = level <= 1
     if not with_pages:
@@ -2162,20 +2243,22 @@ def _fill_paragraphs(
     return quote_anchor
 
 
-def _fill_tables(doc: Document, brief: BidBrief) -> None:
+def _fill_tables(doc: Document, brief: BidBrief, facts=None) -> list[str]:
+    notes: list[str] = []
     price_cn = rmb_uppercase(brief.bidPriceYuan)
     price_en = rmb_figure(brief.bidPriceYuan)
     perf_iter = iter(_ordered_perf_lines(brief))
     for table in doc.tables:
         kind = _table_kind(table)
         if kind == "appendix":
-            _fill_appendix_table(table, brief, price_cn, price_en)
+            notes.extend(_fill_appendix_table(table, brief, price_cn, price_en, facts))
         elif kind == "pay":
             _fill_payment_table(table, brief)
         elif kind == "dev":
             _fill_deviation_table(table, brief)
         elif kind == "perf":
             _fill_perf_table(table, next(perf_iter, None))
+    return notes
 
 
 def _table_kind(table: Table) -> str:
@@ -2380,7 +2463,7 @@ def _fill_quote_section(
 ) -> list[str]:
     sheet, origin = resolve_quote_sheet(brief)
     if sheet is None or not sheet.lines:
-        return ["未识别到报价清单，未插入报价表。请上传工程量清单后重新识别再生成"]
+        return ["未上传报价清单，未填写报价表"]
     target = Decimal(str(brief.bidPriceYuan or 0)).quantize(Decimal("0.01"))
     filled = scale_quote(sheet, target)
     notes = _quote_warnings(sheet, target, origin=origin)
@@ -2518,9 +2601,10 @@ def _quote_row_values(line, roles: list[str], *, traffic_note: str) -> list[str]
     return values
 
 
-def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en: str) -> None:
+def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en: str, facts=None) -> list[str]:
     from api.services.tenders.outline import _clean_pm_name
 
+    notes: list[str] = []
     pm = _clean_pm_name(brief.pmName or "") or "________"
     cert = (brief.pmCertNo or "").strip()
     if cert in {"", "/", "／", "无"}:
@@ -2554,6 +2638,19 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
         "履约担保": (brief.perfBond or "").strip() or "________",
         "需要说明的问题": (brief.extraNote or "").strip() or "无",
     }
+    if facts:
+        from api.services.tenders.facts import fact_fill
+
+        for key in ("项目经理", "注册证号", "专业等级"):
+            cur = mapping.get(key) or ""
+            blank = {"", "________", "无"} if key == "专业等级" else {"", "________"}
+            if cur and cur not in blank:
+                continue
+            val, note = fact_fill(key, "pm", facts)
+            if note and note not in notes:
+                notes.append(note)
+            if val:
+                mapping[key] = val
     seen: set[str] = set()
     for row in table.rows:
         label = _compact(row.cells[0].text)
@@ -2588,6 +2685,7 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
         _write_cell(row.cells[0], key, underline=False, bold=True, center=True, bottom_line=False)
         if len(row.cells) > 1:
             _write_cell(row.cells[-1], mapping.get(key, "________"), underline=False)
+    return notes
 
 
 def _fill_payment_table(table: Table, brief: BidBrief) -> None:
@@ -2753,9 +2851,12 @@ def _perf_amount_text(amount: float) -> str:
 
 
 def _fill_perf_table(table: Table, line: PerformanceLine | None) -> None:
+    from api.services.tenders.performance import is_perf_placeholder
+
     if line is None or not (line.projectName or "").strip():
         fill_perf_placeholders(table)
         return
+    pending = is_perf_placeholder(line)
     amount = _perf_amount_text(float(line.amountYuan or 0))
     name_hits = 0
     for row in table.rows:
@@ -2780,6 +2881,8 @@ def _fill_perf_table(table: Table, line: PerformanceLine | None) -> None:
             value = (line.projectName or "").strip() if name_hits == 1 else (
                 line.location or line.projectName or ""
             ).strip()
+        if not value and pending and "项目名称" not in label:
+            value = "待补充"
         if value:
             _write_cell(row.cells[-1], value, size=10.5, bold=False, underline=False)
 
@@ -3361,19 +3464,19 @@ def _set_pageref_cache(para: Paragraph, number: str) -> None:
 def _apply_toc_page_numbers(doc: Document, pages: dict[str, int]) -> None:
     for para in doc.paragraphs:
         bookmark = _pageref_bookmark(para)
-        if bookmark:
-            _set_pageref_cache(para, str(pages.get(bookmark, 1)))
+        if not bookmark or bookmark not in pages:
+            # 估不到就留占位，不写成 1 把锚点问题盖住
+            continue
+        _set_pageref_cache(para, str(pages[bookmark]))
 
 
 def _finalize_pagination(doc: Document, fmt=None) -> dict[str, int]:
-    """分页：分节 continuous + 章标题显式分页。目录页码仅在招标书要求时预填。"""
+    """分页：分节 continuous + 章标题显式分页。目录条目始终预填页码。"""
     _normalize_section_page_numbers(doc)
     _normalize_body_section_breaks(doc)
     _isolate_toc_section(doc)
     _mark_chapter_page_starts(doc)
     _pad_signature_blocks(doc)
-    if fmt is not None and not fmt.tocNeedPageNos:
-        return {}
     pages: dict[str, int] = {}
     for i, (_title, bookmark, _old) in enumerate(_TOC_ITEMS):
         pages[bookmark] = int(toc_page_cache(i, fmt)) if fmt is not None else int(_old)
@@ -3383,18 +3486,45 @@ def _finalize_pagination(doc: Document, fmt=None) -> dict[str, int]:
     return pages
 
 
-def _apply_template_format(doc: Document, brief: BidBrief) -> list[str]:
-    """公司模板组卷：页脚按起编位置处理；页边距仅在招标书写明时改。"""
+def _apply_template_format(doc: Document, brief: BidBrief, volume: str = "") -> list[str]:
+    """公司模板：页脚仍按原规则。页边距和正文字体只在该卷标书写明时改。"""
+    from api.services.tenders.format_rules import apply_volume_format
+    from api.services.tenders.schema import VolumeFormat
+
     fmt = brief.documentFormat
     notes = format_brief_notes(fmt)
     if fmt.coverNeedSeal:
         notes.append("招标书要求封面加盖公章，请在打印后于封面预留处盖章")
+    vol = (volume or "").strip().lower()
+    spec: VolumeFormat | None = None
+    if vol == "technical":
+        spec = fmt.technicalFormat
+    elif vol == "business":
+        spec = fmt.businessFormat
     body_si = _first_body_section_index(doc)
     for i, section in enumerate(doc.sections):
-        if fmt.specified:
-            apply_section_page(section, fmt)
+        if spec is not None and spec.marginSet:
+            section.left_margin = Cm(spec.marginLeftCm)
+            section.right_margin = Cm(spec.marginRightCm)
+            section.top_margin = Cm(spec.marginTopCm)
+            section.bottom_margin = Cm(spec.marginBottomCm)
         numbered, restart = section_page_flags(i, fmt, body_section=body_si)
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
+    if spec is not None and (spec.fontSet or spec.bodySizeSet):
+        font_only = VolumeFormat(
+            fontSet=spec.fontSet,
+            fontName=spec.fontName,
+            bodySizeSet=spec.bodySizeSet,
+            bodySizePt=spec.bodySizePt,
+        )
+        painted = apply_volume_format(doc, font_only, where="公司模板")
+        notes.extend(n for n in painted if "正文" in n)
+    if spec is not None and spec.marginSet:
+        notes.append(
+            "已按标书改公司模板页边距"
+            f" 上{spec.marginTopCm:g} 下{spec.marginBottomCm:g}"
+            f" 左{spec.marginLeftCm:g} 右{spec.marginRightCm:g}cm"
+        )
     return notes
 
 
@@ -3405,6 +3535,8 @@ def build_bid_docx(
     qualification_pdf: Path | None = None,
     catalog_slots: list | None = None,
     catalog_media: dict | None = None,
+    catalog_facts: list | None = None,
+    volume: str = "",
 ) -> tuple[Path, list[str]]:
     warnings: list[str] = []
     if brief.bidPriceYuan <= 0:
@@ -3434,12 +3566,12 @@ def build_bid_docx(
     _ensure_toc_entries(
         doc,
         include_commitment=bool(brief.includeCommitment),
-        with_pages=bool(brief.documentFormat.tocNeedPageNos),
+        with_pages=True,
         fmt=brief.documentFormat,
         brief=brief,
     )
     warnings.extend(_fill_technical_section(doc, brief, media))
-    _fill_tables(doc, brief)
+    warnings.extend(_fill_tables(doc, brief, catalog_facts))
     warnings.extend(_fill_quote_section(doc, brief, quote_anchor))
     _normalize_blank_underlines(doc)
 
@@ -3454,16 +3586,27 @@ def build_bid_docx(
     if brief.attachQualifications:
         warnings.extend(qualification_attach_notes(doc, qualification_pdf))
 
+    from api.services.tenders.placeholders import place_unmatched_slots
+
+    warnings.extend(
+        place_unmatched_slots(
+            doc,
+            slots=slots,
+            media=media,
+            required_keys=brief.requiredSlotKeys,
+            volume=volume,
+            skip_keys=inlined_ids,
+            requirements=list(brief.bidRequirements or []),
+        )
+    )
     _finalize_pagination(doc, brief.documentFormat)
     for i, section in enumerate(doc.sections):
         _ensure_header(section, brief.projectName, cover=(i == 0))
-    warnings.extend(_apply_template_format(doc, brief))
+    warnings.extend(_apply_template_format(doc, brief, volume))
     doc.save(str(dest))
-    tail = "封面与目录不编页码，从正文首页起编。目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
-    if brief.documentFormat.tocNeedPageNos:
-        tail = (
-            "目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
-            "目录页码已预填；若与正文不符，可在 Word/WPS 中右键目录域「更新域」。"
-        )
-    warnings.append(tail)
+    warnings.append(
+        "封面与目录不编页码，从正文首页起编。目录条目已预填页码；"
+        "若与正文不符，可在 Word/WPS 中右键目录域「更新域」。"
+        "目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
+    )
     return dest, warnings

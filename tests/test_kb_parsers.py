@@ -103,10 +103,48 @@ async def test_image_without_ocr_fails(tmp_path: Path) -> None:
     assert "OCR" in ei.value.msg or "正文过短" in ei.value.msg
 
 
-def test_doc_rejected() -> None:
-    with pytest.raises(AppError) as ei:
-        assert_supported("doc")
-    assert "docx" in ei.value.msg
+def test_doc_supported_for_conversion() -> None:
+    assert assert_supported("doc") == "doc"
+    assert sniff_extension(None, "application/msword") == "doc"
+
+
+def test_grid_from_cells_keeps_span() -> None:
+    from api.services.knowledge.parsers import _grid_from_cells, _grid_pipe
+
+    rows = [
+        [((0, 0, 100, 20), "项目名称"), ((100, 0, 400, 20), "")],
+        [
+            ((0, 20, 100, 60), "投标总报价"),
+            ((100, 20, 180, 40), "措施费"),
+            ((180, 20, 400, 40), "大写"),
+        ],
+        [((100, 40, 180, 60), "暂列金额"), ((180, 40, 400, 60), "小写")],
+    ]
+    lines = _grid_pipe(_grid_from_cells(rows)).splitlines()
+    assert lines[0] == "项目名称 |  | >>"
+    assert lines[1].startswith("投标总报价 | 措施费 | 大写")
+    assert lines[2].startswith("^^ | 暂列金额 | 小写")
+
+
+def test_compose_ruled_page_inserts_table() -> None:
+    from api.services.knowledge.parsers import _compose_ruled_page, _pipe_rows
+
+    pipe = _pipe_rows([["项目名称", None], ["投标人", "甲公司"], ["", ""]])
+    assert pipe.splitlines()[0] == "项目名称 | "
+    assert "甲公司" in pipe
+    text = _compose_ruled_page(
+        [
+            {"text": "（二）投标函附录", "top": 10, "bottom": 22},
+            {"text": "项目名称", "top": 40, "bottom": 52},
+            {"text": "后面的说明", "top": 200, "bottom": 212},
+        ],
+        [((20, 30, 400, 180), pipe)],
+    )
+    lines = text.splitlines()
+    assert lines[0] == "（二）投标函附录"
+    assert lines[1].startswith("项目名称 |")
+    assert "后面的说明" in lines
+    assert not any(ln == "项目名称" for ln in lines)
 
 
 def test_collapse_cjk_spaces() -> None:
@@ -114,6 +152,7 @@ def test_collapse_cjk_spaces() -> None:
 
     assert collapse_cjk_spaces("投 标 文 件") == "投标文件"
     assert "投标文件" in collapse_cjk_spaces("关于 投 标 文 件 的说明")
+    assert collapse_cjk_spaces("身份证明\n投标人名称") == "身份证明\n投标人名称"
 
 
 @pytest.mark.asyncio

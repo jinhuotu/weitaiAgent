@@ -21,6 +21,15 @@ from api.services.knowledge.ingest import (
 )
 from api.services.knowledge.qdrant_store import get_qdrant_store
 from api.services.knowledge.queue import enqueue_ingest_task
+from api.services.tenders.id_card import (
+    assign_person,
+    claim_orphan_back,
+    dump_id_meta,
+    id_file_label,
+    load_id_meta,
+    parse_id_card_text,
+    persons_from_metas,
+)
 from api.services.tenders.performance import (
     dump_perf_meta,
     extract_performance_from_path,
@@ -389,7 +398,9 @@ async def _enqueue_library_doc(
         tags.insert(0, TAG_MATERIAL)
     doc.tags = tags
     doc.kind = "doc"
-    if not (doc.summary or "").startswith("PERFJSON:"):
+    from api.services.tenders.facts import summary_locked
+
+    if not summary_locked(doc.summary):
         doc.summary = "正在解析…"
     doc.status = "parsing"
     doc.review_status = "approved"
@@ -483,8 +494,13 @@ def _file_entry(doc: KnowledgeDocument, path: Path) -> dict[str, object]:
     ext = (doc.file_type or path.suffix.lstrip(".")).lower()
     title = (doc.name or path.stem or path.name).strip() or path.name
     line = load_perf_meta(doc.summary)
+    card = load_id_meta(doc.summary)
     if line and line.projectName:
         title = line.projectName
+    elif card:
+        label = id_file_label(card)
+        if label:
+            title = label
     payload: dict[str, object] = {
         "id": doc.public_id,
         "fileId": doc.public_id,
@@ -496,6 +512,17 @@ def _file_entry(doc: KnowledgeDocument, path: Path) -> dict[str, object]:
     }
     if line is not None:
         payload["performance"] = line.model_dump(mode="json")
+    if card is not None:
+        payload["idCard"] = card
+    from api.services.tenders.facts import view_facts
+
+    view = view_facts(doc.summary)
+    if view and view.get("fields"):
+        payload["facts"] = {
+            "role": view.get("role") or "",
+            "fields": view.get("fields") or [],
+            "source": view.get("source") or "",
+        }
     return payload
 
 
@@ -528,6 +555,33 @@ def item_to_slot(
         "files": files,
         "pinned": key in {s.key for s in DEFAULT_SLOTS},
     }
+
+
+async def library_facts(db: AsyncSession) -> list[dict]:
+    from api.services.tenders.facts import view_facts
+
+    base = await ensure_library_base(db)
+    docs = await _list_docs(db, base.id)
+    grouped = _group_children(docs)
+    out: list[dict] = []
+    for parent in docs:
+        if not _is_material_parent(parent):
+            continue
+        key = key_from_tags(parent.tags)
+        for doc, _path in _iter_file_docs(parent, grouped.get(parent.public_id, [])):
+            view = view_facts(doc.summary or "")
+            if not view or not view.get("fields"):
+                continue
+            out.append(
+                {
+                    "key": key,
+                    "fileId": doc.public_id,
+                    "role": view.get("role") or "",
+                    "fields": view.get("fields") or [],
+                    "source": view.get("source") or "",
+                }
+            )
+    return out
 
 
 async def open_library_file(
@@ -606,6 +660,161 @@ async def _attach_perf_extract(
     if is_weak_title(doc.name or "") and line.projectName:
         doc.name = line.projectName[:255]
     return line
+
+
+async def _read_id_text(path: Path, filename: str) -> str:
+    try:
+        from api.services.knowledge.parsers import extract_text_from_file
+
+        extracted = await extract_text_from_file(path, ext=path.suffix.lower().lstrip("."))
+        return (extracted.text or "").strip()
+    except Exception:
+        logger.info("id card OCR skipped file=%s", filename)
+        return ""
+
+
+def _peer_cards(
+    peers: list[KnowledgeDocument], skip_id: str
+) -> list[tuple[KnowledgeDocument, dict]]:
+    rows: list[tuple[KnowledgeDocument, dict]] = []
+    for peer in peers:
+        if peer.public_id == skip_id:
+            continue
+        meta = load_id_meta(peer.summary)
+        if meta:
+            rows.append((peer, meta))
+    rows.sort(key=lambda item: item[0].id or 0)
+    return rows
+
+
+async def _attach_id_extract(
+    db: AsyncSession,
+    doc: KnowledgeDocument,
+    path: Path,
+    peers: list[KnowledgeDocument],
+) -> dict | None:
+    del db
+    text = await _read_id_text(path, doc.name or path.name)
+    card = parse_id_card_text(text)
+    known = _peer_cards(peers, doc.public_id)
+    card = assign_person(card, [meta for _, meta in known])
+    if card.get("side") == "unknown" and not card.get("idNo"):
+        doc.summary = "未识别到身份证，请确认上传的是正反面扫描件"
+        return None
+    doc.summary = dump_id_meta(card)
+    label = id_file_label(card)
+    if label:
+        doc.name = label[:255]
+    if card.get("side") == "front":
+        known_meta = [meta for _, meta in known]
+        claimed = claim_orphan_back(card, known_meta)
+        orphans = [
+            peer
+            for peer, meta in known
+            if meta.get("side") == "back" and not str(meta.get("personKey") or "")
+        ]
+        if claimed is not None and orphans:
+            peer = orphans[-1]
+            peer.summary = dump_id_meta(claimed)
+            back_label = id_file_label(claimed)
+            if back_label:
+                peer.name = back_label[:255]
+    return card
+
+
+async def _attach_facts_extract(db, doc, path: Path, *, key: str, title: str, hint: str) -> None:
+    from api.services.tenders.facts import dump_facts, extract_facts
+
+    bundle = await extract_facts(
+        db,
+        path,
+        key=key,
+        title=title,
+        hint=hint,
+        filename=path.name,
+    )
+    if not bundle or not bundle.get("fields"):
+        return
+    doc.summary = dump_facts(bundle)
+
+
+async def legal_persons_from_library(
+    db: AsyncSession,
+    *,
+    extract_missing: bool = False,
+) -> list[dict]:
+    try:
+        parent, children = await _get_parent(db, "id_legal")
+    except AppError:
+        return []
+    files = _iter_file_docs(parent, children)
+    files.sort(key=lambda pair: pair[0].id or 0)
+    docs = [doc for doc, _path in files]
+    dirty = False
+    if extract_missing:
+        for doc, path in files:
+            if load_id_meta(doc.summary) is not None:
+                continue
+            raw = (doc.summary or "").strip()
+            if raw.startswith("未识别"):
+                continue
+            await _attach_id_extract(db, doc, path, docs)
+            dirty = True
+        if dirty:
+            await db.commit()
+    rows: list[dict] = []
+    for doc, _path in files:
+        meta = load_id_meta(doc.summary)
+        if not meta:
+            continue
+        item = dict(meta)
+        item["fileId"] = doc.public_id
+        rows.append(item)
+    return persons_from_metas(rows)
+
+
+async def filter_legal_id_attachments(
+    db: AsyncSession,
+    paths: list[Path],
+    person_key: str,
+) -> list[Path]:
+    """只留选中这位的最新正面和最新反面。"""
+    key = (person_key or "").strip()
+    if not key:
+        return list(paths)
+    try:
+        parent, children = await _get_parent(db, "id_legal")
+    except AppError:
+        return []
+    by_resolved: dict[str, KnowledgeDocument] = {}
+    for doc, path in _iter_file_docs(parent, children):
+        try:
+            by_resolved[str(path.resolve())] = doc
+        except OSError:
+            by_resolved[str(path)] = doc
+    fronts: list[Path] = []
+    backs: list[Path] = []
+    for path in paths:
+        try:
+            found = str(path.resolve())
+        except OSError:
+            found = str(path)
+        doc = by_resolved.get(found)
+        if doc is None:
+            continue
+        meta = load_id_meta(doc.summary)
+        if meta is None or str(meta.get("personKey") or "") != key:
+            continue
+        if meta.get("side") == "back":
+            backs.append(path)
+        else:
+            fronts.append(path)
+    picked: list[Path] = []
+    if fronts:
+        picked.append(fronts[-1])
+    if backs:
+        picked.append(backs[-1])
+    return picked
 
 
 async def performance_from_library(
@@ -768,6 +977,7 @@ async def persist_parsed_materials(
                     key=found.key,
                     title=found.title or item.title,
                     hint=item.hint or found.hint,
+                    attachToSection=item.attachToSection or "",
                 )
             )
             continue
@@ -808,6 +1018,10 @@ async def library_payload_kb(
         await enqueue_library_rag_backfill(db, force=False)
     except Exception:
         logger.exception("library rag backfill skipped")
+    try:
+        await legal_persons_from_library(db, extract_missing=True)
+    except Exception:
+        logger.exception("id card backfill skipped")
     slots = await list_library_items(db)
     slots = [s for s in slots if str(s.get("key") or "") != TECH_DRAWING_KEY]
     filled = sum(1 for s in slots if int(s.get("fileCount") or 0) > 0)
@@ -1055,6 +1269,34 @@ async def save_library_file(
             logger.exception("类似业绩抽取失败 file=%s", name)
             await db.rollback()
             await db.refresh(child)
+    elif key == "id_legal":
+        try:
+            await _attach_id_extract(db, child, dest, [*children, child])
+            await db.commit()
+            await db.refresh(child)
+        except Exception:
+            logger.exception("法人身份证抽取失败 file=%s", name)
+            await db.rollback()
+            await db.refresh(child)
+    else:
+        hint = (parent.summary or "").strip()
+        if hint.startswith(("{", "[", "PERFJSON:", "idcard:", "FACTS:", "正在解析")):
+            hint = ""
+        try:
+            await _attach_facts_extract(
+                db,
+                child,
+                dest,
+                key=key,
+                title=parent.name or "",
+                hint=hint,
+            )
+            await db.commit()
+            await db.refresh(child)
+        except Exception:
+            logger.exception("资料字段抽取失败 file=%s", name)
+            await db.rollback()
+            await db.refresh(child)
     try:
         await _enqueue_library_doc(db, base=base, doc=child, force_reextract=True)
     except Exception:
@@ -1129,6 +1371,47 @@ async def delete_library_file(db: AsyncSession, doc_public_id: str) -> dict[str,
     if int(payload.get("fileCount") or 0) == 0:
         clear_slot(slot_key)
     return payload
+
+
+async def save_library_file_facts(
+    db: AsyncSession,
+    doc_public_id: str,
+    *,
+    role: str,
+    fields: list,
+) -> dict[str, object]:
+    from api.services.tenders.facts import apply_correction
+
+    pid = (doc_public_id or "").strip()
+    if not pid:
+        raise AppError(ErrorCode.VALIDATION, "无效的文件 id", status_code=422)
+    base = await ensure_library_base(db)
+    result = await db.execute(
+        select(KnowledgeDocument).where(
+            KnowledgeDocument.public_id == pid,
+            KnowledgeDocument.base_id == base.id,
+        )
+    )
+    doc = result.scalar_one_or_none()
+    if doc is None:
+        raise AppError(ErrorCode.NOT_FOUND, "扫描件不存在", status_code=404)
+    if _is_material_parent(doc) and not (doc.file_key or doc.storage_path):
+        raise AppError(ErrorCode.VALIDATION, "该项没有可修正的扫描件", status_code=422)
+    try:
+        doc.summary = apply_correction(doc.summary, role=role, fields=fields)
+    except ValueError as exc:
+        raise AppError(ErrorCode.VALIDATION, str(exc), status_code=422) from exc
+    await db.commit()
+    docs = await _list_docs(db, base.id)
+    parent_pid = (doc.parent_id or "").strip()
+    if parent_pid:
+        parent = next((d for d in docs if d.public_id == parent_pid), None)
+        if parent is None:
+            raise AppError(ErrorCode.NOT_FOUND, "资料项不存在", status_code=404)
+        children = _group_children(docs).get(parent.public_id, [])
+        return item_to_slot(parent, children)
+    children = _group_children(docs).get(doc.public_id, [])
+    return item_to_slot(doc, children)
 
 
 async def clear_library_files(db: AsyncSession, key: str) -> dict[str, object]:

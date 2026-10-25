@@ -15,6 +15,7 @@ class PlaceholderItem(BaseModel):
     key: str = ""
     title: str
     hint: str = ""
+    attachToSection: str = ""
 
 
 class QuoteLineIn(BaseModel):
@@ -98,6 +99,27 @@ PAGE_NUMBER_START: tuple[str, ...] = ("toc", "body", "cover")
 TOC_NUMBERING: tuple[str, ...] = ("cn", "arabic", "paren", "attach")
 
 
+class VolumeFormat(BaseModel):
+    """某一卷里标书写明的版式。没写明的开关是假，生成时不拿默认值去改范本。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    marginSet: bool = False
+    marginLeftCm: float = Field(default=2.8, ge=1.0, le=5.0)
+    marginRightCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginTopCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginBottomCm: float = Field(default=2.5, ge=1.0, le=5.0)
+    fontSet: bool = False
+    fontName: str = ""
+    bodySizeSet: bool = False
+    bodySizePt: float = Field(default=12, ge=8, le=26)
+    pagePosSet: bool = False
+    pageStartSet: bool = False
+    pageNumberPos: str = ""
+    pageNumberStart: str = ""
+    notes: list[str] = Field(default_factory=list)
+
+
 class DocumentFormat(BaseModel):
     """招标书抽出的排版要求。未写明的字段保持默认，不臆造。"""
 
@@ -133,6 +155,8 @@ class DocumentFormat(BaseModel):
 
     pageNumberPos: str = Field(default="bottom-center", max_length=24)
     pageNumberStart: str = Field(default="body", max_length=12)
+    businessFormat: VolumeFormat = Field(default_factory=VolumeFormat)
+    technicalFormat: VolumeFormat = Field(default_factory=VolumeFormat)
 
 
 class BidRequirement(BaseModel):
@@ -145,6 +169,22 @@ class BidRequirement(BaseModel):
     category: str = "qualification"
     targetKind: str = ""
     targetTitle: str = ""
+    # general：原分类器条目。mandatory：★/废标/否决/实质性/无效投标/不予受理/不得。评分项这期不抽。
+    strength: str = "general"
+    scoreWeight: float | None = None
+    sourceChapter: str = ""
+    sourcePage: str = ""
+    # matched 有证据；gap 有落点但没填；unbound 格式章无此空；format 只提示。
+    matchStatus: str = ""
+    slotKey: str = ""
+    matchNote: str = ""
+    # business / technical。否决项必须落在一卷里，空的不进任何一卷的清单和质检。
+    volume: str = ""
+    # 下面三项给生成和质检用。空的由程序按 category 补，不改原有分类语义。
+    reqType: str = ""
+    attachToSection: str = ""
+    respond: str = ""
+    display: str = ""
 
 
 class OutlineItem(BaseModel):
@@ -164,6 +204,8 @@ class OutlineItem(BaseModel):
     draftBody: str = ""
     draftStatus: str = "empty"
     level: int = Field(default=1, ge=1, le=4)
+    # 招标书原文标题（含「一、」「A.」）。按标书生成时目录和正文用它，不再另编序号。
+    rawTitle: str = ""
 
 
 class BidBrief(BaseModel):
@@ -204,6 +246,8 @@ class BidBrief(BaseModel):
     legalPersonAge: str = Field(default="28")
     legalPersonTitle: str = Field(default="执行董事")
     legalPersonIdNo: str = Field(default="410521199802104053")
+    # 资料库身份证归人键（证号）。多本时生成前必须选；空且库里只有一位则生成时自动用那位。
+    legalPersonKey: str = Field(default="")
 
     agentName: str = Field(default="")
     agentIdNo: str = Field(default="")
@@ -254,10 +298,19 @@ class BidBrief(BaseModel):
     schedulePlan: str = Field(default="")
     techPlanNote: str = Field(default="")
 
-    # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标招标书大纲组卷。
+    # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标截出的格式章组卷。
     layoutMode: str = Field(default="chapter5")
-    # business=只出商务标；technical=只出技术标
+    # 按本标时，用户预览并点「确认使用这份模板」后才允许生成。目录条目不参与组卷。
+    formatConfirmed: bool = Field(default=False)
+    # business=只出商务标；technical=只出技术标；full=完整投标文件。空值仍按商务标。
     generateVolume: str = Field(default="business")
+    generateBoth: bool = Field(default=False)
+    # 解析写入。full=不强制分卷；split=商务/技术分册。生成请求已带卷别时不改 generateVolume。
+    volumeAdvice: str = Field(default="")
+    techAnonymous: bool = Field(default=False)
+    volumeNote: str = Field(default="")
+    # 只在分卷那次的商务卷上为真，用来裁掉格式章里的技术部分。普通商务标保持 False。
+    splitSlice: bool = Field(default=False)
     outlineChapter: str = Field(default="")
     outlineItems: list[OutlineItem] = Field(default_factory=list)
     bidRequirements: list[BidRequirement] = Field(default_factory=list)

@@ -20,6 +20,7 @@ from api.services.tenders.document import (
     _bookmark_paragraph,
     _ensure_header,
     _estimate_bookmark_pages,
+    _ensure_subset_toc_caches,
     _insert_bottom_sign_spacer_before,
     _insert_min_sign_gap,
     _p_sectpr,
@@ -35,13 +36,17 @@ from api.services.tenders.document import (
     _em_len,
     _usable_width_twips,
     _write_toc_line,
+    _subset_bookmarks,
 )
 from api.services.tenders.format_rules import (
     apply_footer_page_number,
     apply_section_page,
     flatten_toc_tree,
     format_brief_notes,
+    peel_toc_lead,
     section_page_flags,
+    title_canon,
+    toc_numbered_lines,
     toc_page_cache,
 )
 from api.services.tenders.modules import COPY_KINDS, MODULE_KINDS, is_seal_register, render_module
@@ -50,6 +55,8 @@ from api.services.tenders.outline import (
     bid_is_works,
     bid_item_title,
     build_outline_toc_tree,
+    normalize_subset_outline,
+    subset_toc_titles,
     compact_title,
     dedupe_letter_items,
     dedupe_outline_items,
@@ -64,6 +71,7 @@ from api.services.tenders.outline import (
     ensure_works_letter_fixed,
     fill_copy_blanks,
     is_outline_junk,
+    items_for_full,
     items_for_volume,
     can_copy_invite_body,
     looks_like_form_template,
@@ -199,6 +207,38 @@ _REQ_SPLIT = re.compile(
 _REQ_GROUP = re.compile(
     r"^[一二三四五六七八九十]、.{2,40}[：:]$"
 )
+# 按标书大纲仍允许按招标表头填报价/偏离；其余函件、身份证明、印鉴、业绩禁止套公司模板
+_OUTLINE_FILL_KINDS = frozenset({"quote", "biz_dev", "tech_dev"})
+_OUTLINE_DRAFT_KINDS = frozenset({"tech_plan", "tech_chapter"})
+
+
+def _header_only_table(body: str) -> bool:
+    raw = (body or "").strip()
+    if "|" not in raw:
+        return False
+    lines = [ln for ln in raw.splitlines() if "|" in ln]
+    if len(lines) < 2:
+        return True
+    for ln in lines[1:]:
+        for cell in ln.split("|"):
+            t = re.sub(r"\s+", "", cell)
+            if not t or re.fullmatch(r"\d{1,2}", t):
+                continue
+            return False
+    return True
+
+
+def _blank_person_brief(brief: BidBrief) -> BidBrief:
+    fmt = brief.documentFormat.model_copy(update={"coverShowBidder": False})
+    return brief.model_copy(
+        update={
+            "bidderName": "",
+            "legalPersonName": "",
+            "agentName": "",
+            "pmName": "",
+            "documentFormat": fmt,
+        }
+    )
 
 
 def assemble_bid_docx(
@@ -208,11 +248,54 @@ def assemble_bid_docx(
     qualification_pdf: Path | None = None,
     catalog_slots: list | None = None,
     catalog_media: dict | None = None,
+    catalog_facts: list | None = None,
     volume: str | None = None,
 ) -> tuple[Path, list[str]]:
     warnings: list[str] = []
     vol = (volume or "").strip()
-    if vol in {"business", "technical"}:
+    anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
+    named = brief
+    if anon:
+        brief = _blank_person_brief(brief)
+
+    def finish(path: Path, notes: list[str]) -> tuple[Path, list[str]]:
+        out = list(notes or [])
+        if not anon:
+            return path, out
+        from api.services.tenders.classifier import ANON_DEFER_NOTE
+        from api.services.tenders.pdf_format import scrub_anonymous_docx
+
+        scrub_anonymous_docx(path, named)
+        if ANON_DEFER_NOTE not in out:
+            out.append(ANON_DEFER_NOTE)
+        return path, out
+
+    # 有格式章就填副本。技术标只裁正文，封面目录页码另写；商务标不改正文
+    if (brief.layoutMode or "").strip() == "outline":
+        from api.services.tenders.pdf_format import assemble_from_word_format
+
+        hit = assemble_from_word_format(
+            brief,
+            dest,
+            volume=vol,
+            catalog_slots=catalog_slots,
+            catalog_media=catalog_media,
+            catalog_facts=catalog_facts,
+        )
+        if hit is not None:
+            return finish(*hit)
+        # 上传过招标书却没截出 docx-raw：直接失败，不写说明稿，也不改用固定模板
+        if (brief.invitationId or "").strip():
+            from common.errors import AppError, ErrorCode
+
+            raise AppError(
+                ErrorCode.VALIDATION,
+                "未截到投标文件格式章，请上传带格式章的 Word 后重新识别。未改用公司固定模板。",
+                status_code=422,
+            )
+    if vol == "full":
+        items = items_for_full(brief)
+    elif vol in {"business", "technical"}:
         items = items_for_volume(brief, vol)
     else:
         # 目录与正文都按 outlineItems 当前顺序；跳过项不入卷。前端可重排该数组。
@@ -223,19 +306,22 @@ def assemble_bid_docx(
         ]
         items = dedupe_letter_items(dedupe_outline_items(items))
         if (brief.layoutMode or "").strip() == "outline":
-            items = dedupe_letter_items(ensure_biz_essentials(items))
             items = [item for item in items if not item.skipped]
     if not items:
         warnings.append("组卷大纲为空或已全部跳过，未按大纲生成")
         if (brief.layoutMode or "").strip() != "outline":
             from api.services.tenders.document import build_bid_docx
 
-            return build_bid_docx(
-                brief,
-                dest,
-                qualification_pdf=qualification_pdf,
-                catalog_slots=catalog_slots,
-                catalog_media=catalog_media,
+            return finish(
+                *build_bid_docx(
+                    brief,
+                    dest,
+                    qualification_pdf=qualification_pdf,
+                    catalog_slots=catalog_slots,
+                    catalog_media=catalog_media,
+                    catalog_facts=catalog_facts,
+                    volume=vol,
+                )
             )
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -243,10 +329,29 @@ def assemble_bid_docx(
     doc = Document()
     apply_section_page(doc.sections[0], fmt)
     _pin_cjk_fonts(doc)
-    _write_cover(doc, brief, fmt, volume=vol)
+    from api.services.tenders.pdf_format import append_elements, format_layout
+
+    cover_els: list = []
+    body_els: list = []
+    pasted_note = ""
+    if (brief.layoutMode or "").strip() == "outline":
+        cover_els, body_els, pasted_note = format_layout(brief.invitationId, volume=vol)
+    if cover_els:
+        append_elements(doc, cover_els)
+    else:
+        _write_cover(doc, brief, fmt, volume=vol)
     _add_next_section(doc, fmt)
-    bookmarks = [f"toc_{(item.id or f'o{i + 1:02d}')}" for i, item in enumerate(items)]
-    _write_toc(doc, items, brief, fmt, bookmarks)
+    subset = (brief.layoutMode or "").strip() == "outline" and (
+        vol == "technical" or (vol == "business" and brief.splitSlice)
+    )
+    if subset:
+        items = normalize_subset_outline(items)
+    repair_tables = subset
+    bookmarks = (
+        _subset_bookmarks(doc, items) if subset else
+        [f"toc_{(item.id or f'o{i + 1:02d}')}" for i, item in enumerate(items)]
+    )
+    _write_toc(doc, items, brief, fmt, bookmarks, subset=subset)
     body_section_index = 1
     if fmt.pageNumberStart == "body":
         _add_next_section(doc, fmt)
@@ -262,15 +367,40 @@ def assemble_bid_docx(
     letter_done = False
     appendix_done = False
     works = bid_is_works(brief)
+    if body_els:
+        append_elements(doc, body_els)
+    if cover_els or body_els:
+        from api.services.tenders.pdf_format import fill_pasted_format
+
+        fill_pasted_format(doc, brief, media=media)
+    if pasted_note:
+        warnings.append(pasted_note)
+    pending_anchor = None
+
+    def anchor_pending_section() -> None:
+        nonlocal pending_anchor
+        if pending_anchor is not None:
+            mark, title, bookmark = pending_anchor
+            _anchor_section(doc, mark, title, bookmark, fmt, subset=True)
+            pending_anchor = None
+
     for i, item in enumerate(items):
+        anchor_pending_section()
+        if pasted_note:
+            break
         kind = (item.kind or "unknown").strip() or "unknown"
-        if is_policy_statement_title(item.title) or is_invite_pack_title(item.title):
+        verbatim = (brief.layoutMode or "").strip() == "outline"
+        if is_policy_statement_title(item.title):
+            continue
+        if not verbatim and is_invite_pack_title(item.title):
             continue
         if kind == "quote" and quote_done:
             continue
         if kind == "quote":
             quote_done = True
-        if kind == "letter":
+        if verbatim and kind == "letter" and letter_role(item.title) == "pack" and not (item.body or "").strip():
+            continue
+        if kind == "letter" and not verbatim:
             role = letter_role(item.title)
             if role == "appendix":
                 if appendix_done:
@@ -281,13 +411,17 @@ def assemble_bid_docx(
                     continue
                 letter_done = True
             item = item.model_copy(update={"body": slice_copied_letter_body(item.body, item.title)})
+        elif kind == "letter":
+            item = item.model_copy(update={"body": slice_copied_letter_body(item.body, item.title)})
         if not (i == 0 and fmt.pageNumberStart == "body"):
             _chapter_break(doc)
-        raw_body = cut_invite_pack_body((item.body or "").strip())
+        raw_body = cut_invite_pack_body((item.body or "").strip(), item.title)
+        if repair_tables:
+            pending_anchor = (_body_mark(doc), _display_title(item), bookmarks[i])
         if brief.attachQualifications and not qual_tried and _is_qual_pack_item(item) and vol != "technical":
             from api.services.tenders.document import qualification_attach_notes
 
-            _write_heading(doc, item.title, fmt, bookmarks[i])
+            _write_heading(doc, _display_title(item), fmt, bookmarks[i])
             notes = qualification_attach_notes(
                 doc, qualification_pdf, title=False, leading_break=False
             )
@@ -302,13 +436,16 @@ def assemble_bid_docx(
             qual_tried = True
             continue
         if kind == "scan":
-            _write_heading(doc, item.title, fmt, bookmarks[i])
+            _write_heading(doc, _display_title(item), fmt, bookmarks[i])
+            req = (item.body or "").strip()
+            if req and not looks_like_form_template(req) and not _blurb_is_catalog(req):
+                _write_body(doc, req, fmt)
             if not _try_write_scan_media(doc, item, media, slots=slots):
                 draw_placeholder_box(
                     doc,
                     PlaceholderItem(
                         key=_slot_key_for_item(item) or item.id or "scan",
-                        title=item.title,
+                        title=_display_title(item),
                         hint="装订时附原件",
                     ),
                 )
@@ -317,18 +454,36 @@ def assemble_bid_docx(
         has_body = bool(raw_body)
         quote_form = kind == "quote" and has_body and looks_like_quote_form(raw_body)
         seal_form = is_seal_register(item)
-        # 只抄空白稿/表格；须知 OCR、身份证明、印鉴备案走模块（整表一页）
-        # 偏差表一律模块填表，脏 OCR 表体/落款不得走抄写
-        use_copy = (
-            (not seal_form)
-            and kind not in {"legal_id", "scan", "performance", "biz_dev", "tech_dev", "tech_plan", "tech_chapter"}
-            and can_copy_invite_body(kind, raw_body)
-            and (keep_form or quote_form or kind in COPY_KINDS or kind in _COPY_BODY_KINDS)
-        )
-        use_module = ((not use_copy) and kind in MODULE_KINDS) or seal_form
+        # 按标书大纲：有正文就照抄。报价/偏离只有空表头时才按表头填，不换公司函件模板
+        if verbatim:
+            fill_table = kind in _OUTLINE_FILL_KINDS and (not has_body or _header_only_table(raw_body))
+            use_copy = has_body and not fill_table
+            # 已起草的技术章用草稿，不抄邀请书摘录
+            drafted = kind in _OUTLINE_DRAFT_KINDS and bool((getattr(item, "draftBody", "") or "").strip())
+            use_module = fill_table or (kind in _OUTLINE_DRAFT_KINDS and (not has_body or drafted))
+            seal_form = False
+        else:
+            # 只抄空白稿/表格；须知 OCR、身份证明、印鉴备案走模块（整表一页）
+            # 偏差表一律模块填表，脏 OCR 表体/落款不得走抄写
+            use_copy = (
+                (not seal_form)
+                and kind not in {"legal_id", "scan", "performance", "biz_dev", "tech_dev", "tech_plan", "tech_chapter"}
+                and can_copy_invite_body(kind, raw_body)
+                and (keep_form or quote_form or kind in COPY_KINDS or kind in _COPY_BODY_KINDS)
+            )
+            use_module = ((not use_copy) and kind in MODULE_KINDS) or seal_form
         bm = bookmarks[i]
         if use_module:
-            _write_heading(doc, item.title, fmt, bm)
+            _write_heading(doc, _display_title(item), fmt, bm)
+            req = (item.body or "").strip()
+            if (
+                verbatim
+                and req
+                and kind in {"performance", "company", "scan"}
+                and not looks_like_form_template(req)
+                and not _blurb_is_catalog(req)
+            ):
+                _write_body(doc, req, fmt)
             for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
                 if note not in warnings:
                     warnings.append(note)
@@ -369,14 +524,14 @@ def assemble_bid_docx(
                 perf_bond=(brief.perfBond or "").strip(),
             ).strip()
             role = letter_role(item.title) if kind == "letter" else ""
-            if filled and kind == "letter" and works and role != "appendix":
+            if filled and kind == "letter" and works and role != "appendix" and not verbatim:
                 filled = ensure_works_letter_fixed(
                     filled,
                     quality=brief.quality or "",
                     valid_days=brief.bidValidityDays,
                     bid_bond=rmb_pair(brief.bidBondYuan) if brief.bidBondYuan is not None else "",
                 ).strip()
-            if filled and kind == "letter" and role == "appendix":
+            if filled and kind == "letter" and role == "appendix" and not verbatim:
                 valid = ""
                 if brief.bidValidityDays:
                     valid = f"自投标截止之日起{int(brief.bidValidityDays)}日历天"
@@ -396,20 +551,28 @@ def assemble_bid_docx(
                     perf_bond=(brief.perfBond or "").strip(),
                     grade=(brief.pmGrade or "").strip(),
                 ).strip()
-            filled = cut_invite_pack_body(filled)
+            filled = cut_invite_pack_body(filled, item.title)
             if kind == "commitment_copy" or "响应书" in compact_title(item.title):
                 filled = _trim_copied_form_tail(filled, item.title)
         if filled:
             copied_ok = False
-            if keep_form or looks_like_form_template(filled) or kind in _FORM_LAYOUT_KINDS:
+            app_role = letter_role(item.title) if kind == "letter" else ""
+            if keep_form or looks_like_form_template(filled) or kind in _FORM_LAYOUT_KINDS or verbatim:
                 before = _visible_text_len(doc)
+                mark = _body_mark(doc)
                 start = len(doc.paragraphs)
                 _write_copied_form(
-                    doc, filled, fmt, bid_date=brief.bidDate, title=item.title, brief=brief
+                    doc,
+                    filled,
+                    fmt,
+                    bid_date=brief.bidDate,
+                    title=item.title,
+                    brief=brief,
+                    keep_contact=verbatim,
                 )
                 copied_ok = _visible_text_len(doc) - before >= 20
                 if copied_ok:
-                    _bookmark_first_new(doc, start, bm)
+                    _anchor_section(doc, mark, _display_title(item), bm, fmt, subset=subset)
             if copied_ok:
                 if kind == "auth":
                     _inline_copied_id(
@@ -422,27 +585,28 @@ def assemble_bid_docx(
                     )
                 copied += 1
                 continue
-            if kind in MODULE_KINDS and not has_body and kind not in COPY_KINDS:
-                _write_heading(doc, item.title, fmt, bm)
+            if kind in MODULE_KINDS and not has_body and not verbatim and kind not in COPY_KINDS:
+                _write_heading(doc, _display_title(item), fmt, bm)
                 for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
                     if note not in warnings:
                         warnings.append(note)
                 generated += 1
                 continue
+            mark = _body_mark(doc)
             start = len(doc.paragraphs)
-            _write_heading(doc, item.title, fmt, bm)
+            _write_heading(doc, _display_title(item), fmt, bm)
             _write_body(doc, filled, fmt)
-            _bookmark_first_new(doc, start, bm)
+            _anchor_section(doc, mark, _display_title(item), bm, fmt, subset=subset)
             copied += 1
             continue
         title_only.append(item.title)
-        _write_heading(doc, item.title, fmt, bm)
+        _write_heading(doc, _display_title(item), fmt, bm)
         if kind == "scan":
             draw_placeholder_box(
                 doc,
                 PlaceholderItem(key=item.id or "scan", title=item.title, hint="装订时附原件"),
             )
-        elif is_seal_register(item):
+        elif is_seal_register(item) and not verbatim:
             for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
                 if note not in warnings:
                     warnings.append(note)
@@ -460,6 +624,7 @@ def assemble_bid_docx(
             warnings.append(f"「{item.title}」未抽到招标书原文，已留标题和粘贴框")
         else:
             warnings.append(f"「{item.title}」招标书格式章未提供本页空白稿，仅保留标题")
+    anchor_pending_section()
     if generated:
         warnings.append(f"已按组卷大纲用模块填写 {generated} 节")
     if copied:
@@ -477,17 +642,31 @@ def assemble_bid_docx(
             if note not in warnings:
                 warnings.append(note)
 
+    from api.services.tenders.placeholders import place_unmatched_slots
+
+    for note in place_unmatched_slots(
+        doc,
+        slots=slots,
+        media=media,
+        required_keys=brief.requiredSlotKeys,
+        volume=vol,
+        skip_keys=inlined_ids,
+        requirements=list(brief.bidRequirements or []),
+    ):
+        if note not in warnings:
+            warnings.append(note)
+
     for si, section in enumerate(doc.sections):
         numbered, restart = section_page_flags(si, fmt, body_section=body_section_index)
         _ensure_header(section, brief.projectName, cover=(si == 0))
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
 
     _collapse_extra_page_breaks(doc)
-    _fill_toc_pages(doc, fmt)
+    _fill_toc_pages(doc, fmt, subset=subset)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(dest))
-    return dest, warnings
+    return finish(dest, warnings)
 
 
 def _add_next_section(doc: Document, fmt: DocumentFormat):
@@ -589,6 +768,18 @@ def _media_keys_for_item(item: OutlineItem, slots: list | None = None) -> list[s
         if hits and slot_hits and hits == slot_hits:
             keys.append(key)
     return keys
+
+
+def _blurb_is_catalog(text: str) -> bool:
+    """正文里粘进来的下一条目录，不是本节说明。"""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if len(lines) < 2:
+        return False
+    hit = 0
+    for ln in lines:
+        if re.match(r"^[A-Ha-h一二三四五六七八九十][.．、]", ln):
+            hit += 1
+    return hit >= 2
 
 
 def _try_write_scan_media(
@@ -709,7 +900,9 @@ def _collapse_extra_page_breaks(doc: Document) -> None:
             prev_new_page = True
 
 
-def _fill_toc_pages(doc: Document, fmt: DocumentFormat) -> None:
+def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False) -> None:
+    if subset:
+        _ensure_subset_toc_caches(doc)
     raw = _estimate_bookmark_pages(doc)
     if not raw:
         return
@@ -723,15 +916,15 @@ def _fill_toc_pages(doc: Document, fmt: DocumentFormat) -> None:
     _apply_toc_page_numbers(doc, pages)
 
 
-def _bookmark_first_new(doc: Document, start: int, name: str) -> None:
-    for para in doc.paragraphs[start:]:
-        if (para.text or "").strip():
-            _bookmark_paragraph(para, name)
-            return
-
-
 def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume: str = "") -> None:
     font = fmt.fontName
+    if volume == "technical" and bool(getattr(brief, "techAnonymous", False)):
+        for _ in range(4):
+            doc.add_paragraph()
+        sub = doc.add_paragraph()
+        sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _run(sub, "技术标", size=fmt.coverDocSizePt, bold=True, font=font)
+        return
     if fmt.coverShowCopyMark:
         mark = doc.add_paragraph()
         mark.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -792,18 +985,135 @@ def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume:
         _run(seal, "（封面加盖公章）", size=12, font=font)
 
 
+def _body_mark(doc: Document) -> int:
+    return sum(1 for c in doc.element.body if c.tag != qn("w:sectPr"))
+
+
+def _anchor_section(
+    doc: Document, before: int, title: str, bookmark: str, fmt: DocumentFormat,
+    *, subset: bool = False,
+) -> None:
+    """书签打在章节标题段上。整节只有表时，先在表前补标题段再打。"""
+    from docx.text.paragraph import Paragraph
+
+    if subset:
+        starts = [start for start in doc.element.body.iter(qn("w:bookmarkStart"))
+                  if start.get(qn("w:name")) == bookmark]
+        if len(starts) == 1:
+            host = starts[0].getparent()
+            kids = [c for c in doc.element.body if c.tag != qn("w:sectPr")]
+            if host.tag == qn("w:p") and host.getparent() is doc.element.body and host in kids[before:]:
+                return
+        # 表内书签不是正文级锚点；迁移同一映射而不是另外拼一个名字。
+        ids = {start.get(qn("w:id")) for start in starts}
+        for start in starts:
+            start.getparent().remove(start)
+        for end in list(doc.element.body.iter(qn("w:bookmarkEnd"))):
+            if end.get(qn("w:id")) in ids:
+                end.getparent().remove(end)
+    kids = [c for c in doc.element.body if c.tag != qn("w:sectPr")]
+    new = kids[before:]
+    key = compact_title(peel_toc_lead(title)) or compact_title(title)
+    hit = None
+    for el in new:
+        if el.tag != qn("w:p"):
+            continue
+        # Paragraph.text 不包含文本框表格的内文，避免长表体掩盖外层标题。
+        para = Paragraph(el, doc)
+        text = compact_title(para.text or "".join(t.text or "" for t in el.iter(qn("w:t"))))
+        if not text or len(text) > 48:
+            continue
+        if key and (text == key or text.endswith(key) or key.endswith(text)):
+            hit = el
+            break
+    if hit is not None:
+        _bookmark_paragraph(Paragraph(hit, doc), bookmark)
+        return
+    for el in new:
+        if el.tag == qn("w:tbl"):
+            para = _write_heading(doc, title, fmt, bookmark)
+            el.addprevious(para._p)
+            return
+        if el.tag == qn("w:p"):
+            text = "".join(t.text or "" for t in el.iter(qn("w:t"))).strip()
+            if text:
+                if subset:
+                    para = _write_heading(doc, title, fmt, bookmark)
+                    el.addprevious(para._p)
+                    return
+                _bookmark_paragraph(Paragraph(el, doc), bookmark)
+                return
+    _write_heading(doc, title, fmt, bookmark)
+
+
+def _toc_source_title(item: OutlineItem) -> str:
+    title = _display_title(item)
+    if title_canon(title)[0]:
+        return title
+    first = ""
+    for line in (item.body or "").splitlines():
+        line = line.strip()
+        if line:
+            first = line
+            break
+    if not first or not title_canon(first)[0]:
+        return title
+    a = compact_title(peel_toc_lead(title))
+    b = compact_title(peel_toc_lead(first))
+    if a and b and (a == b or b.endswith(a) or a.endswith(b)):
+        return first
+    return title
+
+
+def _display_title(item: OutlineItem) -> str:
+    raw = (getattr(item, "rawTitle", "") or "").strip()
+    if raw and len(raw) <= 40:
+        return raw
+    return (item.title or "").strip()
+
+
 def _write_toc(
     doc: Document,
     items: list[OutlineItem],
     brief: BidBrief,
     fmt: DocumentFormat,
     bookmarks: list[str],
+    *,
+    subset: bool = False,
 ) -> None:
     from api.services.tenders.categories import tech_plan_text
 
     head = doc.add_paragraph()
     head.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _run(head, "目录", size=fmt.tocTitleSizePt, bold=True, font=fmt.fontName)
+    verbatim = (brief.layoutMode or "").strip() == "outline"
+    if verbatim:
+        pairs = [
+            (max(1, int(getattr(item, "level", 1) or 1)), _toc_source_title(item))
+            for item in items
+        ]
+        if subset:
+            items = normalize_subset_outline(items)
+            pairs = [(item.level, _toc_source_title(item)) for item in items]
+            shows = subset_toc_titles([
+                item.model_copy(update={"rawTitle": title})
+                for item, (_level, title) in zip(items, pairs, strict=True)
+            ])
+        else:
+            shows = toc_numbered_lines(pairs)
+        for i, item in enumerate(items):
+            para = doc.add_paragraph()
+            _write_toc_line(
+                para,
+                i,
+                shows[i],
+                bookmarks[i],
+                "待更新" if subset else toc_page_cache(i, fmt),
+                label="",
+                with_pages=True,
+                level=pairs[i][0],
+            )
+        return
     tree = build_outline_toc_tree(items, bookmarks, tech_text=tech_plan_text(brief))
     rows = flatten_toc_tree(tree, fmt.tocNumbering)
     for i, (label, title, level, bm) in enumerate(rows):
@@ -1016,12 +1326,27 @@ def _keep_sign_line(para, *, date: bool = False) -> None:
         para.paragraph_format.keep_with_next = True
 
 
-def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") -> None:
+def _write_copied_sign_line(
+    doc: Document, block: str, *, bid_date: str = "", keep_contact: bool = False
+) -> None:
     raw = (block or "").strip()
-    if _is_letter_contact_filler(raw):
+    if _is_letter_contact_filler(raw) and not keep_contact:
         return
     n = compact_title(raw)
+    # 按标书：地址/电话照原行写，不要拉成落款那种字间距。
+    if keep_contact and _is_letter_contact_filler(raw):
+        _form_para(doc, raw, size=12, align="left", space_after=2, line_spacing=1.15)
+        return
     if _SIGN_SUF.match(n) or n in {"签字或盖章", "（签字或盖章）"}:
+        return
+    if _is_date_sign_line(raw) and keep_contact and "日期" not in n:
+        ymd = _ymd_in(raw)
+        if not ymd and (bid_date or "").strip():
+            y, m, d = _ymd(bid_date)
+            if y and any(ch.isdigit() for ch in y):
+                ymd = (y, m, d)
+        text = f"{ymd[0]}年{ymd[1]}月{ymd[2]}日" if ymd else raw
+        _form_para(doc, text, size=12, align="right", space_before=6, space_after=2, line_spacing=1.15)
         return
     if _is_date_sign_line(raw):
         para = doc.add_paragraph()
@@ -1036,7 +1361,7 @@ def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") ->
                 ymd[0],
                 ymd[1],
                 ymd[2],
-                label="日期：",
+                label="日期：" if "日期" in n else "",
                 **_copied_sign_kw("日期："),
             )
             return
@@ -1095,7 +1420,32 @@ def _write_copied_sign_line(doc: Document, block: str, *, bid_date: str = "") ->
 
 
 def _unglue_form_text(text: str) -> str:
-    """把 OCR 粘在一起的标题、致函行、附录填空拆开。"""
+    """把 OCR 粘在一起的标题、致函行、附录填空拆开。带 | 的是已经抽出的表格，别拆。"""
+    lines = (text or "").splitlines()
+    if not any("|" in ln for ln in lines):
+        return _unglue_plain(text or "")
+    out: list[str] = []
+    buf: list[str] = []
+
+    def flush() -> None:
+        if not buf:
+            return
+        piece = _unglue_plain("\n".join(buf))
+        if piece:
+            out.append(piece)
+        buf.clear()
+
+    for ln in lines:
+        if "|" in ln:
+            flush()
+            out.append(ln)
+        else:
+            buf.append(ln)
+    flush()
+    return "\n".join(out)
+
+
+def _unglue_plain(text: str) -> str:
     s = text or ""
     s = re.sub(
         r"((?:[一二三四五六七八九十]+、)?(?:合同条款)?响应书|承诺书|承诺函)(?=致)",
@@ -1275,6 +1625,162 @@ def _is_dup_date_line(block: str, *, wrote_date: bool) -> bool:
     return bool(re.fullmatch(r"日期[：:]?\s*\d{4}年\d{1,2}月\d{1,2}日", n))
 
 
+def _looks_like_works_appendix(text: str) -> bool:
+    n = compact_title(text or "")
+    return "项目名称" in n and "投标总报价" in n and any(
+        k in n for k in ("安全生产措施费", "暂列金额", "投标工期", "缺陷责任期")
+    )
+
+
+_CLOSE_RANK = (
+    "投标人",
+    "供应商",
+    "法定代表人",
+    "地址",
+    "住址",
+    "网址",
+    "电话",
+    "传真",
+    "邮政编码",
+    "邮编",
+    "项目联系人",
+    "电子信箱",
+    "电子邮箱",
+    "邮箱",
+)
+
+
+def _close_rank(line: str) -> int | None:
+    raw = (line or "").strip()
+    n = compact_title(raw)
+    if not raw or len(n) > 36 or raw.endswith(("。", "；", ";")):
+        return None
+    if _SIGN_SUF.match(raw) or n in {"签字或盖章", "（签字或盖章）"}:
+        return 2
+    if "日期" in n or re.fullmatch(r"[_\s＿]*年[_\s＿]*月[_\s＿]*日", raw):
+        return 80
+    for i, key in enumerate(_CLOSE_RANK):
+        if n.startswith(key):
+            return i
+    return None
+
+
+def _reorder_letter_close(lines: list[str]) -> list[str]:
+    """PDF 抽文本常把电话、落款颠倒。落款按投标函原页顺序排回去。"""
+    start = None
+    for i, line in enumerate(lines):
+        if _close_rank(line) is None:
+            continue
+        if all(_close_rank(x) is not None for x in lines[i:] if x.strip()):
+            start = i
+            break
+    if start is None:
+        return lines
+    head = lines[:start]
+    merged: list[str] = []
+    for ln in lines[start:]:
+        if not ln.strip():
+            continue
+        if _SIGN_SUF.match(ln.strip()) and merged and "法定代表人" in compact_title(merged[-1]):
+            if "签字" not in compact_title(merged[-1]):
+                merged[-1] = merged[-1].rstrip() + ln.strip()
+            continue
+        merged.append(ln)
+    merged.sort(key=lambda ln: _close_rank(ln) if _close_rank(ln) is not None else 50)
+    return head + merged
+
+
+def _dx_pair(label: str, big: str, small: str) -> str:
+    big_s = big or "________"
+    small_s = small or "________"
+    return f"{label}大写：{big_s}\n小写：{small_s}" if label else f"大写：{big_s}\n小写：{small_s}"
+
+
+def _write_works_appendix_table(doc: Document, brief: BidBrief) -> None:
+    """施工投标函附录：按招标书那张带边框的表来画，不铺成纯文字。"""
+    from api.services.tenders.document import (
+        _apply_fixed_table_widths,
+        _distribute_twips,
+        _set_tbl_borders,
+        _write_cell,
+    )
+
+    price_cn = rmb_uppercase(brief.bidPriceYuan) if brief.bidPriceYuan else ""
+    price_en = rmb_figure(brief.bidPriceYuan) if brief.bidPriceYuan else ""
+    def yuan(v):
+        return rmb_pair(v) if v is not None else ""
+
+    safety = yuan(brief.safetyFeeYuan)
+    provisional = yuan(brief.provisionalYuan)
+    prime = yuan(brief.primeCostYuan)
+    days = f"{int(brief.deliveryDays)}日历天" if brief.deliveryDays else ""
+    valid = (
+        f"自投标截止之日起{int(brief.bidValidityDays)}日历天" if brief.bidValidityDays else ""
+    )
+    pm = (brief.pmName or "").strip()
+    grade = (brief.pmGrade or "").strip()
+    cert = (brief.pmCertNo or "").strip()
+    rows_n = 17
+    table = doc.add_table(rows=rows_n, cols=4)
+    _set_tbl_borders(table)
+    table.autofit = False
+    widths = _distribute_twips(_usable_width_twips(doc), (24, 32, 22, 22))
+    _apply_fixed_table_widths(table, widths)
+
+    def put(r, c, text, *, bold=False, center=True):
+        _write_cell(table.cell(r, c), text, size=10.5, bold=bold, underline=False, center=center)
+
+    simple = (
+        (0, "项目名称", (brief.projectName or "").strip()),
+        (1, "投标人", (brief.bidderName or "").strip()),
+        (2, "投标范围", (brief.bidContent or "").strip()),
+    )
+    for r, lab, val in simple:
+        put(r, 0, lab, bold=True)
+        table.cell(r, 1).merge(table.cell(r, 3))
+        put(r, 1, val, center=False)
+
+    table.cell(3, 0).merge(table.cell(7, 0))
+    put(3, 0, "投标总报价（元）", bold=True)
+    table.cell(3, 1).merge(table.cell(3, 3))
+    put(3, 1, _dx_pair("", price_cn, price_en), center=False)
+    nested = (
+        (4, "安全生产措施费（元）", safety),
+        (5, "暂列金额（元）", provisional),
+        (6, "专业工程暂估价（元）", prime),
+        (7, "增值税（元）", ""),
+    )
+    for r, lab, val in nested:
+        put(r, 1, lab, bold=True, center=False)
+        put(r, 2, "大写：" + (val or ""), center=False)
+        put(r, 3, "小写：", center=False)
+
+    put(8, 0, "投标报价（投标总报价扣除安全生产措施费、暂列金额与专业工程暂估价、增值税）（元）", bold=True, center=False)
+    table.cell(8, 1).merge(table.cell(8, 3))
+    put(8, 1, _dx_pair("", "", ""), center=False)
+    put(9, 0, "措施项目费用合计（不含安全生产措施费）（元）", bold=True, center=False)
+    table.cell(9, 1).merge(table.cell(9, 3))
+    put(9, 1, _dx_pair("", "", ""), center=False)
+    tail = (
+        (10, "投标工期", days),
+        (11, "投标质量", (brief.quality or "").strip()),
+        (12, "投标有效期", valid),
+        (13, "缺陷责任期", (brief.defectPeriod or "").strip()),
+        (14, "技术标准和要求", ""),
+    )
+    for r, lab, val in tail:
+        put(r, 0, lab, bold=True)
+        table.cell(r, 1).merge(table.cell(r, 3))
+        put(r, 1, val, center=False)
+    put(15, 0, "项目经理", bold=True)
+    put(15, 1, f"姓名 {pm}".strip(), center=False)
+    put(15, 2, f"级别 {grade}".strip(), center=False)
+    put(15, 3, f"注册证号 {cert}".strip(), center=False)
+    put(16, 0, "备注", bold=True)
+    table.cell(16, 1).merge(table.cell(16, 3))
+    put(16, 1, "", center=False)
+
+
 def _write_copied_form(
     doc: Document,
     text: str,
@@ -1283,6 +1789,7 @@ def _write_copied_form(
     bid_date: str = "",
     title: str = "",
     brief: BidBrief | None = None,
+    keep_contact: bool = False,
 ) -> None:
     """按招标书空白稿的行角色还原标题、缩进和落款，而不是整页同一缩进。"""
     body = fmt.bodySizePt
@@ -1295,12 +1802,14 @@ def _write_copied_form(
     lines = [_strip_inline_format_head(b) for b in _paragraphs_from_body(text)]
     glued = _unglue_form_text("\n".join(ln for ln in lines if ln))
     lines = [_strip_inline_format_head(ln) for ln in glued.splitlines() if ln.strip()]
+    if letter and keep_contact and letter_role(title) != "appendix":
+        lines = _reorder_letter_close(lines)
     i = 0
     wrote_date = False
     pending_signs: list[str] = []
     while i < len(lines):
         block = lines[i]
-        if letter and _is_letter_contact_filler(block):
+        if letter and _is_letter_contact_filler(block) and not keep_contact:
             i += 1
             continue
         if _SIGN_SUF.match((block or "").strip()):
@@ -1375,7 +1884,7 @@ def _write_copied_form(
                 for col in cols:
                     if _is_dup_date_line(col, wrote_date=wrote_date):
                         continue
-                    _write_copied_sign_line(doc, col, bid_date=bid_date)
+                    _write_copied_sign_line(doc, col, bid_date=bid_date, keep_contact=keep_contact)
                     if _is_date_sign_line(col):
                         wrote_date = True
             i += 1
@@ -1393,7 +1902,7 @@ def _write_copied_form(
                 if _is_dup_date_line(merged, wrote_date=wrote_date):
                     i += 1 + extra
                     continue
-                _write_copied_sign_line(doc, merged, bid_date=bid_date)
+                _write_copied_sign_line(doc, merged, bid_date=bid_date, keep_contact=keep_contact)
                 if _is_date_sign_line(merged):
                     wrote_date = True
             i += 1 + extra
@@ -1440,8 +1949,9 @@ def _write_copied_form(
                 if saw_date:
                     continue
                 saw_date = True
-            _write_copied_sign_line(doc, block, bid_date=bid_date)
+            _write_copied_sign_line(doc, block, bid_date=bid_date, keep_contact=keep_contact)
     if letter and letter_role(title) != "appendix":
+        # 已有盖章行就不再套固定落款；原文没抽到落款时仍补一行。
         _ensure_letter_signoff(doc, start, brief)
     if letter or resp:
         _glue_copied_signoff(doc, start)
@@ -1613,6 +2123,8 @@ def _form_para(
         para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     elif align == "justify":
         para.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    elif align == "right":
+        para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     else:
         para.alignment = WD_ALIGN_PARAGRAPH.LEFT
     pf = para.paragraph_format
@@ -1706,7 +2218,12 @@ def _pipe_cells(line: str) -> list[str] | None:
     cells = [c.strip() for c in s.split("|")]
     if not keep_lead and cells and cells[0] == "":
         cells = cells[1:]
-    if len(cells) < 2 or not any(cells):
+    if len(cells) < 2:
+        return None
+    if not any(cells):
+        # 「 |  | 」是表里的空行
+        if re.fullmatch(r"[\s|｜]+", s):
+            return cells
         return None
     return cells
 
@@ -2115,6 +2632,44 @@ def _write_unit_caption(doc: Document, title: str, unit: str, fmt: DocumentForma
     _run(para, unit, size=10.5, font=font)
 
 
+def _span_mark(val: str) -> bool:
+    return (val or "") in {">>", "^^"}
+
+
+def _apply_span_marks(table, grid: list[list[str]]) -> None:
+    if not any(_span_mark(c) for row in grid for c in row):
+        return
+    nrows = len(grid)
+    ncols = max((len(r) for r in grid), default=0)
+    for r, row in enumerate(grid):
+        for c, val in enumerate(row):
+            if not _span_mark(val):
+                continue
+            if r < len(table.rows) and c < len(table.rows[r].cells):
+                _cell_text(table.rows[r].cells[c], "")
+    for r in range(nrows):
+        row = grid[r]
+        for c in range(min(ncols, len(row))):
+            if _span_mark(row[c]):
+                continue
+            c2 = c
+            while c2 + 1 < len(row) and row[c2 + 1] == ">>":
+                c2 += 1
+            r2 = r
+            while r2 + 1 < nrows:
+                below = grid[r2 + 1]
+                if c >= len(below) or below[c] != "^^":
+                    break
+                if any(
+                    (below[k] if k < len(below) else "") not in {">>", "^^"}
+                    for k in range(c, c2 + 1)
+                ):
+                    break
+                r2 += 1
+            if r2 != r or c2 != c:
+                table.cell(r, c).merge(table.cell(r2, c2))
+
+
 def _try_write_pipe_table(
     doc: Document, lines: list[str], i: int, fmt: DocumentFormat | None = None, title: str = ""
 ) -> int | None:
@@ -2142,7 +2697,7 @@ def _try_write_pipe_table(
             nxt, nxt_cap = _peel_quote_caption(nxt)
             if nxt_cap and len(rows) >= 2:
                 break
-            if _pipe_header_row(nxt) and len(rows) >= 2:
+            if _pipe_header_row(nxt) and len(rows) >= 2 and not any(_span_mark(c) for c in nxt):
                 break
             if len(nxt) > ncols:
                 extra = nxt[ncols:]
@@ -2172,7 +2727,8 @@ def _try_write_pipe_table(
     ncols = max(3 if kind in {"focus", "mom"} else 1, len(rows[0]))
     padded = [(r + [""] * (ncols - len(r)))[:ncols] for r in rows]
     font = (fmt.fontName if fmt else _SONG) or _SONG
-    if _pipe_header_row(padded[0]):
+    marked = any(_span_mark(c) for row in padded for c in row)
+    if _pipe_header_row(padded[0]) and not marked:
         table = _write_simple_table(doc, padded[0], padded[1:], font=font, title=title)
     else:
         table = doc.add_table(rows=len(padded), cols=ncols)
@@ -2181,15 +2737,18 @@ def _try_write_pipe_table(
             for c_i, val in enumerate(row):
                 _cell_text(
                     table.rows[r_i].cells[c_i],
-                    val,
+                    "" if _span_mark(val) else val,
                     center=(kind in {"mom", "focus"} and c_i <= 1),
                     items=(kind in {"mom", "focus"} and c_i == 1),
                     font=font,
                     wrap=_should_wrap_cell(val, header=False),
                     valign="top" if _em_len(val) > 40 else "center",
                 )
-        _merge_platform_col(table)
-        _fill_blank_table(table, title)
+        if marked:
+            _apply_span_marks(table, padded)
+        else:
+            _merge_platform_col(table)
+            _fill_blank_table(table, title)
     _fit_copied_table(doc, table, kind=kind)
     return j
 

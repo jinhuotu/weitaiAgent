@@ -28,7 +28,7 @@ _ITEM_PREFIX = re.compile(
 
 _ATTACH_HINT = re.compile(r"附(?:件)?[（(]?[一二三四五六七八九十0-9]+")
 _ATTACH_SEQ = re.compile(r"附(?:件)?[（(]?([一二三四五六七八九十0-9]+)[)）]?")
-_DOC_TAIL = re.compile(r"(?:空白)?(?:稿|模板|格式)$")
+_DOC_TAIL = re.compile(r"(?:空白)?(?:稿|模板|(?<!组织)格式)$")
 _GLUE_ATTACH = re.compile(
     r"(?<=[日号。；;）)\s])(?=附(?:件)?[（(]?[一二三四五六七八九十0-9]+)"
 )
@@ -326,8 +326,10 @@ def classify_kind(title: str) -> str:
         return "commitment_copy"
     if any(k in n for k in ("承诺函", "承诺书")):
         return "commitment_copy"
-    if any(k in n for k in ("类似业绩", "企业业绩", "合同业绩", "类似项目", "业绩证明")):
+    if any(k in n for k in ("类似业绩", "企业业绩", "合同业绩", "类似项目", "业绩证明", "业绩要求")):
         return "performance"
+    if "公司简介" in n or "企业简介" in n:
+        return "company"
     if "原厂" in n:
         return "factory"
     if "实施方案" in n or "响应方案" in n or n.endswith("技术标") or "技术标（" in n or "技术标(" in n:
@@ -352,7 +354,12 @@ def classify_kind(title: str) -> str:
             "财务报表",
             "财务审计",
             "财务报告",
+            "财务要求",
             "审计报告",
+            "其它文件",
+            "其他文件",
+            "其它资料",
+            "其他资料",
         )
     ):
         return "scan"
@@ -409,6 +416,20 @@ def looks_like_quote_form(text: str) -> bool:
 
 def _keep_unknown_title(title: str) -> bool:
     return _is_bidder_submit_title(title)
+
+
+def _format_pack_heading(title: str) -> bool:
+    """格式章里的综合标题，如「资格、资信证明文件」「响应方案」。"""
+    n = compact_title(title)
+    if not n or len(n) > 24:
+        return False
+    if any(k in n for k in ("审查", "声明", "简历", "装订", "暗标")):
+        return False
+    if "资格" in n and "证明" in n:
+        return True
+    if "资信" in n and ("证明" in n or "文件" in n):
+        return True
+    return any(k in n for k in ("响应方案", "响应书", "偏差表", "差异表", "偏离表"))
 
 
 def source_for_kind(kind: str, *, skipped: bool = False) -> str:
@@ -732,14 +753,38 @@ def is_invite_pack_title(title: str) -> bool:
     return bool(_PACK_SKIP.search(n))
 
 
-def cut_invite_pack_body(text: str) -> str:
+def _pack_cut_pos(raw: str, title: str = "") -> int:
+    """下一节标题才截。函里「（9）施工组织设计；」是清单，不截。"""
+    t = compact_title(title)
+    own_org = "施工组织" in t
+    for m in _PACK_CUT.finditer(raw):
+        if m.start() <= 0:
+            continue
+        window = raw[max(0, m.start() - 8) : m.end() + 12]
+        if re.search(r"[（(][0-9]{1,2}[)）]", window):
+            continue
+        # 无编号的组成清单行以「；」收尾，不是下一节标题
+        nl = raw.find("\n", m.start() + 1)
+        line = raw[m.start() : nl if nl >= 0 else len(raw)]
+        if line.strip().endswith(("；", ";")):
+            continue
+        frag = compact_title(m.group(0))
+        if t and frag and (t in frag or frag in t):
+            continue
+        if own_org and any(k in frag for k in ("劳动力", "暗标", "临时用地", "装订", "施工组织设计")):
+            continue
+        return m.start()
+    return -1
+
+
+def cut_invite_pack_body(text: str, title: str = "") -> str:
     """函/表正文抄到资格审查、声明函、施工组织须知就停，避免整章粘进来。"""
     raw = (text or "").strip()
     if not raw:
         return ""
-    for m in _PACK_CUT.finditer(raw):
-        if m.start() > 0:
-            return raw[: m.start()].rstrip()
+    pos = _pack_cut_pos(raw, title)
+    if pos > 0:
+        return raw[:pos].rstrip()
     return raw
 
 
@@ -817,13 +862,53 @@ def ensure_biz_essentials(items: list[OutlineItem]) -> list[OutlineItem]:
     return _order_biz_outline(dedupe_outline_items(out))
 
 
+def _order_tech_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    """技术卷：方案章在前，技术偏离表收尾。只排公司固定模板，不排商务卷。"""
+    head: list[OutlineItem] = []
+    mid: list[OutlineItem] = []
+    tail: list[OutlineItem] = []
+    for item in items:
+        kind = (item.kind or "").strip()
+        if kind == "tech_dev":
+            tail.append(item)
+        elif kind in {"tech_plan", "tech_chapter"}:
+            head.append(item)
+        else:
+            mid.append(item)
+    return head + mid + tail
+
+
+def _verbatim_volume_items(raw: list[OutlineItem], volume: str) -> list[OutlineItem]:
+    """按标书生成：保持抽出的顺序和标题，不补公司固定章节、不重排。"""
+    from api.services.tenders.categories import is_volume_label, item_volume, title_goes_technical
+
+    out: list[OutlineItem] = []
+    for item in raw:
+        if item.skipped or is_volume_label(item.title):
+            continue
+        if is_policy_statement_title(item.title):
+            continue
+        kind = (item.kind or "").strip()
+        if item_volume(kind=kind, title=item.title, key=item.id) != volume:
+            continue
+        if (
+            volume == "technical"
+            and title_goes_technical(item.title)
+            and kind not in {"tech_plan", "tech_chapter", "tech_dev"}
+        ):
+            item = item.model_copy(update={"kind": "tech_chapter"})
+        out.append(item)
+    return out
+
+
 def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
     """商务标 / 技术标分卷。卷名标题不当正文；商务标补必备页，技术标不发明请书没有的页。"""
     from api.services.tenders.categories import is_volume_label, item_volume, title_goes_technical
 
     raw = [item for item in (brief.outlineItems or []) if not item.skipped]
-    use_outline = (brief.layoutMode or "").strip() == "outline" and bool(raw)
-    pool = list(raw if use_outline else _default_volume_pool(brief))
+    if (brief.layoutMode or "").strip() == "outline":
+        return _verbatim_volume_items(raw, volume)
+    pool = list(_default_volume_pool(brief))
     pool = apply_auth_outline(
         pool,
         has_agent=bool((brief.agentName or "").strip()),
@@ -850,24 +935,8 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
                 item = item.model_copy(update={"kind": "tech_chapter"})
             out.append(item)
     out = dedupe_letter_items(dedupe_outline_items(out))
-    if use_outline:
-        if volume == "business":
-            out = dedupe_letter_items(ensure_biz_essentials(out))
-            out = apply_auth_outline(
-                out,
-                has_agent=bool((brief.agentName or "").strip()),
-                auth_need=(brief.authNeed or "").strip(),
-                auth_enabled=bool(brief.authEnabled),
-            )
-            out = [
-                item
-                for item in out
-                if not item.skipped
-                and item_volume(kind=item.kind, title=item.title, key=item.id) == "business"
-            ]
-        return out
     if volume == "technical":
-        out = ensure_tech_chapters(out, brief)
+        out = _order_tech_items(ensure_tech_chapters(out, brief))
     elif volume == "business":
         if not out:
             out = [
@@ -883,6 +952,64 @@ def items_for_volume(brief: BidBrief, volume: str) -> list[OutlineItem]:
             ]
         if not any((item.kind or "").strip() == "biz_dev" for item in out):
             out = _ensure_kind(out, "biz_dev", "商务偏离表")
+    return out
+
+
+def items_for_full(brief: BidBrief) -> list[OutlineItem]:
+    """完整版：按邀请书目录顺序接商务池和技术池。没有目录时商务池在前、技术池在后。"""
+    biz = items_for_volume(brief, "business")
+    tech = items_for_volume(brief, "technical")
+    return _join_volume_pools(brief, biz, tech)
+
+
+def _join_volume_pools(
+    brief: BidBrief,
+    biz: list[OutlineItem],
+    tech: list[OutlineItem],
+) -> list[OutlineItem]:
+    pools = list(biz) + list(tech)
+    if not pools:
+        return []
+    catalog = [item for item in (brief.outlineItems or []) if not item.skipped]
+    if not catalog:
+        return _unique_items(pools)
+    by_key: dict[str, OutlineItem] = {}
+    by_kind: dict[str, list[OutlineItem]] = {}
+    for item in pools:
+        key = _outline_key(item.title)
+        if key and key not in by_key:
+            by_key[key] = item
+        kind = (item.kind or "").strip()
+        if kind:
+            by_kind.setdefault(kind, []).append(item)
+    used: set[int] = set()
+    ordered: list[OutlineItem] = []
+
+    def take(item: OutlineItem | None) -> None:
+        if item is None or id(item) in used:
+            return
+        ordered.append(item)
+        used.add(id(item))
+
+    for raw in catalog:
+        hit = by_key.get(_outline_key(raw.title))
+        if hit is None or id(hit) in used:
+            kind = (raw.kind or "").strip()
+            hit = next((it for it in by_kind.get(kind) or [] if id(it) not in used), None)
+        take(hit)
+    for item in pools:
+        take(item)
+    return ordered
+
+
+def _unique_items(items: list[OutlineItem]) -> list[OutlineItem]:
+    used: set[int] = set()
+    out: list[OutlineItem] = []
+    for item in items:
+        if id(item) in used:
+            continue
+        used.add(id(item))
+        out.append(item)
     return out
 
 
@@ -988,10 +1115,15 @@ def dedupe_letter_items(items: list[OutlineItem]) -> list[OutlineItem]:
                 rest.append(item)
             continue
         if role == "pack":
-            if letter is None:
-                letter = item.model_copy(update={"title": "投标函" if "响应" not in item.title else "响应函"})
+            # 空的「投标函及投标函附录」只是目录总题。占了名额会把后面的（一）投标函丢掉，再套一页固定函。
+            if (item.body or "").strip() and letter is None:
+                letter = item.model_copy(
+                    update={"title": "投标函" if "响应" not in item.title else "响应函"}
+                )
                 letter_i = len(rest)
                 rest.append(letter)
+            elif not (item.body or "").strip():
+                rest.append(item)
             continue
         if letter is None:
             letter = item
@@ -1011,17 +1143,16 @@ def dedupe_letter_items(items: list[OutlineItem]) -> list[OutlineItem]:
             appendix = appendix.model_copy(update={"body": slice_copied_letter_body(src, "投标函附录")})
         if 0 <= appendix_i < len(rest):
             rest[appendix_i] = appendix
-    elif letter is not None:
-        same = app_body == (letter.body or "")
+    elif letter is not None and app_body and app_body != (letter.body or ""):
         rest.insert(
             letter_i + 1,
             OutlineItem(
                 id=f"{letter.id or 'o'}-app",
-                title="响应函附录" if "响应" in (letter.title or "") else "投标函附录",
                 kind="letter",
-                source="copy" if app_body and not same else "generate",
+                title="响应函附录" if "响应" in (letter.title or "") else "投标函附录",
+                source="copy",
                 required=True,
-                body=app_body if app_body and not same else "",
+                body=app_body,
             ),
         )
     return rest
@@ -1077,6 +1208,8 @@ def is_outline_junk(item: OutlineItem | None = None, title: str = "") -> bool:
     t = title or (item.title if item is not None else "") or ""
     if re.search(r"[：:]\s*[/／]\s*$", (t or "").strip()):
         return True
+    if _format_pack_heading(t):
+        return False
     n = compact_title(t)
     if n and not is_chapter_title(t):
         return True
@@ -1093,10 +1226,6 @@ def is_outline_junk(item: OutlineItem | None = None, title: str = "") -> bool:
     if "技术标准" in n and "要求" in n:
         return True
     if _INSTR_TITLE.search(n):
-        return True
-    if re.match(r"^[A-Ha-h][.．、]", t.strip()) and any(
-        k in n for k in ("营业执照", "业绩", "财务", "其它文件", "其他文件")
-    ):
         return True
     if n.startswith("资格审查资料") or n in {"资格审查", "资格审查资料"}:
         return True
@@ -1116,6 +1245,93 @@ def item_level(raw: str) -> int:
     if _LEVEL1_CN.match(s):
         return 1
     return 1
+
+
+def _extracted_item_level(raw: str) -> int:
+    """目录提取和正文提取共用同一套子标题规则。"""
+    return 2 if lettered_heading(raw) or _SUB_MARK.match(raw.strip()) else item_level(raw)
+
+
+def normalize_subset_outline(
+    items: list[OutlineItem], *, source_titles: dict[str, str] | None = None,
+) -> list[OutlineItem]:
+    """仅供新建子集目录：编号纠错后用实际树深度赋级，不回写原大纲。
+
+    无编号标题保留显式层级；编号标题优先于可能过期的 level。栈保存原始
+    层级和实际深度，因此裁掉父章后的层级跳跃不会留下多余缩进。
+    """
+    from api.services.tenders.format_rules import peel_toc_lead
+
+    stack: list[tuple[int, int, str, tuple[str, ...]]] = []
+    out: list[OutlineItem] = []
+    for item in items:
+        # rawTitle 也可能已被剥成裸标题，不能遮住正文书签或 title 中仍在的编号。
+        candidates = [item.rawTitle, (source_titles or {}).get(item.id, ""), item.title]
+        title = next((value.strip() for value in candidates if value.strip()), "")
+        numbered = r"^(?:第|[一二三四五六七八九十]+、|[（(]|[A-Ha-h][.．、]|\d+[.．])"
+        bare = compact_title(peel_toc_lead(title))
+        title = next((value.strip() for value in candidates
+                      if re.match(numbered, value.strip())
+                      and compact_title(peel_toc_lead(value.strip())) == bare), title)
+        rank = max(1, int(item.level or 1))
+        family = "plain"
+        path: tuple[str, ...] = ()
+        # 正文首行有编号、目录只有裸标题的旧数据也能纠正。
+        if not re.match(numbered, title):
+            first = next((line.strip() for line in item.body.splitlines() if line.strip()), "")
+            if compact_title(peel_toc_lead(first)) == compact_title(title):
+                title = first
+        if _TOP_MARK.match(title) or _CHAPTER_HEAD.match(title):
+            rank = 1
+        elif _SUB_MARK.match(title) or lettered_heading(title):
+            rank = 2
+            family = "sub"
+        elif match := re.match(r"^(\d+(?:\.\d+)+)(?!\d)", title):
+            path = tuple(match.group(1).split("."))
+            family = "dot"
+            rank = min(4, len(path))
+            # 中文二级节点下的 1.1 属于真实三级，而非二级的兄弟。
+            if rank == 2 and any(kind == "sub" for _, _, kind, _ in stack):
+                rank = 3
+            parent = next((node for node in reversed(stack) if node[3] == path[:-1]), None)
+            if parent is not None:
+                rank = parent[0] + 1
+        elif _LEVEL2_PAREN.match(title):
+            rank = 3 if rank >= 3 or any(kind == "sub" for _, _, kind, _ in stack) else 2
+            family = "paren_num"
+        elif re.match(r"^\d{1,2}[.．、](?!\d)", title):
+            rank = 3 if any(kind == "sub" for _, _, kind, _ in stack) else min(rank, 2)
+            family = "number"
+        while stack and stack[-1][0] >= rank:
+            stack.pop()
+        depth = stack[-1][1] + 1 if stack else 1
+        out.append(item.model_copy(update={"level": depth}))
+        stack.append((rank, depth, family, path))
+    return out
+
+
+def subset_toc_titles(items: list[OutlineItem]) -> list[str]:
+    """新建目录按父节点重新计数；不改正文标题和原格式章目录。"""
+    from api.services.tenders.format_rules import cn_ordinal, peel_toc_lead
+
+    counts: list[int] = []
+    shows: list[str] = []
+    for item in items:
+        level = item.level
+        del counts[level:]
+        while len(counts) < level:
+            counts.append(0)
+        counts[level - 1] += 1
+        bare = peel_toc_lead(item.rawTitle or item.title)
+        bare = re.sub(r"^\d{1,2}[.．、](?!\d)\s*", "", bare)
+        if level == 1:
+            label = f"{cn_ordinal(counts[-1])}、"
+        elif level == 2:
+            label = f"（{cn_ordinal(counts[-1])}）"
+        else:
+            label = ".".join(str(n) for n in counts) + " "
+        shows.append(label + bare)
+    return shows
 
 
 def tech_chapter_titles(text: str) -> list[str]:
@@ -1281,10 +1497,6 @@ def is_noise_title(title: str) -> bool:
         return True
     if _INSTR_TITLE.search(n):
         return True
-    if re.match(r"^[A-Ha-h][.．、]", (title or "").strip()) and any(
-        k in n for k in ("营业执照", "业绩", "财务", "其它文件", "其他文件")
-    ):
-        return True
     if n.endswith("；") or n.endswith(";"):
         return True
     if _CLAUSE_START.search(n):
@@ -1308,6 +1520,71 @@ def is_noise_title(title: str) -> bool:
     return False
 
 
+_GLUE_ENUM = re.compile(r"[一二三四五六七八九十]{1,2}、")
+_LETTER_HEAD = re.compile(r"^([A-Ha-h])[.．、]\s*(.+)$")
+_ENUM_TITLE = re.compile(
+    r"^([一二三四五六七八九十]{1,2}、.{1,18}?"
+    r"(?:证明文件|响应书|偏差表|差异表|偏离表|报价表|方案|资料|文件|函|表|书))"
+    r"(.*)$"
+)
+_ENUM_PREFIX = re.compile(r"^([一二三四五六七八九十]{1,2}、)")
+
+
+def _explode_enum_lines(text: str) -> str:
+    """目录粘成一行、标题粘在正文前时拆开，后面才能按原顺序收。"""
+    s = re.sub(
+        r"(?<=[年月日。；;）)])([一二三四五六七八九十]{1,2}、)",
+        r"\n\1",
+        text or "",
+    )
+    out: list[str] = []
+    for line in s.splitlines():
+        marks = list(_GLUE_ENUM.finditer(line))
+        pieces = [line]
+        if len(marks) >= 2:
+            pieces = []
+            if marks[0].start() > 0:
+                pre = line[: marks[0].start()].strip()
+                if pre:
+                    pieces.append(pre)
+            for i, mark in enumerate(marks):
+                end = marks[i + 1].start() if i + 1 < len(marks) else len(line)
+                chunk = line[mark.start() : end].strip()
+                if chunk:
+                    pieces.append(chunk)
+        for piece in pieces:
+            match = _ENUM_TITLE.match(piece.strip())
+            if not match:
+                if piece.strip():
+                    out.append(piece.strip())
+                continue
+            head, rest = match.group(1).strip(), (match.group(2) or "").strip()
+            # 「响应函及响应函附录」里的「函」不是标题结束，别拆。
+            if rest[:1] in "及和与或（(、/" or len(compact_title(rest)) < 8:
+                out.append(piece.strip())
+                continue
+            out.append(head)
+            out.append(rest)
+    return "\n".join(out)
+
+
+def lettered_heading(raw: str) -> tuple[str, str] | None:
+    """A.公司简介 / C.业绩要求：长说明 → (短标题, 说明正文)。"""
+    match = _LETTER_HEAD.match((raw or "").strip())
+    if not match:
+        return None
+    label = match.group(1).upper() + "."
+    rest = re.sub(r"\s+", "", match.group(2)).strip("。")
+    if len(rest) < 2:
+        return None
+    head = re.split(r"[：:]", rest, maxsplit=1)[0]
+    if len(head) > 18:
+        head = head[:18]
+    title = f"{label}{head}"
+    body = rest if re.search(r"[：:]", match.group(2)) else ""
+    return title, body
+
+
 def unmash_invitation_text(text: str) -> str:
     """OCR/PDF 常把「附一：模板」粘在日期或上一节末尾，拆开才能挂正文。"""
     s = (text or "").replace("\r\n", "\n").replace("\r", "\n")
@@ -1322,41 +1599,345 @@ def unmash_invitation_text(text: str) -> str:
     return s
 
 
-def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
-    """从邀请书/招标书正文抽出格式章节条目。找不到则返回空列表，不报错。"""
-    raw = unmash_invitation_text(text or "")
-    chapter, body = _format_section(raw)
-    lines = _candidate_lines(body or raw, whole_doc=not bool(body))
-    items: list[OutlineItem] = []
-    seen: set[str] = set()
-    for title, raw_line in lines:
-        key = _outline_key(title)
-        if key in seen or len(key) < 2:
+_TOP_MARK = re.compile(r"^([一二三四五六七八九十]{1,3})、")
+_SUB_MARK = re.compile(r"^[（(]([一二三四五六七八九十]+)[)）]")
+_ANY_MARK = re.compile(
+    r"[一二三四五六七八九十]{1,3}、|[（(][一二三四五六七八九十0-9]+[)）]"
+)
+
+
+def _explode_short_marks(text: str) -> str:
+    """目录粘在一行时拆开。每段不是短标题就不拆，避免把正文句子切开。"""
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        marks = list(_ANY_MARK.finditer(line))
+        if len(marks) < 2:
+            if line.strip():
+                out.append(line.strip())
             continue
-        seen.add(key)
+        pieces: list[str] = []
+        if marks[0].start() > 0:
+            pre = line[: marks[0].start()].strip()
+            if pre:
+                pieces.append(pre)
+        for i, mark in enumerate(marks):
+            end = marks[i + 1].start() if i + 1 < len(marks) else len(line)
+            chunk = line[mark.start() : end].strip().strip("。；; ")
+            if chunk:
+                pieces.append(chunk)
+        if any(_ANY_MARK.match(p) and len(compact_title(p)) > 30 for p in pieces):
+            if line.strip():
+                out.append(line.strip())
+            continue
+        out.extend(pieces)
+    return "\n".join(out)
+
+
+def _catalog_heading(line: str) -> str:
+    s = re.sub(r"\s+", "", (line or "").strip())
+    s = re.sub(r"^目录", "", s)
+    s = s.strip("。；; ")
+    if not s or s.endswith(("；", ";", "/", "／")):
+        return ""
+    if re.search(r"[：:][/／]", s):
+        return ""
+    glued = re.match(
+        r"^(.+?(?:附录|身份证明|委托书|保证金|工程量清单|管理机构|资料|简历表|承诺书))"
+        r"(?=投标人名称|项目名称|投标范围|大写|单位性质)",
+        s,
+    )
+    if glued:
+        s = glued.group(1)
+    if not (_TOP_MARK.match(s) or _SUB_MARK.match(s)):
+        return ""
+    if len(s) > 30:
+        return ""
+    return s
+
+
+def _catalog_entries(body: str) -> tuple[list[str], str]:
+    """格式章开头的目录。一级标题重复出现时，后面就是正文，目录到此为止。"""
+    lines = [ln.strip() for ln in _explode_short_marks(body).splitlines() if ln.strip()]
+    best: list[str] = []
+    best_end = -1
+    best_i = 10**9
+    for i, line in enumerate(lines):
+        if not (_catalog_heading(line) and _TOP_MARK.match(_catalog_heading(line))):
+            continue
+        entries: list[str] = []
+        seen_top: set[str] = set()
+        gap = 0
+        j = i
+        while j < len(lines) and j - i < 80:
+            head = _catalog_heading(lines[j])
+            if not head:
+                gap += 1
+                if len(seen_top) >= 4 and gap >= 3:
+                    break
+                j += 1
+                continue
+            gap = 0
+            top = _TOP_MARK.match(head)
+            if top:
+                num = top.group(1)
+                if num in seen_top:
+                    break
+                seen_top.add(num)
+            entries.append(head)
+            j += 1
+        # 目录在格式章最前面。从「二、」起算会把后面的正文「一、」又吞进来，取更靠前的那份。
+        if len(seen_top) >= 4 and i < best_i:
+            best = entries
+            best_end = j
+            best_i = i
+    if len({(_TOP_MARK.match(h).group(1) if _TOP_MARK.match(h) else "") for h in best}) < 4:
+        return [], body
+    return best, "\n".join(lines[best_end:])
+
+
+def _front_children(rest: str, first_top: str) -> list[str]:
+    """目录没写到的 A. / （一）只收第一节正文里的，不收函内（1）（2）条款。"""
+    kids: list[str] = []
+    started = False
+    first_num = _TOP_MARK.match(first_top)
+    num0 = first_num.group(1) if first_num else ""
+    for line in (rest or "").splitlines():
+        head = _catalog_heading(line)
+        top = _TOP_MARK.match(head) if head else None
+        if top:
+            if started:
+                break
+            if top.group(1) == num0:
+                started = True
+            continue
+        if not started:
+            continue
+        lettered = lettered_heading(line)
+        if lettered:
+            kids.append(lettered[0])
+            continue
+        if head and _SUB_MARK.match(head):
+            kids.append(head)
+    return kids
+
+
+def _use_body_title(catalog: str, body_title: str) -> str:
+    if not body_title or len(body_title) < len(catalog):
+        return catalog
+    if any(k in body_title for k in ("投标人名称", "项目名称", "投标范围", "大写", "单位性质")):
+        return catalog
+    return body_title
+
+
+def _items_from_catalog(entries: list[str]) -> list[OutlineItem]:
+    items: list[OutlineItem] = []
+    for head in entries:
+        lettered = lettered_heading(head)
+        shown = lettered[0] if lettered else head
+        title = _clean_item(shown) or shown
+        if is_policy_statement_title(shown) or is_policy_statement_title(title):
+            continue
         kind = classify_kind(title)
         kind = kind if kind in OUTLINE_KINDS else "unknown"
-        if kind not in {"tech_plan", "tech_chapter", "tech_dev"}:
-            if is_outline_junk(title=title) or not is_chapter_title(title):
-                continue
-        if kind == "unknown" and not _keep_unknown_title(title):
-            continue
         items.append(
             OutlineItem(
                 id=f"o{len(items) + 1:02d}",
                 title=title,
+                rawTitle=shown if shown != title else "",
                 kind=kind,
                 source=source_for_kind(kind),
                 required=True,
                 skipped=False,
-                level=item_level(raw_line),
+                level=_extracted_item_level(shown),
+                body=(lettered[1] if lettered else ""),
             )
         )
+    return items
+
+
+_PLAIN_TOC_HEAD = re.compile(r"^目\s*录$")
+
+
+def _plain_toc_entries(body: str) -> tuple[list[str], str]:
+    """Word 版格式章的目录常没有一、二、编号：认「目录」行后连续的裸标题行。"""
+    lines = [ln.strip() for ln in (body or "").splitlines()]
+    best: list[str] = []
+    best_end = -1
+    for i, ln in enumerate(lines):
+        if not _PLAIN_TOC_HEAD.match(ln):
+            continue
+        entries: list[str] = []
+        seen: set[str] = set()
+        j = i + 1
+        while j < len(lines) and j - i <= 40:
+            s = lines[j]
+            key = compact_title(s)
+            title = _clean_item(s)
+            if not title or is_policy_statement_title(s) or (key and key in seen):
+                break
+            seen.add(key)
+            entries.append(title)
+            j += 1
+        if len(entries) > len(best):
+            best = entries
+            best_end = j
+    if len(best) < 6:
+        return [], body
+    return best, "\n".join(lines[best_end:])
+
+
+def _outline_from_directory(body: str) -> list[OutlineItem]:
+    entries, rest = _catalog_entries(body)
+    plain = False
+    if not entries:
+        entries, rest = _plain_toc_entries(body)
+        plain = True
+    if not entries:
+        return []
+    body_title: dict[str, str] = {}
+    for line in rest.splitlines():
+        head = _catalog_heading(line)
+        top = _TOP_MARK.match(head) if head else None
+        if top and top.group(1) not in body_title:
+            body_title[top.group(1)] = head
+    merged: list[str] = []
+    for head in entries:
+        top = _TOP_MARK.match(head)
+        if top:
+            merged.append(_use_body_title(head, body_title.get(top.group(1), "")))
+        else:
+            merged.append(head)
+    first = next((h for h in merged if _TOP_MARK.match(h)), "")
+    kids = _front_children(rest, first) if first else []
+    ahead = _lettered_ahead(body, first) if first else []
+    # 无编号目录收的是全量条目，正文里的附表不再另挂，避免混成目录项
+    tail = [] if plain else _trailing_attach(rest)
+    seen = {compact_title(h) for h in merged}
+    if kids and first:
+        at = next(i for i, h in enumerate(merged) if h == first) + 1
+        extra = [k for k in kids if compact_title(k) not in seen]
+        merged[at:at] = extra
+        seen.update(compact_title(k) for k in extra)
+    lead = [k for k in ahead if compact_title(k) not in seen]
+    merged = lead + merged
+    seen.update(compact_title(k) for k in lead)
+    merged.extend(k for k in tail if compact_title(k) not in seen)
+    return _items_from_catalog(merged)
+
+
+def _lettered_ahead(body: str, first_top: str) -> list[str]:
+    """目录前面的 A. / B. 也是格式条目，例如资格证明里的营业执照。"""
+    out: list[str] = []
+    for line in _explode_short_marks(body).splitlines():
+        head = _catalog_heading(line)
+        if head and head == first_top:
+            break
+        lettered = lettered_heading(line)
+        if lettered:
+            out.append(lettered[0])
+    return out
+
+
+def _trailing_attach(rest: str) -> list[str]:
+    """编号目录后面单独的「附二：…」，不是正文里重复的一级标题。"""
+    out: list[str] = []
+    for line in (rest or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        head = _catalog_heading(s)
+        if head and _TOP_MARK.match(head):
+            break
+        if is_noise_title(s) or is_outline_junk(title=s):
+            continue
+        if not re.match(r"^附", s):
+            if len(compact_title(s)) > 40:
+                break
+            continue
+        title = _clean_item(s) or s
+        if is_noise_title(title) or is_outline_junk(title=title):
+            continue
+        out.append(s if len(s) <= 40 else title)
+    return out
+
+
+def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
+    """从邀请书/招标书正文抽出格式章节条目。找不到则返回空列表，不报错。"""
+    raw = unmash_invitation_text(text or "")
+    chapter, body = _format_section(raw)
+    if body:
+        catalog_items = _outline_from_directory(body)
+        if catalog_items:
+            letter_body = {item.id: item.body for item in catalog_items if (item.body or "").strip()}
+            catalog_items = dedupe_outline_items(catalog_items)
+            _attach_item_bodies(catalog_items, body)
+            for item in catalog_items:
+                kept = letter_body.get(item.id) or ""
+                if kept:
+                    item.body = kept
+            return chapter, catalog_items
+        body = _explode_enum_lines(body)
+    lines = _candidate_lines(body or raw, whole_doc=not bool(body))
+    items: list[OutlineItem] = []
+    seen: set[str] = set()
+    enum_at: dict[str, int] = {}
+    dropped: set[int] = set()
+    for title, raw_line in lines:
+        prefix_m = _ENUM_PREFIX.match((raw_line or "").strip())
+        prefix = prefix_m.group(1) if prefix_m else ""
+        key = _outline_key(title)
+        replacing = bool(prefix and prefix in enum_at)
+        if len(key) < 2 or (key in seen and not replacing):
+            continue
+        kind = classify_kind(title)
+        kind = kind if kind in OUTLINE_KINDS else "unknown"
+        lettered = lettered_heading(raw_line)
+        if kind not in {"tech_plan", "tech_chapter", "tech_dev"} and lettered is None:
+            pack = _format_pack_heading(title)
+            if not pack and (is_outline_junk(title=title) or not is_chapter_title(title)):
+                continue
+        if kind == "unknown" and lettered is None and not _keep_unknown_title(title):
+            if not _format_pack_heading(title):
+                continue
+        # 目录和正文会各写一次「一、」「二、」。留下文那次，顺序才是格式章本身。
+        if replacing:
+            old_i = enum_at[prefix]
+            if 0 <= old_i < len(items) and items[old_i] is not None:
+                seen.discard(_outline_key(items[old_i].title))
+                dropped.add(old_i)
+        if key in seen:
+            continue
+        seen.add(key)
+        raw_title = raw_line.strip()
+        if len(raw_title) > 40:
+            raw_title = ""
+        items.append(
+            OutlineItem(
+                id=f"o{len(items) + 1:02d}",
+                title=title,
+                rawTitle=raw_title if raw_title and raw_title != title else "",
+                kind=kind,
+                source=source_for_kind(kind),
+                required=True,
+                skipped=False,
+                level=_extracted_item_level(raw_line),
+                body=(lettered[1] if lettered else ""),
+            )
+        )
+        if prefix:
+            enum_at[prefix] = len(items) - 1
         if len(items) >= 40:
             break
+    if dropped:
+        items = [item for i, item in enumerate(items) if i not in dropped and item is not None]
+    letter_body = {item.id: item.body for item in items if (item.body or "").strip()}
     items = dedupe_outline_items(items)
-    templates = _template_region(raw) or body or raw
+    templates = body or _template_region(raw) or raw
     _attach_item_bodies(items, templates)
+    for item in items:
+        kept = letter_body.get(item.id) or ""
+        if kept:
+            item.body = kept
     for item in items:
         if item.kind == "quote" and looks_like_quote_form(item.body or ""):
             item.source = "copy"
@@ -2011,13 +2592,35 @@ def _template_starts(body: str, items: list[OutlineItem]) -> list[int]:
                 if _is_body_heading(line, item.title):
                     found[i].append(offset)
         offset += len(raw)
+    all_pos = sorted(p for hits in found for p in hits)
     starts: list[int] = []
     for hits in found:
-        if hits:
-            starts.append(hits[-1])
-        else:
-            starts.append(-1)
+        starts.append(_pick_heading_start(hits, all_pos, body))
     return starts
+
+
+def _toc_leader_line(body: str, pos: int) -> bool:
+    nl = body.find("\n", pos)
+    line = body[pos : nl if nl >= 0 else len(body)]
+    return bool(re.search(r"[.．…]{3,}|·{3,}", line))
+
+
+def _pick_heading_start(hits: list[int], all_pos: list[int], body: str) -> int:
+    """目录标题下一行就是下一条。取正文里第一次拉开距离的，点线目录和文末附表不算。"""
+    if not hits:
+        return -1
+    real = [p for p in hits if not _toc_leader_line(body, p)] or list(hits)
+
+    def after(pos: int) -> int:
+        nl = body.find("\n", pos)
+        return nl + 1 if nl >= 0 else len(body)
+
+    for pos in real:
+        later = [p for p in all_pos if p > pos]
+        end = later[0] if later else len(body)
+        if end - after(pos) >= 30:
+            return pos
+    return real[-1]
 
 
 _NEXT_FORM_SEC = re.compile(
@@ -2032,9 +2635,9 @@ def _next_attach_cut(body: str, start: int, title: str) -> int:
     skip = (nl - start + 1) if 0 <= nl < start + 80 else min(24, max(4, len(title or "")))
     tail = body[start + skip :]
     cut = len(body)
-    pack = _PACK_CUT.search(tail)
-    if pack and pack.start() > 0:
-        cut = start + skip + pack.start()
+    pack_at = _pack_cut_pos(tail, title)
+    if pack_at > 0:
+        cut = start + skip + pack_at
     for m in re.finditer(
         r"(?:附(?:件)?[（(]?[一二三四五六七八九十0-9]+"
         r"|(?:^|\n)[一二三四五六七八九十]{1,2}、\s*(?:合同|偏差|偏离|报价|响应方案|响应书|承诺|授权|身份))",
@@ -2109,8 +2712,12 @@ def _is_body_heading(line: str, title: str) -> bool:
     peeled = _ITEM_PREFIX.sub("", raw).strip(" :：.．、")
     n = compact_title(line)
     t = compact_title(title)
-    if t and compact_title(peeled) == t:
-        return True
+    peeled_n = compact_title(peeled)
+    # 「二、法定代表人身份证明投标人名称：」标题和表栏粘在一行，仍是这一节开头
+    if t and peeled_n.startswith(t):
+        extra = peeled_n[len(t) :]
+        if not extra.startswith(("及", "和", "或", "附录", "格式", "组成")):
+            return True
     if not t or not n:
         return False
     if len(n) > 48:
@@ -2130,6 +2737,11 @@ def _is_body_heading(line: str, title: str) -> bool:
         return True
     stem = re.sub(r"[表书函]$", "", t)
     if len(stem) >= 4 and (n.startswith(stem) or rest.startswith(stem)):
+        return True
+    # 目录写「施工组织格式」、正文标题是「施工组织设计」
+    t_bare = re.sub(r"(?:格式|空白稿|模板)$", "", t)
+    n_bare = re.sub(r"(?:格式|设计|空白稿|模板)$", "", n)
+    if len(t_bare) >= 4 and t_bare == n_bare:
         return True
     if n.endswith(t) and 0 < len(n) - len(t) <= 8:
         prefix = n[: len(n) - len(t)]
@@ -2287,15 +2899,56 @@ def _clean_copied_body(chunk: str, title: str) -> str:
     compact = compact_title(text)
     if "\n" not in text and len(compact) <= 28 and classify_kind(text) != "unknown":
         return ""
-    text = cut_invite_pack_body(text)[:_BODY_MAX]
+    text = cut_invite_pack_body(text, title)[:_BODY_MAX]
     if "响应书" in compact_title(title or "") or classify_kind(title or "") == "commitment_copy":
         text = _trim_copied_form_tail(text, title)
     return text
 
 
+def _format_heading_match(text: str) -> re.Match | None:
+    """跳过「按照/详见响应文件格式」这种句子，取格式章标题。"""
+    matches = list(_FORMAT_HEAD.finditer(text or ""))
+    if not matches:
+        return None
+    good: list[re.Match] = []
+    for match in matches:
+        prev = (text or "")[max(0, match.start() - 8) : match.start()]
+        if any(k in prev for k in ("按照", "详见", "参见", "规定", "满足")):
+            continue
+        around = (text or "")[max(0, match.start() - 2) : match.end() + 1]
+        if any(q in around for q in ("“", "”", "\"", "「", "」")):
+            continue
+        good.append(match)
+    pool = good or matches
+    # 「响应文件格式」才是要照抄的空白稿；「响应文件的组成」多半是前面的材料清单。
+    fmt = [m for m in pool if "格式" in (m.group("title") or "")]
+    if fmt:
+        pool = fmt
+    headed = [m for m in pool if compact_title(m.group("title") or "").startswith("第")]
+    if headed:
+        pool = headed
+    # 目录和正文都会出现格式章。正文章通常更靠后，但页眉重复时后面没有目录。
+    # 取后面仍能抽出目录行的最后一处。
+    best = pool[0]
+    best_n = -1
+    for match in pool:
+        _title, body = _slice_format(text, match)
+        n = 0
+        for line in body.splitlines()[:60]:
+            s = line.strip()
+            if not s:
+                continue
+            if _ITEM_PREFIX.match(s) or _ATTACH_HINT.search(s) or lettered_heading(s):
+                n += 1
+        if n >= best_n:
+            best = match
+            best_n = n
+    return best
+
+
 def _format_section(text: str) -> tuple[str, str]:
-    match = _FORMAT_HEAD.search(text)
-    if not match:
+    match = _format_heading_match(text or "")
+    if match is None:
         return "", ""
     return _slice_format(text, match)
 
@@ -2349,12 +3002,21 @@ def _candidate_lines(body: str, *, whole_doc: bool) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for raw in (body or "").splitlines():
         for piece in raw.split("|"):
+            if len(list(_GLUE_ENUM.finditer(piece))) >= 2:
+                continue
+            lettered = lettered_heading(piece)
+            if lettered:
+                title, _body = lettered
+                if title and not is_noise_title(title):
+                    out.append((title, piece.strip()))
+                continue
             title = _clean_item(piece)
             if not title or is_noise_title(title):
                 continue
-            if not is_chapter_title(title):
+            pack = _format_pack_heading(title)
+            if not pack and not is_chapter_title(title):
                 continue
-            if not _is_catalog_item(piece, title, whole_doc=whole_doc):
+            if not pack and not _is_catalog_item(piece, title, whole_doc=whole_doc):
                 continue
             out.append((title, piece.strip()))
     return out
@@ -2368,6 +3030,8 @@ def _is_catalog_item(raw: str, title: str, *, whole_doc: bool) -> bool:
     attach = bool(_ATTACH_HINT.search(piece) or _ATTACH_HINT.search(title))
     prefixed = bool(_ITEM_PREFIX.match(piece))
     doc_like = bool(_DOC_NOUN.search(n))
+    if _format_pack_heading(title):
+        return True
     if known or (attach and _attach_has_doc_name(n)):
         return True
     if prefixed and doc_like:
