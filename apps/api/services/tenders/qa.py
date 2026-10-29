@@ -29,7 +29,7 @@ _LLM_BID_CHARS = 12_000
 _MAX_QA_UPLOAD = 40 * 1024 * 1024
 _SOURCE_GENERATED = "generated"
 _SOURCE_UPLOAD = "upload"
-QA_VOLUMES = ("business", "technical")
+QA_VOLUMES = ("business", "technical", "full")
 
 _QA_JSON_KEYS = ("similarityScore", "missing", "summary")
 
@@ -465,9 +465,9 @@ def rule_inspect(
     if vol not in QA_VOLUMES:
         vol = ""
     if vol:
-        from api.services.tenders.outline import items_for_volume
+        from api.services.tenders.outline import items_for_full, items_for_volume
 
-        outline_items = items_for_volume(brief, vol)
+        outline_items = items_for_full(brief) if vol == "full" else items_for_volume(brief, vol)
     else:
         outline_items = brief.outlineItems or []
     outline_found = outline_total = 0
@@ -966,20 +966,21 @@ async def analyze_with_llm(
         outline_src = brief.outlineItems or []
         vol = (volume or "").strip().lower()
         if vol in QA_VOLUMES:
-            from api.services.tenders.outline import items_for_volume
+            from api.services.tenders.outline import items_for_full, items_for_volume
 
-            outline_src = items_for_volume(brief, vol)
+            outline_src = items_for_full(brief) if vol == "full" else items_for_volume(brief, vol)
         outline = "、".join(
             (item.title or "").strip()
             for item in outline_src
             if (item.title or "").strip() and not item.skipped
         )[:800]
-        vol_label = "技术标 Word" if vol == "technical" else "商务标 Word"
+        vol_label = "完整投标文件（综合标）" if vol == "full" else "技术标 Word" if vol == "technical" else "商务标 Word"
+        scope = "同时检查商务响应和技术方案正文。" if vol == "full" else "只评这一卷该有的内容。"
         user = "\n".join(
             [
                 f"项目：{(brief.projectName or '').strip() or '（未填）'}",
                 f"招标人：{(brief.tenderer or '').strip() or '（未填）'}",
-                f"当前质检对象：{vol_label}。只评这一卷该有的内容。",
+                f"当前质检对象：{vol_label}。{scope}",
                 f"组卷目录：{outline or '（未抽出）'}",
                 "",
                 "【邀请书正文】",
@@ -1017,6 +1018,8 @@ async def _missing_slot_titles(
             required_keys=brief.requiredSlotKeys,
             include_keys=brief.includeSlotKeys,
             has_agent=has_agent,
+            outline_items=brief.outlineItems,
+            requirements=brief.bidRequirements,
         )
         slots = collect_slots(brief.extraPlaceholders, catalog=catalog, include_keys=include_keys)
         media = await resolve_attachments(db, slots)
@@ -1027,7 +1030,7 @@ async def _missing_slot_titles(
         missing: list[str] = []
         for key in required_keys:
             title = titles.get(key) or key
-            if vol in QA_VOLUMES and slot_volume(key, title) != vol:
+            if vol in {"business", "technical"} and slot_volume(key, title) != vol:
                 continue
             files = media.get(key) if isinstance(media, dict) else None
             if not files:

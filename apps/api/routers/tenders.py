@@ -34,6 +34,9 @@ from api.services.tenders.library_kb import (
 )
 from api.services.tenders.onlyoffice import (
     build_editor_config,
+    check_document_server,
+    confirm_format_template,
+    force_save_document,
     handle_callback,
     onlyoffice_enabled,
     verify_download_token,
@@ -497,6 +500,14 @@ async def tenders_tech_draft(body: TechDraftIn, db: DbSession, user: CurrentUser
     return ok({"brief": brief.model_dump(mode="json"), "notes": notes})
 
 
+@router.post("/tech/plan-source")
+async def tenders_tech_plan_source(user: CurrentUser, file: UploadFile = File(...)):
+    _require_menu(user, "/tenders")
+    from api.services.tenders.gen_tech_plan import save_tech_source
+
+    return ok(await save_tech_source(await file.read(), file.filename or ""))
+
+
 @router.post("/tech/boq")
 async def tenders_tech_boq(
     db: DbSession,
@@ -562,6 +573,38 @@ async def tenders_history_chapters(
         raise AppError(ErrorCode.VALIDATION, "缺少投标记录", status_code=422)
     data = await list_history_chapters(db, pid, user=user, admin=user_is_admin(user))
     return ok(data)
+
+
+@router.get("/history-bids/chapters/preview")
+async def tenders_history_chapter_preview(
+    db: DbSession,
+    user: CurrentUser,
+    recordId: str = Query(...),
+    chapterTitle: str = Query(""),
+    volume: str = Query(""),
+    chapterKey: str = Query(""),
+):
+    from api.services.tenders.history_preview import preview_chapter
+
+    if not chapterTitle.strip() and not chapterKey.strip():
+        raise AppError(ErrorCode.VALIDATION, "缺少预览章节", status_code=422)
+    data = await preview_chapter(
+        db,
+        recordId,
+        chapterTitle,
+        volume,
+        chapterKey,
+        user=user,
+        admin=user_is_admin(user),
+    )
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": 'inline; filename="chapter.docx"',
+        },
+    )
 
 
 @router.put("/history-marks")
@@ -687,8 +730,8 @@ async def tenders_get_record_qa(
 ):
     _require_qa_menu(user)
     vol = (volume or "").strip().lower()
-    if vol and vol not in {"business", "technical"}:
-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    if vol and vol not in {"business", "technical", "full"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
     return ok(await get_record_qa(db, record_id, volume=vol or None))
 
 
@@ -702,8 +745,8 @@ async def tenders_inspect_record_qa(
     """生成后对照邀请书做 AI 质检：符合度与缺失项。"""
     _require_qa_menu(user)
     vol = (volume or "").strip().lower()
-    if vol and vol not in {"business", "technical"}:
-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    if vol and vol not in {"business", "technical", "full"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
     return ok(await inspect_record_qa(db, record_id, volume=vol or None))
 
 
@@ -721,8 +764,8 @@ async def tenders_inspect_record_qa_upload(
     if not name.lower().endswith(".docx"):
         raise AppError(ErrorCode.VALIDATION, "请上传 Word（.docx）", status_code=422)
     vol = (volume or "").strip().lower()
-    if vol and vol not in {"business", "technical"}:
-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
+    if vol and vol not in {"business", "technical", "full"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
     data = await file.read()
     return ok(
         await inspect_record_qa_upload(
@@ -817,13 +860,7 @@ async def tenders_mark_record(
     )
 
 
-@router.get("/invitations/{invitation_id}/format-docx")
-async def tenders_invitation_format_docx(
-    invitation_id: str,
-    db: DbSession,
-    user: CurrentUser,
-):
-    del db
+async def _invitation_format_preview(invitation_id: str, brief: BidBrief | None = None):
     invite_id = (invitation_id or "").strip()
     if not re.fullmatch(r"[a-f0-9]{10,16}", invite_id):
         raise AppError(ErrorCode.BAD_REQUEST, "无效的招标文件标识", status_code=400)
@@ -831,17 +868,38 @@ async def tenders_invitation_format_docx(
 
     if demo_enabled():
         dest = await asyncio.to_thread(demo_format_file, invite_id)
-        return ok({"fileName": dest.name})
-    from api.services.tenders.assets import tenders_output_dir
-    from api.services.tenders.pdf_format import _ready_format_docx
-    import shutil
+        return {'fileName': dest.name, 'source': 'invitation', 'previewOnly': False, 'message': ''}
+    from api.services.tenders.format_preview import prepare_invitation_format_docx
 
-    src = await asyncio.to_thread(_ready_format_docx, invite_id)
-    if src is None or not src.is_file():
-        raise AppError(ErrorCode.NOT_FOUND, "本标未识别到格式章，无法预览", status_code=404)
-    dest = tenders_output_dir() / f"{invite_id}.format.docx"
-    await asyncio.to_thread(shutil.copyfile, src, dest)
-    return ok({"fileName": dest.name})
+    return await asyncio.to_thread(prepare_invitation_format_docx, invite_id, brief=brief)
+
+
+@router.get("/invitations/{invitation_id}/format-docx")
+async def tenders_invitation_format_docx(
+    invitation_id: str, db: DbSession, user: CurrentUser,
+):
+    del db, user
+    return ok(await _invitation_format_preview(invitation_id))
+
+
+@router.post("/invitations/{invitation_id}/format-docx")
+async def tenders_prepare_invitation_format_docx(
+    invitation_id: str, body: BidBrief, db: DbSession, user: CurrentUser,
+):
+    """Preview the currently selected structure, including requirement-driven skeletons."""
+    del db, user
+    return ok(await _invitation_format_preview(invitation_id, body))
+
+
+@router.post("/invitations/{invitation_id}/format-docx/confirm")
+async def tenders_confirm_format_docx(invitation_id: str, db: DbSession, user: CurrentUser):
+    """After the editor save callback, make the preview copy the generation template."""
+    del db, user
+    try:
+        key = await asyncio.to_thread(confirm_format_template, invitation_id)
+    except ValueError as exc:
+        raise AppError(ErrorCode.BAD_REQUEST, str(exc), status_code=400) from exc
+    return ok({"fileName": f"{invitation_id}.format.docx", "key": key})
 
 
 @router.get("/files/{file_name}")
@@ -880,6 +938,13 @@ async def tenders_preview_pdf(
         filename="preview.pdf",
         content_disposition_type="inline",
     )
+
+
+@router.get("/onlyoffice/health")
+async def tenders_onlyoffice_health(user: CurrentUser):
+    """Authenticated connection/JWT diagnostics, without returning secrets."""
+    del user
+    return ok(await asyncio.to_thread(check_document_server))
 
 
 @router.get("/files/{file_name}/editor-config")
@@ -924,7 +989,8 @@ async def tenders_editor_config(
             "OnlyOffice 未配置，请设置 ONLYOFFICE_DOCUMENT_SERVER_URL 并启动 Document Server",
             status_code=503,
         )
-    config = build_editor_config(
+    config = await asyncio.to_thread(
+        build_editor_config,
         file_name,
         download_name=display,
         user_id=str(user.id),
@@ -932,10 +998,12 @@ async def tenders_editor_config(
         editor_height_px=height,
         mode=mode,
     )
+    document_server_url = settings.onlyoffice_document_server_url.rstrip("/")
+    logger.info("onlyoffice editor-config documentServerUrl=%s", document_server_url)
     return ok(
         {
             "engine": "onlyoffice",
-            "documentServerUrl": settings.onlyoffice_document_server_url.rstrip("/"),
+            "documentServerUrl": document_server_url,
             "iframeUrl": "",
             "config": config,
         }
@@ -961,6 +1029,18 @@ async def tenders_onlyoffice_download(
         media_type=_MIME.get(path.suffix.lower(), "application/octet-stream"),
         headers={"Cache-Control": "no-store", "Content-Disposition": "inline"},
     )
+
+
+@router.post("/files/{file_name}/onlyoffice-forcesave")
+async def tenders_onlyoffice_forcesave(file_name: str, request: Request, user: CurrentUser):
+    """Request an authenticated save for the version currently open in the editor."""
+    del user
+    body = await request.json()
+    key = str(body.get("key") or "").strip() if isinstance(body, dict) else ""
+    if not key:
+        raise AppError(ErrorCode.BAD_REQUEST, "缺少模板版本标识", status_code=400)
+    await force_save_document(file_name, key)
+    return ok({"queued": True})
 
 
 @router.post("/files/{file_name}/onlyoffice-callback")

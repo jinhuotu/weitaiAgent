@@ -3262,7 +3262,13 @@ def test_outline_uses_invite_cover_and_skips_blank_pages(tmp_path, monkeypatch) 
     assert "我方已仔细研究了" in blob
     assert "安全生产措施费" in blob
     assert "单位性质" not in blob
-    assert "PAGEREF" not in doc.element.xml
+    from api.services.tenders.pdf_format import toc_block_ids
+    from docx.text.paragraph import Paragraph
+    entries = [Paragraph(n, doc) for n in toc_block_ids(doc) if n.tag == qn("w:p")]
+    entries = [p for p in entries if "、" in p.text]
+    assert len(entries) == 3
+    assert all("PAGEREF" in p._p.xml and 'w:leader="dot"' in p._p.xml for p in entries)
+    assert all(p.text.endswith("待更新") for p in entries)
     assert "未定义书签" not in blob
     assert any("原版" in w for w in warnings)
 

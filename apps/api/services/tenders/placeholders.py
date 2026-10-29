@@ -40,12 +40,12 @@ _IMAGE_MAX_PX = 800
 # 信用中国等文字页按约 220dpi 出 PNG，不再走 JPEG 45/800px
 _CREDIT_DPI = 220
 _CREDIT_MAX_PX = 2800
-_CREDIT_MAX_H_CM = 18.5
-# 身份证正反面：按 96dpi 把像素缩到排版厘米，横版并排铺满版心
+_CREDIT_MAX_H_CM = 12.0
+# 身份证正反面：按实物尺寸上限并排，窄版心等比缩小
 _ID_PAIR_MAX_IMAGES = 2
-_ID_STRIP_WIDTH_CM = 16.6
-_ID_SINGLE_WIDTH_CM = 8.2
-_ID_STRIP_MAX_H_CM = 6.2
+_ID_STRIP_WIDTH_CM = 17.4
+_ID_SINGLE_WIDTH_CM = 8.6
+_ID_STRIP_MAX_H_CM = 5.4
 _ID_PREVIEW_DPI = 96
 _ID_ASPECT_MIN = 1.22
 _ID_ASPECT_MAX = 1.98
@@ -54,7 +54,7 @@ _BOX_CM = 5.4
 _SLOT_GAP_STYLE = "TenderAttachmentGap"
 _SLOT_CLEARANCE_STYLE = "TenderTableClearance"
 _SLOT_GAP_CM = 0.5
-_IMAGE_MAX_H_CM = 16.0
+_IMAGE_MAX_H_CM = 12.0
 _TWIPS_PER_CM = 567
 _EMU_PER_CM = 360000.0
 
@@ -92,7 +92,12 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
     PlaceholderItem(
         key="finance",
         title="近三年财务审计报告 / 完税证明",
-        hint="按招标文件资格审查条款提供。社保证明挂在授权代理人项下，勿与身份证混用。",
+        hint="按招标文件资格审查条款提供。纳税完税放本项，不要和社保证明混放。",
+    ),
+    PlaceholderItem(
+        key="social",
+        title="社保缴纳证明",
+        hint="近半年社保缴纳证明。与纳税完税、身份证分开上传。",
     ),
     PlaceholderItem(
         key="credit",
@@ -115,6 +120,97 @@ DEFAULT_SLOTS: tuple[PlaceholderItem, ...] = (
         hint="逐页盖投标人公章；法定代表人签字或盖章。",
     ),
 )
+
+CRITICAL_SLOT_KEYS = frozenset(item.key for item in DEFAULT_SLOTS if item.key != 'product')
+
+# Evidence comes from this invitation, never from the library's own descriptions.
+_MATERIAL_SECTION_MARKS = (
+    ('id_legal', ('法定代表人身份证', '法人身份证', '法人代表身份证')),
+    ('id_agent', ('代理人身份证', '被授权人身份证', '委托人身份证')),
+    ('license', ('营业执照', '独立承担民事责任', '独立法人资格')),
+    ('bank_permit', ('开户许可', '基本账户', '基本存款账户', '基本户')),
+    ('finance', (
+        '财务状况', '财务审计', '审计报告', '财务报告', '财务报表', '财务会计制度',
+        '完税证明', '纳税证明', '纳税凭证', '依法缴纳税收', '税收及社会保障',
+    )),
+    ('social', ('社保缴纳', '社保缴费', '社保证明', '社会保障资金')),
+    ('credit', ('信用中国', '信用记录', '信用查询', '失信查询', '企业信用信息公示')),
+    ('perf', ('业绩', '类似项目', '合同及发票', '履约证明')),
+    ('iso', ('资质证书', '资质证明', '资质材料', '质量体系', '体系认证', 'iso')),
+    ('bond', ('投标保证金', '保证金回单', '保证金缴存', '保证金缴纳')),
+    ('seal', ('签章页', '盖章页', '印鉴备案', '印鉴及签字')),
+)
+
+
+def _material_keys(text: str) -> list[str]:
+    compact = re.sub(r'\s+', '', text or '').lower()
+    keys = []
+    for key, marks in _MATERIAL_SECTION_MARKS:
+        for mark in marks:
+            start = compact.find(mark)
+            if start < 0:
+                continue
+            before, after = compact[max(0, start - 12):start], compact[start + len(mark):]
+            if (re.search(r'(?:无需|无须|免交|免缴|不收取|不要求).{0,4}$', before)
+                    or re.match(r'[：:]?(?:不收取|免交|免缴|无需提供|无须提供)', after)):
+                continue
+            keys.append(key)
+            break
+    keys.extend(_paste_box_keys(compact))
+    if compact in {'资质', '资质要求'} and 'iso' not in keys:
+        keys.append('iso')
+    return keys
+
+
+def _with_format_paste(invitation_id: str, source: str) -> str:
+    invite = (invitation_id or "").strip()
+    if not invite:
+        return source or ""
+    from api.services.tenders.pdf_format import format_paste_source
+
+    extra = format_paste_source(invite)
+    if not extra:
+        return source or ""
+    return ((source or "").rstrip() + "\n" + extra).strip()
+
+
+def _paste_box_keys(compact: str) -> list[str]:
+    if "此处粘贴" not in compact and "在此粘贴" not in compact:
+        return []
+    keys = []
+    if "营业执照" in compact:
+        keys.append("license")
+    if any(word in compact for word in ("纳税", "完税", "税收", "财务", "审计")):
+        keys.append("finance")
+    if "社保" in compact or "社会保障" in compact:
+        keys.append("social")
+    if "身份证" in compact:
+        keys.append("id_agent" if ("委托" in compact or "代理" in compact) else "id_legal")
+    return keys
+
+
+def _bid_material_keys(outline_items: list | None, requirements: list | None,
+                       source_text: str) -> list[str]:
+    keys = []
+    for item in outline_items or []:
+        if getattr(item, 'skipped', False):
+            continue
+        text = '\n'.join(str(getattr(item, attr, '') or '') for attr in
+                         ('title', 'rawTitle', 'body', 'inviteExcerpt'))
+        keys.extend(_material_keys(text))
+        if getattr(item, 'kind', '') == 'performance':
+            keys.append('perf')
+    for req in requirements or []:
+        key = str(getattr(req, 'slotKey', '') or '').strip()
+        if key:
+            keys.append(key)
+        if getattr(req, 'category', '') not in {'qualification', 'material'} and not key:
+            continue
+        keys.extend(_material_keys('\n'.join(str(getattr(req, attr, '') or '') for attr in
+                                              ('text', 'targetTitle', 'attachToSection'))))
+    for line in (source_text or '').splitlines():
+        keys.extend(_material_keys(line))
+    return normalize_slot_keys(keys)
 
 TECH_DRAWING_KEY = "tech_drawings"
 TECH_DRAWING_SLOT = PlaceholderItem(
@@ -148,15 +244,24 @@ def this_bid_keys(
     required_keys: list[str] | None = None,
     include_keys: list[str] | None = None,
     has_agent: bool = False,
+    outline_items: list | None = None,
+    requirements: list | None = None,
+    source_text: str = '',
+    invitation_id: str = '',
 ) -> tuple[list[str], list[str]]:
     """本标必填 key、写入 Word 的 key。不把整份资料库都塞进文件。"""
+    source_text = _with_format_paste(invitation_id, source_text)
     extras = extra or []
     known = {item.key for item in (catalog if catalog is not None else DEFAULT_SLOTS) if item.key}
+    known.update(item.key for item in DEFAULT_SLOTS)
     known.update(item.key for item in extras if item.key)
 
     required = normalize_slot_keys(required_keys)
     if not required:
         required = normalize_slot_keys([item.key for item in extras])
+    required = normalize_slot_keys([
+        *required, *_bid_material_keys(outline_items, requirements, source_text),
+    ])
     if "id_legal" in known and "id_legal" not in required:
         required = ["id_legal", *required]
     if has_agent:
@@ -205,12 +310,15 @@ def collect_slots(
     *,
     catalog: list[PlaceholderItem] | None = None,
     include_keys: list[str] | None = None,
+    outline_items: list | None = None,
 ) -> list[PlaceholderItem]:
     """资料库清单 + 邀请书多出来的资料项（按 key 去重，后者可改说明）。
 
     include_keys 为 None 时返回合并后的全部项（资料库列表）；传入列表则只保留本标要写入 Word 的项。
     """
-    base_items = catalog if catalog is not None else list(DEFAULT_SLOTS)
+    base_items = list(catalog) if catalog is not None else list(DEFAULT_SLOTS)
+    present = {item.key for item in base_items}
+    base_items.extend(item for item in DEFAULT_SLOTS if item.key not in present)
     by_key: dict[str, PlaceholderItem] = {
         item.key: item.model_copy() for item in base_items if item.key
     }
@@ -235,6 +343,22 @@ def collect_slots(
                 hint=hint or "请按招标文件要求补附",
                 attachToSection=item.attachToSection or "",
             )
+    # Supply attachment routing metadata to the existing placement functions.
+    # A broad qualification heading can own an explicit business-license request.
+    for slot in by_key.values():
+        if slot.attachToSection:
+            continue
+        candidates = [item for item in outline_items or [] if not getattr(item, 'skipped', False)]
+        # Prefer a dedicated chapter over an incidental mention in a letter.
+        for attrs in (('title', 'rawTitle'), ('body', 'inviteExcerpt')):
+            hit = next((item for item in candidates
+                        if (attrs[0] == 'title' or getattr(item, 'kind', '')
+                            not in {'letter', 'legal_id', 'auth', 'quote'})
+                        and slot.key in _material_keys('\n'.join(
+                            str(getattr(item, attr, '') or '') for attr in attrs))), None)
+            if hit is not None:
+                slot.attachToSection = getattr(hit, 'rawTitle', '') or hit.title
+                break
     if include_keys is None:
         return list(by_key.values())
     ordered: list[PlaceholderItem] = []
@@ -681,8 +805,8 @@ def _slot_anchor(anchor):
     return anchor
 
 
-def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Path], *, wording: str = "", complete: bool = False) -> bool:
-    anchor_el = _slot_anchor(anchor_el)
+def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Path], *, wording: str = "", complete: bool = False, at_marker: bool = False) -> bool:
+    anchor_el = _body_block(anchor_el) if at_marker else _slot_anchor(anchor_el)
     marker = _last_body_child(doc)
     placed = False
     if files:
@@ -940,13 +1064,12 @@ def _already_placed(doc: Document, slot: PlaceholderItem) -> bool:
     title = _compact_para(slot.title)
     if len(title) < 4:
         return False
-    mark = f"此处粘贴{title}"
     for para in doc.paragraphs:
-        if mark in _compact_para(para.text or ""):
+        if _note_score(title, para.text or "") >= 1000 and _filled_slot_mark(para._p):
             return True
     for tbl in doc.element.body.iter(qn("w:tbl")):
         blob = "".join(t.text or "" for t in tbl.iter(qn("w:t")))
-        if mark in "".join(blob.split()):
+        if _note_score(title, blob) >= 1000 and _filled_slot_mark(tbl):
             return True
     if (slot.key or "") != "id_legal" and "身份证" not in title:
         return False
@@ -966,6 +1089,15 @@ def _already_placed(doc: Document, slot: PlaceholderItem) -> bool:
                 return True
             sib = sib.getnext()
     return False
+
+
+def _filled_slot_mark(el) -> bool:
+    if _is_slot_box(el) or next(el.iter(qn("w:drawing")), None) is not None:
+        return True
+    return el.tag == qn("w:tbl") and any(
+        border.get(qn("w:val")) in {"dashed", "dotted"}
+        for border in el.iter(qn("w:top"))
+    )
 
 
 def _other_heading(doc: Document, toc_els: list):
@@ -991,6 +1123,23 @@ def _slot_marks(slot: PlaceholderItem) -> list[str]:
         and not _paste_ban(slot.attachToSection or "")
     ):
         marks.append(sec)
+        # 章节标题同义：邀请书可能写全称，原版章节只写简称。
+        _SECTION_ALIASES = (
+            ("法定代表人授权委托书", "授权委托书"),
+            ("授权委托书", "法定代表人授权委托书"),
+            ("财务审计报告", "财务审计"),
+            ("财务报表", "财务审计"),
+            ("财务状况", "财务审计"),
+            ("业绩合同", "类似项目"),
+            ("业绩", "类似项目"),
+            ("资质证书", "资质证明"),
+            ("资质证明", "资质证书"),
+            ("营业执照", "营业执照"),
+            ("开户许可", "开户许可证"),
+        )
+        for left, right in _SECTION_ALIASES:
+            if left in sec and right not in marks:
+                marks.append(right)
     key = (slot.key or "").strip()
     if key in _KEY_CHAPTER:
         marks.append(_KEY_CHAPTER[key])
@@ -1076,11 +1225,21 @@ def _form_els(doc: Document) -> set:
 def _note_score(title: str, text: str) -> int:
     name = _compact_para(title)
     n = _compact_para(text)
-    if len(name) < 4 or not _wants_attach(n):
+    if len(name) < 4:
+        return 0
+    for marker in re.finditer(r"此处粘贴([^。]{1,80})", n):
+        material = re.split(r"[（(\n]在此粘贴|[（(\n]|[；;。]", marker.group(1), maxsplit=1)[0]
+        compared_name = name.replace("财务会计报表", "财务报表")
+        compared_material = material.replace("财务会计报表", "财务报表")
+        if compared_name in compared_material or (
+            len(compared_material) >= 4 and compared_material in compared_name
+        ):
+            return 1000 + min(len(name), len(material))
+    if not _wants_attach(n):
         return 0
     if name in n:
         return len(name)
-    hit = re.search(r"(?:在此附|本表后应附|本表后附|后应附|应附|应提供|需提供|须提供|须附|需附)([^。]{0,80})", n)
+    hit = re.search(r"(?:此处粘贴|在此附|本表后应附|本表后附|后应附|应附|应提供|需提供|须提供|须附|需附)([^。]{0,80})", n)
     if hit is None:
         return 0
     best = 0
@@ -1109,9 +1268,10 @@ def _near_label(el) -> str:
 
 def _locate_note(doc: Document, slot: PlaceholderItem, banned: set, toc_els: list):
     best = None
-    best_n = 0
+    best_rank = (False, False, 0)
     label = ""
     title = slot.title or ""
+    section = _level1_core(slot.attachToSection) or _compact_para(slot.attachToSection)
     for child in doc.element.body:
         if child.tag == qn("w:sectPr"):
             break
@@ -1124,10 +1284,17 @@ def _locate_note(doc: Document, slot: PlaceholderItem, banned: set, toc_els: lis
             score = _note_score(title, blob)
         else:
             continue
-        if score <= 0 or score < best_n:
+        if score <= 0:
+            continue
+        owner = _owner(child)
+        owner_name = _compact_para(_section_label(owner)) if owner is not None else ""
+        nearby = bool(section and owner_name and (section in owner_name or owner_name in section))
+        marker = score >= 1000
+        rank = (marker, nearby, score)
+        if rank < best_rank or (marker and rank == best_rank):
             continue
         best = child
-        best_n = score
+        best_rank = rank
         label = _near_label(child) or "附注"
     return best, label
 
@@ -1305,12 +1472,21 @@ def _sweep_inplace(doc: Document, by_key: dict, media, filled: set, toc_els: lis
             notes.append(f"「{label}」说明要求附资料，已在附注后画虚线框")
 
 
+def _paste_marker_title(text: str) -> str:
+    """Read the material named by an original paste cue, not its scan instruction."""
+    match = re.search(r"此处粘贴([^（(\n。；;]{2,80})", _compact_para(text))
+    if match is None:
+        return ""
+    name = re.split(r"等(?=能|相关|证明|材料)|(?:的)?(?:复印件|扫描件)$", match.group(1), maxsplit=1)[0]
+    return name.strip("：:，,、 ")[:32]
+
+
 def _place_requested_materials(
     doc: Document, by_key: dict[str, PlaceholderItem], media: dict | None,
     toc_els: list, ban: set, skipped: set[str], filled: set, notes: list[str],
 ) -> set[str]:
     """从正文说明逐项落位。图片/框只代表这一资料已填，不代表整章完成。"""
-    from api.services.tenders.match import attachment_catalog_item, attachment_requests
+    from api.services.tenders.match import attachment_catalog_item, attachment_requests, scan_slot_key
 
     body = list(doc.element.body)
     existing = {b.get(qn("w:name")) for b in doc.element.body.iter(qn("w:bookmarkStart"))}
@@ -1318,11 +1494,64 @@ def _place_requested_materials(
     handled = set()
     occurrences: dict[str, int] = {}
     consumed = set()
+    claimed_markers = set()
     catalog = sorted(by_key.values(), key=lambda item: not bool((media or {}).get(item.key)))
     for index, child in enumerate(body):
-        if child in consumed or child in toc_els or child in ban or child.tag not in {qn("w:p"), qn("w:tbl")}:
+        if child.getparent() is not doc.element.body or child in consumed or child in toc_els or child in ban or child.tag not in {qn("w:p"), qn("w:tbl")}:
             continue
         text = "".join(t.text or "" for t in child.iter(qn("w:t")))
+        if "此处粘贴" in text and child not in claimed_markers:
+            name = _paste_marker_title(text)
+            if not name:
+                continue
+            found = attachment_catalog_item(PlaceholderItem(key="", title=name), catalog)
+            key = found.key if found is not None else (scan_slot_key(name, catalog) or "marker_" + hashlib.sha1(name.encode()).hexdigest()[:12])
+            found = found or by_key.get(key)
+            if key in skipped:
+                continue
+            files = _embed_files(found, media, key) if found is not None else []
+            if _filled_slot_mark(child) and not files:
+                handled.add(key)
+                continue
+            following = child.getnext()
+            while _is_slot_gap(following) or _is_slot_clearance(following):
+                following = following.getnext()
+            if following is not None and _filled_slot_mark(following) and (
+                _note_score(name, _para_text(following)) >= 1000
+                or any((mark.get(qn("w:name")) or "").startswith("material_") for mark in following.iter(qn("w:bookmarkStart")))
+            ):
+                handled.add(key)
+                continue
+            signature = text.strip()
+            ordinal = occurrences.get(signature, 0)
+            occurrences[signature] = ordinal + 1
+            marker_name = "material_" + hashlib.sha1(f"paste|{signature}|{ordinal}|{key}".encode()).hexdigest()[:24]
+            if marker_name in existing:
+                handled.add(key)
+                continue
+            slot = PlaceholderItem(key=key, title=found.title if found is not None else name)
+            target = _body_block(child)
+            put = _drop_after(doc, target, slot, files, complete=True, at_marker=True)
+            first = target.getnext()
+            while _is_slot_gap(first) or _is_slot_clearance(first):
+                first = first.getnext()
+            if _filled_slot_mark(child):
+                child.getparent().remove(child)
+                _merge_slot_gaps(doc)
+            para = first if first.tag == qn("w:p") else next(first.iter(qn("w:p")))
+            start = OxmlElement("w:bookmarkStart")
+            start.set(qn("w:id"), str(next_id))
+            start.set(qn("w:name"), marker_name)
+            end = OxmlElement("w:bookmarkEnd")
+            end.set(qn("w:id"), str(next_id))
+            para.append(start)
+            para.append(end)
+            next_id += 1
+            existing.add(marker_name)
+            handled.add(key)
+            claimed_markers.add(child)
+            notes.append(f"「{name}」已在原文粘贴标记处" + ("贴上资料" if put else "画虚线框（资料待补）"))
+            continue
         # 只处理原说明，不把生成的框或其提示再次解释成要求。
         if "此处粘贴" in text or _INPLACE in text or any(
             (b.get(qn("w:name")) or "").startswith("material_") for b in child.iter(qn("w:bookmarkStart"))
@@ -1363,6 +1592,21 @@ def _place_requested_materials(
             found = attachment_catalog_item(request, catalog)
             key = found.key if found is not None else request.key
             if key in skipped or request.key in skipped:
+                # The unified scan placer may already have inserted this request.
+                # Keep later missing-material boxes after those images, not in front.
+                from api.services.tenders.scan_placement import _prefix
+
+                cursor = anchor.getnext()
+                prefixes = (_prefix(key), _prefix(request.key))
+                if cursor is not None and any(
+                    (node.get(qn("w:name")) or "").startswith(prefixes)
+                    for node in cursor.iter(qn("w:bookmarkStart"))
+                ):
+                    while cursor is not None and (
+                        _filled_slot_mark(cursor) or _is_slot_gap(cursor)
+                    ):
+                        anchor = cursor
+                        cursor = cursor.getnext()
                 continue
             handled.add(key)
             handled.update(item.key for item in catalog if attachment_catalog_item(request, [item]) is not None)
@@ -1387,22 +1631,27 @@ def _place_requested_materials(
                 if cursor.tag == qn("w:p") and _sec_head(_section_label(cursor)):
                     break
                 blob = _compact_para(_para_text(cursor))
-                if (cursor.tag == qn("w:tbl") or _is_slot_box(cursor)) and any(name and "此处粘贴" + _compact_para(name) in blob for name in names):
+                if any(name and _note_score(name, blob) >= 1000 for name in names):
                     old_box = cursor
                     break
                 cursor = cursor.getnext()
-            if old_box is not None and not files:
+            existing_box = old_box is not None and _filled_slot_mark(old_box)
+            if existing_box and not files:
                 if owner is not None:
                     filled.add(owner)
                 continue
-            target = _slot_anchor(old_box if old_box is not None else anchor)
-            put = _drop_after(doc, target, slot, files, complete=True)
+            if old_box is not None and old_box in claimed_markers:
+                continue
+            target = _body_block(old_box) if old_box is not None else _slot_anchor(anchor)
+            put = _drop_after(doc, target, slot, files, complete=True, at_marker=old_box is not None)
             first = target.getnext()
             while _is_slot_gap(first) or _is_slot_clearance(first):
                 first = first.getnext()
-            if old_box is not None:
+            if existing_box:
                 old_box.getparent().remove(old_box)
                 _merge_slot_gaps(doc)
+            if old_box is not None:
+                claimed_markers.add(old_box)
             # 标记只放在新增块内，原正文、段落属性及表格 XML 保持原样。
             para = first if first.tag == qn("w:p") else next(first.iter(qn("w:p")))
             start = OxmlElement("w:bookmarkStart")
@@ -1433,8 +1682,13 @@ def place_unmatched_slots(
     volume: str = "",
     skip_keys: set[str] | None = None,
     requirements: list | None = None,
+    global_pasted: set[str] | None = None,
 ) -> list[str]:
-    """按正文说明或专章就地放置；无对应位置只报告缺口，不追加卷末附件章。"""
+    """按正文说明或专章就地放置；无对应位置只报告缺口，不追加卷末附件章。
+
+    Args:
+        global_pasted: 全局已贴集合，跨所有贴图函数共享，同一资料键只贴一次
+    """
     keys = [str(k or "").strip() for k in (required_keys or []) if str(k or "").strip()]
     by_key = {item.key: item for item in (slots or []) if (item.key or "").strip()}
     if not by_key:
@@ -1444,31 +1698,58 @@ def place_unmatched_slots(
     scattered = _merge_scattered_materials(by_key, keys, requirements, vol_of, volume)
     vol = (volume or "").strip().lower()
     skipped = {str(k) for k in (skip_keys or set())}
+    # 合并全局已贴集合
+    if global_pasted is not None:
+        skipped.update(global_pasted)
+    from api.services.tenders.scan_placement import place_library_scans
+
+    scan_notes, scan_handled = place_library_scans(doc, media=media, slots=slots, skip_keys=skipped, global_pasted=global_pasted)
+    skipped.update(scan_handled)
+    # 更新全局已贴集合
+    if global_pasted is not None:
+        global_pasted.update(scan_handled)
     from api.services.tenders.categories import slot_volume
     from api.services.tenders.pdf_format import toc_block_ids
 
     toc_els = toc_block_ids(doc)
     letter_els = _letter_block(doc)
     ban = _form_els(doc)
-    notes: list[str] = []
+    notes: list[str] = list(scan_notes)
     leftover: list[PlaceholderItem] = []
     plate_items: list[PlaceholderItem] = []
     filled: set = set()
     plate = None if vol == "technical" else _review_plate(doc, toc_els, ban)
     plate_el = plate._element if plate is not None else None
     handled = _place_requested_materials(doc, by_key, media, toc_els, ban, skipped, filled, notes)
+
+    # 【修改2：将 toc_els 添加到禁止放置区域】
+    # 确保缺失项占位不会被画在目录下，必须在对应章节或文末"其他资料"
+    toc_els_set = set(toc_els)
+
     for key in keys:
         if key in {TECH_DRAWING_KEY, "seal"} or key in skipped or key in handled:
             continue
         slot = by_key.get(key)
         if slot is None:
             continue
+        anchor, note_label = _locate_note(doc, slot, ban, toc_els)
+        # 【修改2：检查 anchor 是否在目录块中】
+        # 如果 anchor 在目录块中，跳过这个位置，强制寻找章节或放到"其他资料"
+        # anchor 是 CT_P 元素（从 _locate_note 返回），直接检查是否在目录集合中
+        if anchor is not None and anchor in toc_els_set:
+            anchor = None
+            note_label = ""
+
+        at_marker = bool(
+            anchor is not None
+            and _note_score(slot.title, _para_text(anchor)) >= 1000
+        )
         want = vol_of.get(key, "")
         if vol in {"business", "technical"}:
             if want in {"business", "technical"}:
-                if want != vol:
+                if want != vol and not at_marker:
                     continue
-            elif slot_volume(key, slot.title or "") != vol:
+            elif slot_volume(key, slot.title or "") != vol and not at_marker:
                 continue
         if _already_placed(doc, slot):
             continue
@@ -1480,14 +1761,17 @@ def place_unmatched_slots(
                     files.append(path)
             except OSError:
                 continue
-        anchor, note_label = _locate_note(doc, slot, ban, toc_els)
         if anchor is not None:
             owner = _owner(anchor)
-            if owner is not None and (owner in filled or _span_taken(owner)):
+            if owner is not None and not at_marker and (owner in filled or _span_taken(owner)):
                 notes.append(f"「{slot.title}」与同一章节已有占位重复，未再画框")
                 continue
             embed = _embed_files(slot, {key: files}, key)
-            put = _drop_after(doc, anchor, slot, embed, wording=_INPLACE, complete=True)
+            put = _drop_after(
+                doc, anchor, slot, embed,
+                wording="" if at_marker else _INPLACE,
+                complete=True, at_marker=at_marker,
+            )
             if owner is not None:
                 filled.add(owner)
             if put:
@@ -1984,6 +2268,11 @@ def _insert_id_cards(doc: Document, images: list[tuple[io.BytesIO, int, int]]) -
     if strip is None:
         return 0
     baked, width_cm, height_cm = strip
+    sec = doc.sections[-1]
+    available = (sec.page_width - sec.left_margin - sec.right_margin) / _EMU_PER_CM - 0.4
+    if width_cm > available:
+        height_cm *= available / width_cm
+        width_cm = available
     para = doc.add_paragraph()
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     pf = para.paragraph_format
@@ -2027,10 +2316,11 @@ def _compose_id_strip(buffers: list[io.BytesIO]) -> tuple[io.BytesIO, float, flo
     for im in prepared:
         canvas.paste(im, (x, 0))
         x += im.size[0] + gap
-    # 两张并排铺满版心，接近身份证实物大小
+    # 单张按标准身份证尺寸上限，两张并排；窄版心由调用方等比缩小
     width_cm = _ID_STRIP_WIDTH_CM if len(prepared) > 1 else _ID_SINGLE_WIDTH_CM
-    height_cm = width_cm * card_h / float(canvas.size[0] or 1)
-    height_cm = min(height_cm, _ID_STRIP_MAX_H_CM)
+    width_cm, height_cm = _fit_cm(
+        canvas.size[0], card_h, max_w=width_cm, max_h=_ID_STRIP_MAX_H_CM
+    )
     px_w = max(1, int(round(width_cm / 2.54 * _ID_PREVIEW_DPI)))
     px_h = max(1, int(round(height_cm / 2.54 * _ID_PREVIEW_DPI)))
     canvas = canvas.resize((px_w, px_h), resample)
@@ -2097,11 +2387,17 @@ def _fit_to_page(
     max_h: float,
 ) -> tuple[float, float]:
     remain = _page_body_cm(doc) - _used_on_page_cm(doc) - 0.4
-    if remain < 8.0 and _used_on_page_cm(doc) > 1.0:
+    max_h = min(max_h, _scan_height_cm(doc))
+    if remain < 4.0 and _used_on_page_cm(doc) > 1.0:
         doc.add_page_break()
         remain = _page_body_cm(doc) - 0.8
-    cap = min(max_h, max(8.0, remain))
+    cap = min(max_h, max(4.0, remain))
     return _fit_cm(px_w, px_h, max_w=max_w, max_h=cap)
+
+
+def _scan_height_cm(doc: Document) -> float:
+    """Reserve captions/gaps so normal scans can share a body page."""
+    return min(_IMAGE_MAX_H_CM, max(4.0, _page_body_cm(doc) / 2 - 1.0))
 
 
 def _render_pdf_page_bytes(page, *, sharp: bool) -> io.BytesIO:
@@ -2155,8 +2451,6 @@ def _insert_pdf_pages(
                     buf.seek(0)
                 except Exception:
                     pass
-                if inserted and _used_on_page_cm(doc) > 1.0:
-                    doc.add_page_break()
                 disp_w, disp_h = _fit_to_page(doc, px_w, px_h, max_w=15.5, max_h=max_h)
                 pic = doc.add_paragraph()
                 pic.alignment = WD_ALIGN_PARAGRAPH.CENTER

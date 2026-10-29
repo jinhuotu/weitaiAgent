@@ -7,7 +7,11 @@ import shutil
 from pathlib import Path
 from uuid import uuid4
 
-from api.services.tenders.assets import chapter5_template_status, find_qualification_pdf, tenders_output_dir
+from api.services.tenders.assets import (
+    chapter5_template_status,
+    find_qualification_pdf,
+    tenders_output_dir,
+)
 from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
 from api.services.tenders.slots import list_slots_status
 from common.config import get_settings
@@ -42,6 +46,9 @@ def generate_bid(
     catalog_media: dict[str, list[Path]] | None = None,
     catalog_facts: list | None = None,
 ) -> dict[str, object]:
+    from api.services.tenders.native_format import prefer_native_format
+
+    native = prefer_native_format(brief)
     vol = generate_volume(brief)
     stem = uuid4().hex[:12]
     out_dir = tenders_output_dir()
@@ -58,7 +65,12 @@ def generate_bid(
             status_code=500,
         ) from exc
 
-    _, warnings = assemble_bid_docx(
+    builder = assemble_bid_docx
+    if brief.requirementsDriven:
+        from api.services.tenders.document import build_bid_docx
+
+        builder = build_bid_docx
+    _, warnings = builder(
         brief,
         dest,
         qualification_pdf=pdf_src,
@@ -68,6 +80,12 @@ def generate_bid(
         volume=vol,
     )
     warnings = list(warnings)
+    if native:
+        from docx import Document
+
+        from api.services.tenders.native_format import validate_native_toc
+
+        validate_native_toc(Document(dest))
 
     pdf_name = ""
     if pdf_src is not None:
@@ -132,14 +150,14 @@ def generate_pair(
     catalog_media: dict[str, list[Path]] | None = None,
     catalog_facts: list | None = None,
 ) -> dict[str, object]:
-    """先出商务卷，再出技术卷。未建议分册时，商务卷与单卷调用相同。"""
+    """先出商务卷，再出技术卷。显式分册或建议分册时裁分商务卷。"""
     kw = dict(
         catalog_slots=catalog_slots,
         catalog_media=catalog_media,
         catalog_facts=catalog_facts,
     )
-    # 报价留在商务卷，不另出一册。只有建议分册时，这次商务卷才裁技术部分。
-    slice_biz = (getattr(brief, "volumeAdvice", None) or "").strip() == "split"
+    # 报价留在商务卷，不另出一册。显式分册优先于识别建议，普通单卷调用保持原样。
+    slice_biz = bool(brief.splitSlice) or (getattr(brief, "volumeAdvice", None) or "").strip() == "split"
     biz = brief.model_copy(
         update={"generateVolume": "business", "generateBoth": False, "splitSlice": slice_biz}
     )

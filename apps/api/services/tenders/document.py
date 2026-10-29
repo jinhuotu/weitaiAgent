@@ -29,15 +29,15 @@ from api.services.tenders.format_rules import (
     flatten_toc_tree,
     format_brief_notes,
     section_page_flags,
+    title_canon,
     toc_page_cache,
 )
-from api.services.tenders.outline import tech_chapter_titles
+from api.services.tenders.outline import tech_chapter_titles, toc_title_key
 from api.services.tenders.money import rmb_figure, rmb_lowercase, rmb_pair, rmb_uppercase
 from api.services.tenders.placeholders import (
     TECH_DRAWING_KEY,
     TECH_DRAWING_SLOT,
     _set_row_height,
-    collect_slots,
     draw_placeholder_box,
     fill_perf_placeholders,
     id_slot,
@@ -67,18 +67,6 @@ logger = logging.getLogger("api.tenders")
 
 _SONG = "宋体"
 
-# title, bookmark, 旧占位（现按 documentFormat.pageNumberStart 重算）
-_TOC_ITEMS: tuple[tuple[str, str, str], ...] = (
-    ("投标函及投标函附录", "toc_letter", "3"),
-    ("分项报价表", "toc_quote", "5"),
-    ("法定代表人身份证明", "toc_legal", "6"),
-    ("授权委托书", "toc_auth", "7"),
-    ("技术偏差表", "toc_dev", "8"),
-    ("企业业绩", "toc_perf", "9"),
-    ("原厂生产承诺", "toc_factory", "11"),
-    ("技术标（实施方案）", "toc_other", "12"),
-    ("投标承诺书", "toc_commit", "13"),
-)
 _HEADING_BOOKMARKS: tuple[tuple[str, str], ...] = (
     ("投标函及投标函附录", "toc_letter"),
     ("分项报价表", "toc_quote"),
@@ -1315,6 +1303,21 @@ def _next_bookmark_id(doc: Document) -> int:
     return nxt
 
 
+def _set_bookmark_outline(doc: Document, levels: dict[str, int]) -> None:
+    """只补正文标题的大纲元数据，不改变样式、字号、间距。"""
+    for para in doc.paragraphs:
+        for mark in para._p.findall(qn("w:bookmarkStart")):
+            level = levels.get(mark.get(qn("w:name")))
+            if level is None:
+                continue
+            ppr = para._p.get_or_add_pPr()
+            for old in list(ppr.findall(qn("w:outlineLvl"))):
+                ppr.remove(old)
+            node = OxmlElement("w:outlineLvl")
+            node.set(qn("w:val"), str(max(0, min(8, int(level) - 1))))
+            ppr.append(node)
+
+
 def _bookmark_paragraph(para: Paragraph, name: str) -> None:
     """在标题段打书签，供目录 PAGEREF 定位。"""
     body = para._p.getparent()
@@ -1341,7 +1344,7 @@ def _bookmark_paragraph(para: Paragraph, name: str) -> None:
 
 
 def _subset_bookmarks(doc: Document, items) -> list[str]:
-    """仅新建子集使用：缺失、重复或不合法的条目 ID 不生成同名书签。"""
+    """目录与正文共用分配：缺失、重复或不合法 ID 不生成同名书签。"""
     used = {el.get(qn("w:name")) for el in doc.element.iter(qn("w:bookmarkStart"))}
     names: list[str] = []
     for i, item in enumerate(items):
@@ -1459,13 +1462,7 @@ def _write_toc_line(
         prefix = f"{cn_ordinal(index + 1)}、"
     size = 12.0 if level <= 1 else 10.5
     bold = level <= 1
-    if not with_pages:
-        _clear_toc_tabs(para)
-        _clear_runs(para)
-        title_run = para.add_run(f"{prefix}{title}")
-        _font(title_run, size, bold=bold)
-        _no_underline(title_run)
-        return
+    # with_pages 留作调用兼容；每条目录都保留点线和页码域，未估页用 cache 占位。
     _set_dot_tab(para, _toc_tab_pos_cm(para))
     _clear_runs(para)
     title_run = para.add_run(f"{prefix}{title}")
@@ -1527,8 +1524,10 @@ def _chapter5_toc_tree(brief: BidBrief) -> list[dict]:
 
 
 def _toc_region(doc: Document) -> tuple[Paragraph | None, list[Paragraph]]:
+    """旧目录区：目录标题后到目录条目结束，或显式换页/分节/Heading 正文为止。"""
     toc_title: Paragraph | None = None
     lines: list[Paragraph] = []
+    marked = False
     for para in doc.paragraphs:
         n = _compact(para.text)
         if n == "目录":
@@ -1536,10 +1535,31 @@ def _toc_region(doc: Document) -> tuple[Paragraph | None, list[Paragraph]]:
             continue
         if toc_title is None:
             continue
+        # Body boundaries take precedence over the permissive legacy TOC matcher.
+        style = para.style.name if para.style else ''
+        explicit_entry = 'PAGEREF' in para._p.xml or style.upper().startswith('TOC')
+        if not explicit_entry and (
+            (style.startswith('Heading') and n)
+            or _p_sectpr(para._p) is not None
+            or _p_has_page_br(para._p) or _has_page_break_before(para._p)
+        ):
+            break
+        if _looks_like_toc_entry(para):
+            marked = True
+            lines.append(para)
+            continue
+        if marked:
+            text = (para.text or "").strip()
+            if not text or any(mark in text for mark in ("备注", "应编制", "页码及内容")):
+                lines.append(para)
+                continue
+            break
         style = para.style.name if para.style else ""
         if style.startswith("Heading") and n and n != "目录":
             break
         if _p_sectpr(para._p) is not None:
+            break
+        if _p_has_page_br(para._p) or _has_page_break_before(para._p):
             break
         lines.append(para)
     return toc_title, lines
@@ -1557,13 +1577,226 @@ def _scrub_toc_title_bookmarks(toc_title: Paragraph) -> None:
                 toc_title._p.remove(end)
 
 
-def _rebuild_toc(doc: Document, brief: BidBrief, *, with_pages: bool, fmt=None) -> None:
+_TOC_TITLE_ALIASES = {
+    "其他材料": "技术标",
+    "技术标": "技术标",
+    "技术标实施方案": "技术标",
+    "技术标（实施方案）": "技术标",
+    "企业业绩": "企业业绩",
+    "近年完成的类似项目": "企业业绩",
+    "类似项目业绩": "企业业绩",
+    "类似业绩": "企业业绩",
+    "技术偏差表": "技术偏差表",
+    "技术偏离表": "技术偏差表",
+    "商务和技术偏差表": "技术偏差表",
+    "技术和商务差异表": "技术偏差表",
+    "投标承诺书": "投标承诺书",
+    "投标承诺函": "投标承诺书",
+    "响应承诺书": "投标承诺书",
+    "响应承诺函": "投标承诺书",
+    "分项报价表": "分项报价表",
+    "投标报价及分项报价表": "分项报价表",
+    "投标报价表": "分项报价表",
+    "原厂生产承诺": "原厂生产承诺",
+    "原厂生产承诺书": "原厂生产承诺",
+    "原厂承诺": "原厂生产承诺",
+    "法定代表人身份证明": "法定代表人身份证明",
+    "法定代表人身份证明文件": "法定代表人身份证明",
+    "授权委托书": "授权委托书",
+    "法定代表人授权委托书": "授权委托书",
+}
+
+
+def _toc_match_key(text: str) -> str:
+    """目录与正文对齐用的标题键；仅做称谓归一，不改显示文字。"""
+    key = toc_title_key(text)
+    if key in _TOC_TITLE_ALIASES:
+        return _TOC_TITLE_ALIASES[key]
+    if "近年完成的类似项目" in key or "类似项目业绩" in key or "企业业绩" in key:
+        return "企业业绩"
+    if key.startswith("技术偏差") or key.startswith("技术偏离"):
+        return "技术偏差表"
+    if key.startswith("投标承诺") or key.startswith("响应承诺"):
+        return "投标承诺书"
+    return key
+
+
+def _looks_like_toc_entry(para: Paragraph) -> bool:
+    """目录行只认 PAGEREF 或 TOC 样式，避免把带「一、」的正文标题当成目录。"""
+    if _pageref_bookmark(para) is not None:
+        return True
+    style = para.style.name if para.style else ""
+    return style.lower().startswith("toc")
+
+
+def _active_outline_items(brief: BidBrief | None) -> list:
+    if brief is None:
+        return []
+    out = []
+    for item in brief.outlineItems or []:
+        title = (item.title or "").strip()
+        if item.skipped or not title:
+            continue
+        if _compact(title) in {"目录", "封面"}:
+            continue
+        out.append(item)
+    return out
+
+
+def _body_paragraphs_after_toc(doc: Document, old: list[Paragraph]) -> list[Paragraph]:
+    """目录区之后的正文档落；正文标题常带「一、」，不能再靠 _is_toc_list_line 判断。"""
+    paragraphs = doc.paragraphs
+    toc_idx = next(
+        (i for i, para in enumerate(paragraphs) if _compact(para.text) == "目录"),
+        None,
+    )
+    if toc_idx is None:
+        return []
+    old_elements = [para._p for para in old]
+    body: list[Paragraph] = []
+    for para in paragraphs[toc_idx + 1 :]:
+        if any(para._p is element for element in old_elements):
+            continue
+        if _looks_like_toc_entry(para):
+            continue
+        body.append(para)
+    return body
+
+
+def _find_outline_body_heading(
+    paragraphs: list[Paragraph],
+    title: str,
+    used: list[Paragraph],
+) -> Paragraph | None:
+    key = _toc_match_key(title)
+    if not key:
+        return None
+
+    def available(para: Paragraph) -> bool:
+        return para not in used and not _looks_like_toc_entry(para)
+
+    bookmark = next(
+        (bm for name, bm in _HEADING_BOOKMARKS if _compact(name) == _compact(title)),
+        None,
+    )
+    if bookmark:
+        for para in paragraphs:
+            if not available(para):
+                continue
+            if any(
+                start.get(qn("w:name")) == bookmark
+                for start in para._p.findall(qn("w:bookmarkStart"))
+            ):
+                return para
+
+    for para in paragraphs:
+        if available(para) and _toc_match_key(para.text) == key:
+            return para
+    if len(key) < 4:
+        return None
+    for para in paragraphs:
+        if not available(para):
+            continue
+        other = _toc_match_key(para.text)
+        if len(other) >= 4 and (other in key or key in other):
+            return para
+    return None
+
+
+def _ensure_outline_bookmark(
+    para: Paragraph,
+    item,
+    assigned: set[str],
+    all_names: set[str],
+) -> str:
+    """正文章节已有 toc_ 书签就复用；否则用大纲条目 ID 生成稳定书签。"""
+    for start in para._p.findall(qn("w:bookmarkStart")):
+        name = start.get(qn("w:name")) or ""
+        if name.startswith("toc_") and name not in assigned:
+            assigned.add(name)
+            return name
+    stem = "toc_" + re.sub(r"[^\w]", "_", (getattr(item, "id", "") or "").strip())[:30]
+    if stem in {"toc_", "toc"}:
+        stem = "toc_" + re.sub(r"[^\w]", "_", _toc_match_key(item.title) or "section")[:24]
+    name = stem
+    suffix = 2
+    while name in all_names or name in assigned:
+        name = f"{stem}_{suffix}"
+        suffix += 1
+    all_names.add(name)
+    assigned.add(name)
+    _bookmark_paragraph(para, name)
+    return name
+
+
+def _outline_toc_tree(matched: list[tuple]) -> list[dict]:
+    levels = [max(1, min(4, int(getattr(item, "level", 1) or 1))) for item, _bm, _para in matched]
+    base = min(levels) if levels else 1
+    roots: list[dict] = []
+    stack: list[tuple[int, dict]] = []
+    for (item, bookmark, para), level in zip(matched, levels, strict=True):
+        level = max(1, level - base + 1)
+        title = (item.title or "").strip() or (para.text or "").strip()
+        node = {"title": title, "bookmark": bookmark}
+        if title_canon(title)[0]:
+            node["bare"] = True
+        while stack and stack[-1][0] >= level:
+            stack.pop()
+        if stack:
+            stack[-1][1].setdefault("children", []).append(node)
+        else:
+            roots.append(node)
+        stack.append((level, node))
+    return roots
+
+
+def _outline_toc_rows(
+    doc: Document,
+    brief: BidBrief,
+    scheme: str,
+    old: list[Paragraph],
+) -> tuple[list[tuple[str, str, int, str]], list[str]]:
+    """目录与正文同源：只收录 outlineItems 中、且正文确有同名标题的章节。"""
+    items = _active_outline_items(brief)
+    if not items:
+        return [], []
+    body = _body_paragraphs_after_toc(doc, old)
+    if not body:
+        return [], []
+    all_names = {
+        start.get(qn("w:name"))
+        for start in doc.element.iter(qn("w:bookmarkStart"))
+        if start.get(qn("w:name"))
+    }
+    assigned: set[str] = set()
+    used: list[Paragraph] = []
+    matched: list[tuple] = []
+    skipped: list[str] = []
+    for item in items:
+        para = _find_outline_body_heading(body, item.title, used)
+        if para is None:
+            skipped.append(item.title)
+            continue
+        bookmark = _ensure_outline_bookmark(para, item, assigned, all_names)
+        used.append(para)
+        matched.append((item, bookmark, para))
+    if not matched:
+        return [], skipped
+    return flatten_toc_tree(_outline_toc_tree(matched), scheme), skipped
+
+
+def _rebuild_toc(
+    doc: Document, brief: BidBrief, *, with_pages: bool, fmt=None
+) -> list[str]:
     toc_title, old = _toc_region(doc)
     if toc_title is None:
-        return
+        return []
     _scrub_toc_title_bookmarks(toc_title)
     scheme = fmt.tocNumbering if fmt is not None else "cn"
-    rows = flatten_toc_tree(_chapter5_toc_tree(brief), scheme)
+    rows, skipped = _outline_toc_rows(doc, brief, scheme, old)
+    if not rows:
+        # 没有可用大纲时保留原固定模板目录，避免生成空目录。
+        rows = flatten_toc_tree(_chapter5_toc_tree(brief), scheme)
     for para in old:
         _drop_para(para)
     anchor = toc_title
@@ -1581,6 +1814,7 @@ def _rebuild_toc(doc: Document, brief: BidBrief, *, with_pages: bool, fmt=None) 
             level=level,
         )
         anchor = neo
+    return skipped
 
 
 def _ensure_toc_entries(
@@ -1590,10 +1824,10 @@ def _ensure_toc_entries(
     with_pages: bool = True,
     fmt=None,
     brief: BidBrief | None = None,
-) -> None:
+) -> list[str]:
     if brief is None:
         brief = BidBrief(includeCommitment=include_commitment)
-    _rebuild_toc(doc, brief, with_pages=with_pages, fmt=fmt)
+    return _rebuild_toc(doc, brief, with_pages=with_pages, fmt=fmt)
 
 
 # 模板第 9、12 节 header=0，页眉贴顶，OnlyOffice/部分 Word 会裁掉字头只剩横线。
@@ -1688,8 +1922,12 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
     return rows or [("1", "【待响应】尚未抽出技术条款", "【待响应】", "待确认")]
 
 
-def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
+def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, ...]]:
     """商务偏离只写交货/质保/付款等条款，不用报价单技术参数顶。"""
+    if getattr(brief, "autoDraftBizResp", False) and getattr(brief, "bizDeviationLines", None):
+        from api.services.tenders.business_render import commercial_rows
+
+        return commercial_rows(brief)
     rows: list[tuple[str, str, str, str]] = []
 
     def add(title: str, req: str, resp: str) -> None:
@@ -2463,6 +2701,10 @@ def _fill_quote_section(
 ) -> list[str]:
     sheet, origin = resolve_quote_sheet(brief)
     if sheet is None or not sheet.lines:
+        if origin == 'template':
+            from api.services.tenders.quote import quote_source_notes
+
+            return quote_source_notes(brief)
         return ["未上传报价清单，未填写报价表"]
     target = Decimal(str(brief.bidPriceYuan or 0)).quantize(Decimal("0.01"))
     filled = scale_quote(sheet, target)
@@ -3098,56 +3340,105 @@ def _para_section_index(doc: Document, para: Paragraph) -> int:
     return idx
 
 
-def _first_body_section_index(doc: Document) -> int:
+def _first_body_section_index(doc: Document, brief: BidBrief | None = None) -> int:
+    items = _active_outline_items(brief)
+    if items:
+        key = _toc_match_key(items[0].title)
+        if key:
+            for para in doc.paragraphs:
+                if _looks_like_toc_entry(para):
+                    continue
+                if _toc_match_key(para.text) == key:
+                    return _para_section_index(doc, para)
     for para in doc.paragraphs:
-        n = _compact(para.text)
-        if n != "投标函及投标函附录":
+        if _compact(para.text) != "投标函及投标函附录":
             continue
-        if _is_toc_list_line(para):
+        if _looks_like_toc_entry(para):
             continue
         return _para_section_index(doc, para)
     return 2
 
 
-def _isolate_toc_section(doc: Document) -> None:
-    """目录独占一页：目录前、后各插显式分页符，并拆成封面 / 目录 / 正文三节。"""
-    toc_title: Paragraph | None = None
-    first_after_toc: Paragraph | None = None
-    seen_toc = False
-    for para in doc.paragraphs:
-        n = _compact(para.text)
-        if n == "目录":
-            toc_title = para
-            seen_toc = True
-            _set_page_break_before(para, False)
+def _toc_title_and_last_entry(doc: Document) -> tuple[Paragraph | None, Paragraph | None]:
+    """目录标题与最后一条 PAGEREF 条目；正文标题带「一、」也不会被误认成目录。"""
+    paragraphs = doc.paragraphs
+    toc_title = next(
+        (para for para in paragraphs if _compact(para.text) == "目录"),
+        None,
+    )
+    if toc_title is None:
+        return None, None
+    last = toc_title
+    started = False
+    toc_idx = next(i for i, para in enumerate(paragraphs) if para._p is toc_title._p)
+    for para in paragraphs[toc_idx + 1 :]:
+        if _looks_like_toc_entry(para):
+            last = para
+            started = True
             continue
-        if not seen_toc:
+        text = (para.text or "").strip()
+        if not text:
             continue
-        if _p_sectpr(para._p) is not None:
+        if any(mark in text for mark in ("备注", "应编制", "页码及内容")):
             continue
-        if _is_toc_list_line(para):
-            continue
-        style = para.style.name if para.style else ""
-        if style.startswith("Heading") and n and n != "目录":
-            first_after_toc = para
-            break
-        if n and _is_chapter_start(para.text) and n != "目录":
-            first_after_toc = para
-            break
+        break
+    return toc_title, (last if started else None)
 
-    if toc_title is not None:
-        # 模板常为「目\t录」，规范成「目录」便于检索与排版
-        if (toc_title.text or "").replace("\t", "").strip() == "目录":
-            _write_plain(toc_title, "目录", size=16, bold=True)
-        _insert_page_break_paragraph_before(toc_title)
-        prev = toc_title._p.getprevious()
-        if prev is not None and prev.tag == qn("w:p"):
-            _end_section_at_p(prev, _plain_sectpr(doc))
-    if first_after_toc is not None:
-        _insert_page_break_paragraph_before(first_after_toc)
-        prev = first_after_toc._p.getprevious()
-        if prev is not None and prev.tag == qn("w:p"):
-            _end_section_at_p(prev, _plain_sectpr(doc))
+
+def _body_start_after_toc(doc: Document, last_entry: Paragraph) -> Paragraph | None:
+    """目录最后一条 PAGEREF 之后的第一段正文，不猜 Heading 或「一、」标题。"""
+    paragraphs = doc.paragraphs
+    start = next(
+        (i for i, para in enumerate(paragraphs) if para._p is last_entry._p),
+        None,
+    )
+    if start is None:
+        return None
+    for para in paragraphs[start + 1 :]:
+        if _looks_like_toc_entry(para):
+            continue
+        text = (para.text or "").strip()
+        if not text:
+            continue
+        if any(mark in text for mark in ("备注", "应编制", "页码及内容")):
+            continue
+        return para
+    return None
+
+
+def _force_page_break_paragraph_before(para: Paragraph):
+    """确保目标段前是独立分页段，并返回该段，供分节使用。"""
+    _set_page_break_before(para, False)
+    prev = para._p.getprevious()
+    if prev is not None and prev.tag == qn("w:p") and _p_has_page_br(prev):
+        text = "".join(node.text or "" for node in prev.iter(qn("w:t"))).strip()
+        if not text:
+            return prev
+    br_p = OxmlElement("w:p")
+    br_r = OxmlElement("w:r")
+    br = OxmlElement("w:br")
+    br.set(qn("w:type"), "page")
+    br_r.append(br)
+    br_p.append(br_r)
+    para._p.addprevious(br_p)
+    return br_p
+
+
+def _isolate_toc_section(doc: Document, brief: BidBrief | None = None) -> None:
+    """目录独占一页：按 PAGEREF 目录块定位正文，前后各插显式分页符。"""
+    toc_title, last_entry = _toc_title_and_last_entry(doc)
+    if toc_title is None:
+        return
+    body_start = _body_start_after_toc(doc, last_entry) if last_entry is not None else None
+
+    # 模板常为「目\t录」，规范成「目录」便于检索与排版
+    if (toc_title.text or "").replace("\t", "").strip() == "目录":
+        _write_plain(toc_title, "目录", size=16, bold=True)
+    prev = _force_page_break_paragraph_before(toc_title)
+    _end_section_at_p(prev, _plain_sectpr(doc))
+    if body_start is not None:
+        prev = _force_page_break_paragraph_before(body_start)
+        _end_section_at_p(prev, _plain_sectpr(doc))
 
 
 def _set_page_break_before(para: Paragraph, on: bool = True) -> None:
@@ -3200,15 +3491,32 @@ def _prev_is_explicit_page_break(para: Paragraph) -> bool:
     return False
 
 
-def _mark_chapter_page_starts(doc: Document) -> None:
+def _outline_chapter_keys(brief: BidBrief | None) -> set[str]:
+    items = _active_outline_items(brief)
+    if not items:
+        return set()
+    levels = [max(1, int(getattr(item, "level", 1) or 1)) for item in items]
+    base = min(levels)
+    return {
+        _toc_match_key(item.title)
+        for item, level in zip(items, levels, strict=True)
+        if level <= base
+    }
+
+
+def _mark_chapter_page_starts(doc: Document, brief: BidBrief | None = None) -> None:
     """各章标题另起一页。优先显式分页符，已有换页则不重复。"""
+    outline_keys = _outline_chapter_keys(brief)
     for para in doc.paragraphs:
         n = _compact(para.text)
-        if n == "目录":
+        if n == "目录" or _looks_like_toc_entry(para):
             continue
-        if _is_toc_list_line(para):
+        if not (para.text or "").strip():
             continue
-        if not _is_chapter_start(para.text):
+        is_start = bool(outline_keys and _toc_match_key(para.text) in outline_keys)
+        if not is_start and _is_chapter_start(para.text):
+            is_start = True
+        if not is_start:
             continue
         if _prev_is_explicit_page_break(para):
             _set_page_break_before(para, False)
@@ -3461,28 +3769,46 @@ def _set_pageref_cache(para: Paragraph, number: str) -> None:
             return
 
 
-def _apply_toc_page_numbers(doc: Document, pages: dict[str, int]) -> None:
+def _apply_toc_page_numbers(
+    doc: Document,
+    pages: dict[str, int],
+    *,
+    pending: str | None = None,
+) -> None:
     for para in doc.paragraphs:
         bookmark = _pageref_bookmark(para)
-        if not bookmark or bookmark not in pages:
-            # 估不到就留占位，不写成 1 把锚点问题盖住
+        if not bookmark:
             continue
-        _set_pageref_cache(para, str(pages[bookmark]))
+        if bookmark in pages:
+            _set_pageref_cache(para, str(pages[bookmark]))
+        elif pending is not None:
+            # 估不到页码就明确标待更新，不写伪造的 1 把锚点问题盖住。
+            _set_pageref_cache(para, pending)
 
 
-def _finalize_pagination(doc: Document, fmt=None) -> dict[str, int]:
-    """分页：分节 continuous + 章标题显式分页。目录条目始终预填页码。"""
+def _relative_toc_pages(raw: dict[str, int], fmt=None) -> dict[str, int]:
+    if not raw:
+        return {}
+    start = fmt.pageNumberStart if fmt is not None else "body"
+    if start == "body":
+        base = min(raw.values())
+        return {name: max(1, page - base + 1) for name, page in raw.items()}
+    if start == "cover":
+        return {name: max(1, page) for name, page in raw.items()}
+    return {name: max(1, page - 1) for name, page in raw.items()}
+
+
+def _finalize_pagination(
+    doc: Document, fmt=None, brief: BidBrief | None = None
+) -> dict[str, int]:
+    """分页：分节 continuous + 章标题显式分页；目录页码按正文书签实测估算。"""
     _normalize_section_page_numbers(doc)
     _normalize_body_section_breaks(doc)
-    _isolate_toc_section(doc)
-    _mark_chapter_page_starts(doc)
+    _isolate_toc_section(doc, brief)
+    _mark_chapter_page_starts(doc, brief)
     _pad_signature_blocks(doc)
-    pages: dict[str, int] = {}
-    for i, (_title, bookmark, _old) in enumerate(_TOC_ITEMS):
-        pages[bookmark] = int(toc_page_cache(i, fmt)) if fmt is not None else int(_old)
-    pages.setdefault("toc_perf", 9)
-    pages.setdefault("toc_commit", 13)
-    _apply_toc_page_numbers(doc, pages)
+    pages = _relative_toc_pages(_estimate_bookmark_pages(doc), fmt)
+    _apply_toc_page_numbers(doc, pages, pending="待更新")
     return pages
 
 
@@ -3501,7 +3827,7 @@ def _apply_template_format(doc: Document, brief: BidBrief, volume: str = "") -> 
         spec = fmt.technicalFormat
     elif vol == "business":
         spec = fmt.businessFormat
-    body_si = _first_body_section_index(doc)
+    body_si = _first_body_section_index(doc, brief)
     for i, section in enumerate(doc.sections):
         if spec is not None and spec.marginSet:
             section.left_margin = Cm(spec.marginLeftCm)
@@ -3538,7 +3864,34 @@ def build_bid_docx(
     catalog_facts: list | None = None,
     volume: str = "",
 ) -> tuple[Path, list[str]]:
-    warnings: list[str] = []
+    from api.services.tenders.native_format import prefer_native_format
+    from api.services.tenders.quote import validate_quote_source
+
+    quote_notes = validate_quote_source(brief)
+    if prefer_native_format(brief):
+        from api.services.tenders.assemble import assemble_bid_docx
+
+        return assemble_bid_docx(
+            brief, dest, qualification_pdf=qualification_pdf, catalog_slots=catalog_slots,
+            catalog_media=catalog_media, catalog_facts=catalog_facts, volume=volume,
+        )
+    if brief.requirementsDriven:
+        # Reuse the outline renderer's modules and shared TOC/page implementation.
+        # This branch does not copy the fixed company template or the incomplete source.
+        from api.services.tenders.assemble import assemble_bid_docx
+        from api.services.tenders.requirement_bid import prepare_requirements_bid
+
+        prepared = brief.model_copy(deep=True)
+        notes = []
+        if prepared.layoutMode != 'requirements' or not prepared.outlineItems:
+            notes = prepare_requirements_bid(prepared)
+        path, rendered_notes = assemble_bid_docx(
+            prepared.model_copy(update={'layoutMode': 'requirements'}), dest,
+            qualification_pdf=qualification_pdf, catalog_slots=catalog_slots,
+            catalog_media=catalog_media, catalog_facts=catalog_facts, volume=volume,
+        )
+        return path, list(dict.fromkeys([*notes, *rendered_notes]))
+    warnings: list[str] = list(quote_notes)
     if brief.bidPriceYuan <= 0:
         warnings.append("投标总价为 0，请确认是否已填写报价")
     if not (brief.legalPersonName or "").strip():
@@ -3559,10 +3912,20 @@ def build_bid_docx(
     doc = Document(str(dest))
     _pin_cjk_fonts(doc)
     _hide_proofing_marks(doc)
-    slots = catalog_slots if catalog_slots is not None else collect_slots(brief.extraPlaceholders)
-    media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
+    if catalog_slots is None:
+        from api.services.tenders.slots import prepare_bid_slots
+
+        slots, local_media = prepare_bid_slots(brief)
+        media = catalog_media if catalog_media is not None else local_media
+    else:
+        slots = catalog_slots
+        media = catalog_media if catalog_media is not None else attachments_for_slots(slots)
+    from api.services.tenders.slots import missing_library_notes
+
+    warnings.extend(missing_library_notes(slots, media, volume=volume))
     inlined_ids: set[str] = set()
     quote_anchor = _fill_paragraphs(doc, brief, media=media, inlined=inlined_ids)
+    # 先清掉模板旧目录，避免填写技术标时把目录行的「其他材料」当成正文标题。
     _ensure_toc_entries(
         doc,
         include_commitment=bool(brief.includeCommitment),
@@ -3599,10 +3962,35 @@ def build_bid_docx(
             requirements=list(brief.bidRequirements or []),
         )
     )
-    _finalize_pagination(doc, brief.documentFormat)
+    # 正文（含承诺书、附件、占位资料）全部落位后再定稿目录，确保目录与章节同源。
+    toc_skipped = _ensure_toc_entries(
+        doc,
+        include_commitment=bool(brief.includeCommitment),
+        with_pages=True,
+        fmt=brief.documentFormat,
+        brief=brief,
+    )
+    if toc_skipped:
+        warnings.append(
+            "目录仅收录正文存在的章节，以下大纲条目正文缺失，未写入目录："
+            + "、".join(dict.fromkeys(toc_skipped))
+        )
+    from api.services.tenders.business_render import finalize_business_responses
+
+    if volume != "technical":
+        warnings.extend(finalize_business_responses(
+            doc, brief, **({"full_bid": True} if volume == "full" else {})
+        ))
+    _finalize_pagination(doc, brief.documentFormat, brief)
     for i, section in enumerate(doc.sections):
         _ensure_header(section, brief.projectName, cover=(i == 0))
     warnings.extend(_apply_template_format(doc, brief, volume))
+    _set_bookmark_outline(doc, {
+        "toc_letter": 1, "toc_letter_app": 2, "toc_pay": 1, "toc_quote": 1,
+        "toc_legal": 1, "toc_auth": 1, "toc_dev": 1, "toc_factory": 1,
+        "toc_other": 1, "toc_other_draw": 2, "toc_other_text": 2,
+        "toc_commit": 1, "toc_perf": 1,
+    })
     doc.save(str(dest))
     warnings.append(
         "封面与目录不编页码，从正文首页起编。目录条目已预填页码；"
@@ -3610,3 +3998,62 @@ def build_bid_docx(
         "目录独占一页；投标函附录/支付条件等签字节另起一页，签章前已留白。"
     )
     return dest, warnings
+
+
+def build_bid_format_skeleton(brief: BidBrief, dest: Path) -> Path:
+    """Preview the generated outline's layout without responses, prices or private facts."""
+    from api.services.tenders.assemble import (
+        _add_next_section,
+        _chapter_break,
+        _display_title,
+        _fill_toc_pages,
+        _write_cover,
+        _write_heading,
+        _write_toc,
+    )
+    from api.services.tenders.requirement_bid import volume_items
+    from api.services.tenders.schema import PlaceholderItem
+
+    preview = brief.model_copy(deep=True)
+    preview.bidderName = '【待填写】'
+    preview.legalPersonName = ''
+    preview.agentName = ''
+    preview.bidDate = ''
+    preview.techPlanNote = ''
+    preview.outlineItems = [item.model_copy(update={
+        'body': '', 'draftBody': '', 'inviteExcerpt': '',
+    }) for item in preview.outlineItems]
+    volume = (preview.generateVolume
+              if preview.generateVolume in {'business', 'technical'} else 'full')
+    items = volume_items(preview, volume)
+    doc = Document()
+    fmt = preview.documentFormat
+    apply_section_page(doc.sections[0], fmt)
+    _pin_cjk_fonts(doc)
+    _write_cover(doc, preview, fmt, volume=volume)
+    _add_next_section(doc, fmt)
+    bookmarks = _subset_bookmarks(doc, items)
+    _write_toc(doc, items, preview, fmt, bookmarks)
+    body_section = 1
+    if fmt.pageNumberStart == 'body':
+        _add_next_section(doc, fmt)
+        body_section = 2
+    for index, (item, bookmark) in enumerate(zip(items, bookmarks, strict=True)):
+        if index or fmt.pageNumberStart != 'body':
+            _chapter_break(doc)
+        _write_heading(doc, _display_title(item), fmt, bookmark)
+        if item.id.startswith('req-group-'):
+            continue
+        doc.add_paragraph('【待生成】本章仅展示格式和落位，正文及资料将在正式生成时填写。')
+        if item.kind == 'scan':
+            draw_placeholder_box(doc, PlaceholderItem(key=item.id, title=item.title,
+                                                      hint='证明材料待正式生成时匹配'))
+    for index, section in enumerate(doc.sections):
+        numbered, restart = section_page_flags(index, fmt, body_section=body_section)
+        _ensure_header(section, preview.projectName, cover=(index == 0))
+        apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
+    _set_bookmark_outline(doc, {bm: item.level for bm, item in zip(bookmarks, items, strict=True)})
+    _fill_toc_pages(doc, fmt)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    doc.save(dest)
+    return dest

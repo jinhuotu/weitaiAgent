@@ -456,11 +456,22 @@ async def list_history_chapters(
     row = await _get_row(db, record_public_id)
     _assert_owner_or_admin(row, user, admin=admin)
     chapters = await chapters_for_record(db, row)
+    from api.services.tenders.history_preview import source_chapters
+    originals = source_chapters(row)
     marks = await _marks_of(db, int(row.id))
     by = {(c["volume"], c["title"]): c for c in chapters}
+    for chapter in originals:
+        key = (chapter["volume"], chapter["title"])
+        indexed = by.get(key, {})
+        by[key] = {**indexed, **chapter, "docId": indexed.get("docId", "")}
+    original_keys = {(c["volume"], c["title"]) for c in originals}
+    if originals:
+        by = {key: chapter for key, chapter in by.items() if key in original_keys}
     mark_by = {(m.volume, m.chapter_title): m for m in marks}
     for m in marks:
         key = (m.volume, m.chapter_title)
+        if originals and key not in original_keys:
+            continue
         if key not in by:
             by[key] = {
                 "volume": m.volume,
@@ -468,17 +479,22 @@ async def list_history_chapters(
                 "docId": m.doc_public_id or "",
             }
     items = []
-    for key in sorted(by, key=lambda k: (0 if k[0] == "business" else 1, k[1])):
+    ordered = dict.fromkeys((c["volume"], c["title"]) for c in originals)
+    ordered.update(dict.fromkeys(by))
+    for key in ordered:
         ch = by[key]
-        items.append(
-            _view(
-                mark_by.get(key),
-                volume=ch["volume"],
-                title=ch["title"],
-                doc_id=ch.get("docId") or "",
-            )
+        view = _view(
+            mark_by.get(key),
+            volume=ch["volume"],
+            title=ch["title"],
+            doc_id=ch.get("docId") or "",
         )
-    return {"recordId": row.public_id, "chapters": items}
+        view.update({"previewKey": ch.get("previewKey", ""),
+                     "displayTitle": ch.get("displayTitle", ch["title"])})
+        items.append(view)
+    from api.services.tenders.bid_archive import archive_state
+
+    return {"recordId": row.public_id, "chapters": items, **archive_state(row)}
 
 
 async def save_manual_mark(db: AsyncSession, body, *, user, admin: bool) -> dict:

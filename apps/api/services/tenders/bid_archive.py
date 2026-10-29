@@ -6,7 +6,11 @@ import asyncio
 import logging
 import re
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
 from pathlib import Path
+from uuid import uuid4
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +57,40 @@ _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 _COMPANY_RE = re.compile(r"[\u4e00-\u9fffA-Za-z0-9（）()]{2,40}有限公司")
 
 _pending: set[asyncio.Task] = set()
+_workers = ThreadPoolExecutor(max_workers=2, thread_name_prefix="history-archive")
+_worker_loop = ContextVar("history_archive_worker_loop", default=False)
+
+
+def archive_state(row: TenderRecord) -> dict:
+    raw = (row.brief_json or {}).get("_historyArchive", {})
+    return raw if isinstance(raw, dict) else {}
+
+
+def _set_archive_state(row: TenderRecord, status: str, note: str = "") -> None:
+    row.brief_json = {
+        **(row.brief_json or {}),
+        "_historyArchive": {"status": status, "archiveNote": note[:500]},
+    }
+
+
+@asynccontextmanager
+async def _job_session():
+    from db.session import AsyncSessionLocal, engine
+
+    if not _worker_loop.get():
+        async with AsyncSessionLocal() as db:
+            yield db
+        return
+    # 线程中的事件循环不能复用 API 循环里的池连接。
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    worker_engine = create_async_engine(engine.url, poolclass=NullPool)
+    try:
+        async with async_sessionmaker(worker_engine, expire_on_commit=False)() as db:
+            yield db
+    finally:
+        await worker_engine.dispose()
 
 
 def drop_title(title: str) -> bool:
@@ -129,13 +167,14 @@ def chapters_from_docx(path: Path) -> list[tuple[str, str]]:
 
     doc = Document(str(path))
     chunks: list[tuple[str, list[str]]] = [("封面", [])]
-    for child in doc.element.body.iterchildren():
+    starts = {start: title for title, start, _end in chapter_ranges(doc)}
+    for index, child in enumerate(doc.element.body.iterchildren()):
         if child.tag == qn("w:p"):
             para = Paragraph(child, doc)
             text = (para.text or "").strip()
             if not text:
                 continue
-            if _is_h1(para):
+            if index in starts:
                 chunks.append((text, []))
                 continue
             chunks[-1][1].append(text)
@@ -285,18 +324,68 @@ async def accept_history_upload(
         ready.extend(
             prepare_chapters(chapters, record_id=record_pk, volume=vol, brief=brief, outcome=mark)
         )
-    if not ready:
+    visible = [(title, body) for title, body in raw if title != "封面"]
+    if not visible:
         raise AppError(ErrorCode.VALIDATION, "没有可入库的章节", status_code=422)
-    schedule_upload(user_id=user_id, username=username, chapters=ready, record_id=record_pk)
-    return {"queued": len(ready), "recordId": pid}
+    # 直接上传没有投标任务，先落一条，页面才能选中
+    if not pid:
+        stem = Path(name).stem.strip()[:256] or "历史标书"
+        row = TenderRecord(
+            public_id=uuid4().hex[:16],
+            user_id=int(user_id),
+            username=(username or "").strip()[:64],
+            project_name=stem,
+            status=mark if mark in {"won", "lost"} else "processing",
+            docx_file="",
+            download_name=name[:256],
+        )
+        db.add(row)
+        await db.commit()
+        await db.refresh(row)
+        record_pk = int(row.id)
+        pid = row.public_id
+        for item in ready:
+            item["tags"].append(f"record:{record_pk}")
+    from api.services.tenders.assets import tenders_output_dir
+
+    source_name = f"history_{uuid4().hex}.docx"
+    (tenders_output_dir() / source_name).write_bytes(data)
+    row.brief_json = {**(row.brief_json or {}), "_historySource": source_name}
+    _set_archive_state(row, "processing" if ready else "completed")
+    await db.commit()  # 后台任务启动前必须能读到记录及状态。
+    if not ready:
+        return {"queued": 0, "recordId": pid, **archive_state(row)}
+    try:
+        schedule_upload(user_id=user_id, username=username, chapters=ready, record_id=record_pk)
+    except Exception as exc:
+        logger.exception("历史上传标书调度失败 record=%s", record_pk)
+        _set_archive_state(row, "failed", str(exc) or type(exc).__name__)
+        await db.commit()
+        return {"queued": 0, "recordId": pid, **archive_state(row)}
+    return {"queued": len(ready), "recordId": pid, "status": "processing", "archiveNote": ""}
 
 
 def _spawn(coro) -> None:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
-        coro.close()
-        logger.warning("历史标书入库未挂上，没有事件循环")
+        def run():
+            _worker_loop.set(True)
+            asyncio.run(coro)
+
+        try:
+            future = _workers.submit(run)
+        except Exception:
+            coro.close()
+            raise
+
+        def done(result):
+            try:
+                result.result()
+            except Exception:
+                logger.exception("历史标书后台线程失败")
+
+        future.add_done_callback(done)
         return
     task = loop.create_task(coro)
     _pending.add(task)
@@ -304,10 +393,8 @@ def _spawn(coro) -> None:
 
 
 async def _archive_job(record_id: int, volumes: list[str] | None) -> None:
-    from db.session import AsyncSessionLocal
-
     try:
-        async with AsyncSessionLocal() as db:
+        async with _job_session() as db:
             row = await db.get(TenderRecord, record_id)
             if row is None:
                 return
@@ -365,10 +452,8 @@ async def _archive_job(record_id: int, volumes: list[str] | None) -> None:
 
 
 async def _upload_job(user_id: int, username: str, chapters: list[dict], record_id: int) -> None:
-    from db.session import AsyncSessionLocal
-
     try:
-        async with AsyncSessionLocal() as db:
+        async with _job_session() as db:
             if record_id:
                 row = await db.get(TenderRecord, record_id)
                 if row is None:
@@ -380,11 +465,18 @@ async def _upload_job(user_id: int, username: str, chapters: list[dict], record_
                 return await db.get(TenderRecord, record_id) is not None
 
             saved = await _index(db, chapters, user_id=user_id, username=username, guard=current)
-            await _bind_marks(db, record_id, saved)
-    except Exception:
+            # 上传必须等章节绑定成功，不能吞掉标记写入失败后声称完成。
+            from api.services.tenders.bid_marks import bind_archived
+            await bind_archived(db, record_id, saved)
+            if record_id:
+                row = await db.get(TenderRecord, record_id)
+                if row is not None:
+                    _set_archive_state(row, "completed")
+            await db.commit()
+    except Exception as exc:
         logger.exception("历史上传标书入库失败 record=%s", record_id or 0)
         if record_id:
-            await _note_failure(record_id)
+            await _note_failure(record_id, str(exc) or type(exc).__name__)
 
 
 def _outcome_of(tags) -> str:
@@ -505,20 +597,19 @@ async def _delete_tagged(
         await db.commit()
 
 
-async def _note_failure(record_id: int) -> None:
-    from db.session import AsyncSessionLocal
-
+async def _note_failure(record_id: int, reason: str = "历史标书写法未入库") -> None:
     try:
-        async with AsyncSessionLocal() as db:
+        async with _job_session() as db:
             row = await db.get(TenderRecord, record_id)
             if row is None:
                 return
+            _set_archive_state(row, "failed", reason)
             notes = list(row.warnings or [])
             msg = "历史标书写法未入库"
             if msg not in notes:
                 notes.append(msg)
                 row.warnings = notes
-                await db.commit()
+            await db.commit()
     except Exception:
         logger.exception("历史标书失败提示没写上 record=%s", record_id)
 
@@ -627,27 +718,77 @@ def _other_company(text: str) -> bool:
     return False
 
 
-def _is_h1(para) -> bool:
+def _heading_level(para, *, style_only: bool = False) -> int | None:
     from docx.oxml.ns import qn
 
-    style = ""
-    try:
-        style = para.style.name or ""
-    except Exception:
-        style = ""
-    low = style.replace(" ", "").lower()
-    if "toc" in low or "目录" in style:
+    style = para.style
+    name = (style.name or "").replace(" ", "").lower() if style else ""
+    if "toc" in name or "目录" in name or "PAGEREF" in para._p.xml:
+        return None
+    if not style_only:
+        ppr = para._p.find(qn("w:pPr"))
+        lvl = ppr.find(qn("w:outlineLvl")) if ppr is not None else None
+        if lvl is not None:
+            raw = lvl.get(qn("w:val"), "")
+            return int(raw) if raw.isdigit() and int(raw) < 9 else None
+    seen = set()
+    while style is not None and style.style_id not in seen:
+        seen.add(style.style_id)
+        match = re.fullmatch(
+            r"(?:heading|标题)([1-9])", (style.name or "").replace(" ", "").lower(),
+        )
+        if match:
+            return int(match[1]) - 1
+        ppr = style.element.find(qn("w:pPr"))
+        lvl = ppr.find(qn("w:outlineLvl")) if ppr is not None else None
+        raw = lvl.get(qn("w:val"), "") if lvl is not None else ""
+        if raw.isdigit() and int(raw) < 9:
+            return int(raw)
+        style = style.base_style
+    return None
+
+
+def _is_h1(para, top_level: int = 0, *, legacy_style: bool = False) -> bool:
+    name = (para.style.name or "").lower() if para.style else ""
+    if "toc" in name or "目录" in name or "PAGEREF" in para._p.xml:
         return False
-    if low in {"heading1", "标题1"}:
-        return True
-    ppr = para._p.find(qn("w:pPr"))
-    if ppr is not None:
-        lvl = ppr.find(qn("w:outlineLvl"))
-        raw = "" if lvl is None else (lvl.get(qn("w:val")) or "")
-        if raw.isdigit() and int(raw) == 0:
-            return True
     text = (para.text or "").strip()
-    return bool(_H1_RE.match(text)) and len(text) <= 40
+    level = _heading_level(para, style_only=legacy_style)
+    if level is not None:
+        return level == top_level
+    return bool(_H1_RE.match(text)) and len(text) <= 80
+
+
+def chapter_ranges(doc) -> list[tuple[str, int, int]]:
+    """共享的原文切章边界；目录/封面不参与最高层级推断。"""
+    from docx.oxml.ns import qn
+    from docx.text.paragraph import Paragraph
+
+    from api.services.tenders.pdf_format import toc_block_ids
+
+    kids = list(doc.element.body)
+    toc = set(toc_block_ids(doc))
+    toc_end = max((i for i, el in enumerate(kids) if el in toc), default=-1)
+    paras = [(i, Paragraph(el, doc)) for i, el in enumerate(kids)
+             if el.tag == qn("w:p") and i > toc_end]
+    paras = [(i, p) for i, p in paras if re.sub(r"\s+", "", p.text) not in {
+        "投标文件", "商务标", "技术标", "商务标投标文件", "技术标投标文件",
+    }]
+    # 旧模板的标题样式可能从 Heading 5 起步；同样式的漏标标题也要识别。
+    style_levels = [_heading_level(p, style_only=True) for _, p in paras if p.text.strip()]
+    style_levels = [n for n in style_levels if n is not None]
+    top_paras = [p for _, p in paras if p.text.strip() and style_levels
+                 and _heading_level(p, style_only=True) == min(style_levels)]
+    legacy = bool(style_levels and min(style_levels) > 0 and (
+        not any(_heading_level(p) == 0 for p in top_paras)
+        or any(p._p.find("./" + qn("w:pPr") + "/" + qn("w:outlineLvl")) is None
+               for p in top_paras)
+    ))
+    top = min(style_levels) if legacy else 0
+    heads = [(p.text.strip(), i) for i, p in paras
+             if p.text.strip() and _is_h1(p, top, legacy_style=legacy)]
+    return [(title, start, heads[n + 1][1] if n + 1 < len(heads) else len(kids))
+            for n, (title, start) in enumerate(heads)]
 
 
 def _fill_from_docx(outlined: list[tuple[str, str]], docx_ch: list[tuple[str, str]]) -> list[tuple[str, str]]:

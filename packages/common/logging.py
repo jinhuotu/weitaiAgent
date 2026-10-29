@@ -14,7 +14,6 @@ _LOG_DATE_RE = re.compile(r"^weitai-agent\.(\d{4}-\d{2}-\d{2})\.log$")
 
 class DailyFileHandler(logging.FileHandler):
     """按本地日期写 weitai-agent.YYYY-MM-DD.log，避免 Windows 上 rename 锁文件。"""
-
     def __init__(self, directory: Path, prefix: str = "weitai-agent"):
         self.directory = Path(directory)
         self.prefix = prefix

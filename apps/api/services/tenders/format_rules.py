@@ -32,7 +32,8 @@ _CN_PT = {
 _PT_NUM = re.compile(r"(\d+(?:\.\d+)?)\s*(?:磅|pt|PT)")
 _CN_SIZE = re.compile(r"(小初|初号|小一|一号|小二|二号|小三|三号|小四|四号|小五|五号|小六|六号)")
 _TENDER_NO = re.compile(
-    r"(?:招标编号|项目编号|采购编号|招标文件编号)\s*[:：为]?\s*([A-Za-z0-9][A-Za-z0-9\-_/]{2,31})"
+    r"(?:招标编号|项目编号|采购编号|招标文件编号)\s*[:：为]?\s*"
+    r"([A-Za-z0-9\u4e00-\u9fff][A-Za-z0-9\u4e00-\u9fff\-_/]{2,40})"
 )
 _ALL_MARGIN = re.compile(
     r"页边距[^。\n]{0,24}(?:均为|全部为|都为)\s*(\d+(?:\.\d+)?)\s*(cm|CM|厘米|mm|MM|毫米)"
@@ -50,10 +51,14 @@ _QUAD_MARGIN = re.compile(
 
 
 def extract_tender_no(text: str) -> str:
-    match = _TENDER_NO.search(text or "")
-    if not match:
-        return ""
-    return match.group(1).strip().rstrip("。；;，,")
+    for match in _TENDER_NO.finditer(text or ""):
+        token = match.group(1).strip().rstrip("。；;，,")
+        if not re.search(r"\d", token):
+            continue
+        if re.fullmatch(r"\d{4}年\d{0,2}月?\d{0,2}日?", token):
+            continue
+        return token
+    return ""
 
 
 def extract_document_format(text: str) -> DocumentFormat:
@@ -798,3 +803,69 @@ def _set_run_font(run, font: str, size_pt: float) -> None:
     rfonts.set(qn("w:ascii"), font)
     rfonts.set(qn("w:hAnsi"), font)
     rfonts.set(qn("w:eastAsia"), font)
+
+
+def apply_anonymous_tech_format(doc, brief, *, line_spacing_pt: float = 28.0) -> list[str]:
+    """
+    暗标（盲评）硬格式约束：
+    - 全文黑字白底、宋体四号"常规"字
+    - 不得加粗/斜体/下划线/边框/底纹/阴影/水印
+    - 不得页眉/页脚/页码（或保留页码但不得页眉）
+    - 不得电子签章；不得封面/目录（或目录不得数字，视标书）
+    - 行距固定值（按标书 28/30 磅）、段前段后 0、首行缩进 2 字符、左对齐
+    - 页边距按标书（如上 2.5 下 2 左 2 右 2 cm）
+    """
+    notes = []
+
+    # 1. 全文宋体 14 磅（四号）黑字白底，清除加粗/斜体/下划线
+    for para in doc.paragraphs:
+        for run in para.runs:
+            run.font.name = "宋体"
+            run.font.size = Pt(14.0)
+            run.font.bold = False
+            run.font.italic = False
+            run.font.underline = False
+            run.font.color.rgb = None  # 黑色
+            # 清除边框、底纹、阴影
+            rpr = run._element.get_or_add_rPr()
+            rfonts = rpr.get_or_add_rFonts()
+            rfonts.set(qn("w:ascii"), "宋体")
+            rfonts.set(qn("w:hAnsi"), "宋体")
+            rfonts.set(qn("w:eastAsia"), "宋体")
+            # 清除底纹
+            for tag in ["w:shd", "w:highlight"]:
+                for el in list(rpr.iter(qn(tag))):
+                    rpr.remove(el)
+
+    # 2. 行距固定值、段前段后 0、首行缩进 2 字符、左对齐
+    for para in doc.paragraphs:
+        ppr = para._element.get_or_add_pPr()
+        # 左对齐
+        para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        # 首行缩进 2 字符（14 磅 * 2 = 28 磅）
+        ind = ppr.get_or_add_ind()
+        ind.set(qn("w:firstLine"), str(int(Pt(28).twips)))
+        # 行距固定值
+        spacing = ppr.get_or_add_spacing()
+        spacing.set(qn("w:line"), str(int(Pt(line_spacing_pt).twips)))
+        spacing.set(qn("w:lineRule"), "exact")
+        # 段前段后 0
+        spacing.set(qn("w:before"), "0")
+        spacing.set(qn("w:after"), "0")
+
+    # 3. 清除页眉、页脚（或只保留页码）
+    for section in doc.sections:
+        # 清除页眉
+        if section.header:
+            for para in section.header.paragraphs:
+                for run in para.runs:
+                    run.text = ""
+        # 页脚置空（按标书要求，暗标通常不得页码）
+        if section.footer:
+            for para in section.footer.paragraphs:
+                for run in para.runs:
+                    run.text = ""
+
+    notes.append("已应用暗标硬格式：宋体四号常规、行距固定值、无加粗斜体下划线、无页眉页脚")
+    return notes
+

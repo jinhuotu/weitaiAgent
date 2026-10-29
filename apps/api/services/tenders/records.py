@@ -148,6 +148,8 @@ def _record_to_dict(
 
 
 def require_format_confirm(brief: BidBrief) -> None:
+    if brief.requirementsDriven:
+        return
     if (brief.layoutMode or "").strip() != "outline":
         return
     if brief.formatConfirmed:
@@ -203,9 +205,7 @@ def _missing_required_titles(
 
 
 def _missing_slot_warnings(missing: list[str]) -> list[str]:
-    if not missing:
-        return []
-    return ["以下资料未上传，已在专门章节或卷末附件区用虚线框占位：" + "、".join(missing)]
+    return [f'资料库缺少{title}，请在资料库对应项上传' for title in dict.fromkeys(missing)]
 
 
 def _output_exists(name: str | None) -> bool:
@@ -250,9 +250,14 @@ async def _prepare_and_generate(
         performance_from_library,
         resolve_attachments,
     )
-    from api.services.tenders.placeholders import collect_slots, this_bid_keys
+    from api.services.tenders.placeholders import CRITICAL_SLOT_KEYS, collect_slots, this_bid_keys
 
     t0 = time.perf_counter()
+    from api.services.tenders.quote import validate_quote_source
+    from api.services.tenders.requirement_bid import prepare_requirements_bid
+
+    quote_notes = validate_quote_source(brief)
+    requirement_notes = prepare_requirements_bid(brief)
     if not (brief.bidDate or "").strip():
         brief.bidDate = date.today().isoformat()
     if brief.authEnabled:
@@ -267,7 +272,8 @@ async def _prepare_and_generate(
     if issues:
         raise AppError(
             ErrorCode.VALIDATION,
-            "请先完善：" + "、".join(issues),
+            ('清单与本次标书不匹配，未采用。' if brief.quoteMatchStatus == 'unmatched' else '')
+            + "请先完善：" + "、".join(issues),
             status_code=422,
         )
     require_format_confirm(brief)
@@ -290,16 +296,23 @@ async def _prepare_and_generate(
         brief.performanceRequirement,
     )
     has_agent = bool(brief.authEnabled)
+    from api.services.tenders.requirement_bid import invitation_text
+
     required_keys, include_keys = this_bid_keys(
         extra=brief.extraPlaceholders,
         catalog=catalog,
         required_keys=brief.requiredSlotKeys,
         include_keys=brief.includeSlotKeys,
         has_agent=has_agent,
+        outline_items=brief.outlineItems,
+        requirements=brief.bidRequirements,
+        source_text=invitation_text(brief),
+        invitation_id=brief.invitationId,
     )
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
-    slots = collect_slots(brief.extraPlaceholders, catalog=catalog, include_keys=include_keys)
+    slots = collect_slots(brief.extraPlaceholders, catalog=catalog, include_keys=include_keys,
+                          outline_items=brief.outlineItems)
     media = await resolve_attachments(db, slots)
     from api.services.tenders.slots import attach_invitation_drawings
 
@@ -346,7 +359,10 @@ async def _prepare_and_generate(
             media["id_legal"] = await filter_legal_id_attachments(db, media["id_legal"], picked)
             if not media["id_legal"]:
                 media.pop("id_legal", None)
-    missing = _missing_required_titles(required_keys, slots, media)
+    checked_keys = list(dict.fromkeys([
+        *required_keys, *(slot.key for slot in slots if slot.key in CRITICAL_SLOT_KEYS),
+    ]))
+    missing = _missing_required_titles(checked_keys, slots, media)
     vol = generate_volume(brief)
     both = bool(brief.generateBoth)
     if vol in {"business", "technical"} and not both:
@@ -361,15 +377,43 @@ async def _prepare_and_generate(
         missing = keep
     t_prep = time.perf_counter()
     facts = await library_facts(db)
+    draft_notes: list[str] = []
+    if brief.techPlanSourceIds and not (brief.autoDraftTechPlan
+                                        and (both or vol in {'technical', 'full'})):
+        from api.services.tenders.gen_tech_plan import _user_sources
+
+        _user_sources(brief.techPlanSourceIds, brief=brief, notes=draft_notes)
+        draft_notes.append('本次未启用技术方案自动起草，上传技术资料未送入模型')
+    if getattr(brief, "autoDraftTechPlan", False) and (both or vol in {"technical", "full"}):
+        from api.services.tenders.gen_tech_plan import draft_technical_plan
+
+        prepared, draft_notes = await draft_technical_plan(db, brief)
+        brief.outlineItems = prepared.outlineItems
+        brief.deviationLines = prepared.deviationLines
+    if getattr(brief, "autoDraftBizResp", False) and (both or vol in {"business", "full"}):
+        from api.services.tenders.gen_biz_resp import draft_business_response
+
+        prepared, biz_notes = await draft_business_response(
+            db,
+            brief,
+            library_facts=facts,
+            kb_ids=getattr(brief, "bizRespKbIds", []),
+        )
+        brief.outlineItems = prepared.outlineItems
+        brief.bizDeviationLines = prepared.bizDeviationLines
+        brief.bizDevHeaders = prepared.bizDevHeaders
+        draft_notes.extend(biz_notes)
     gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=facts)
     if both:
         generated = generate_pair(brief, **gen_kw)
     else:
         generated = generate_bid(brief, **gen_kw)
     t_docx = time.perf_counter()
-    from api.services.tenders.categories import technical_soft_issues
+    from api.services.tenders.categories import business_soft_issues, technical_soft_issues
 
-    warnings = list(generated.get("warnings") or [])
+    warnings = list(dict.fromkeys([
+        *quote_notes, *requirement_notes, *draft_notes, *(generated.get("warnings") or []),
+    ]))
     if pending_perf and vol != "technical":
         warnings.append(
             f"类似业绩有 {pending_perf} 个合同/发票尚未抽出摘要，本次未做 OCR（避免拖慢生成）。"
@@ -388,6 +432,10 @@ async def _prepare_and_generate(
             continue
         if note not in warnings:
             warnings.append(note)
+    if getattr(brief, "autoDraftBizResp", False) and (both or vol in {"business", "full"}):
+        for note in business_soft_issues(brief):
+            if note not in warnings:
+                warnings.append(note)
     library_items = [
         {
             "key": item.key,
@@ -396,7 +444,7 @@ async def _prepare_and_generate(
             "fileCount": len(media.get(item.key) or []),
             "files": [],
         }
-        for item in catalog
+        for item in collect_slots(catalog=catalog)
     ]
     from api.services.tenders.match import attachment_match_notes, build_attachment_match
 
@@ -441,6 +489,9 @@ def _apply_generated_files(row: TenderRecord, brief: BidBrief, generated: dict[s
     if biz_file:
         row.docx_file = str(biz_file)
         row.download_name = str(generated.get("downloadName") or "")
+    if vol == "full" and not both:
+        row.tech_docx_file = None
+        row.tech_download_name = None
     tech_file = generated.get("techDocxFile")
     if tech_file:
         row.tech_docx_file = str(tech_file)
@@ -1007,6 +1058,19 @@ def _qa_brief(row: TenderRecord) -> BidBrief:
         raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
 
 
+def _record_qa_volume(brief: BidBrief, volume: str | None = None) -> str:
+    """综合标始终按完整标检查，兼容仍发送 business 的旧前端。"""
+    from api.services.tenders.qa import normalize_qa_volume
+
+    generated = generate_volume(brief)
+    if generated == "full" and not brief.generateBoth:
+        return "full"
+    want = (volume or "").strip().lower()
+    if want == "full":
+        raise AppError(ErrorCode.VALIDATION, "该记录不是综合标，请选择商务标或技术标", status_code=422)
+    return normalize_qa_volume(want or generated)
+
+
 def _qa_generated_file(
     row: TenderRecord,
     brief: BidBrief,
@@ -1014,6 +1078,11 @@ def _qa_generated_file(
 ) -> str:
     biz = (row.docx_file or "").strip()
     tech = (getattr(row, "tech_docx_file", None) or "").strip()
+    resolved = _record_qa_volume(brief, volume)
+    if resolved == "full":
+        if biz:
+            return biz
+        raise AppError(ErrorCode.VALIDATION, "该记录没有完整投标文件 Word，无法自检", status_code=422)
     want = (volume or "").strip().lower()
     if want == "technical":
         if tech:
@@ -1045,8 +1114,7 @@ async def inspect_record_qa(
     row = await _get_row(db, public_id)
     brief = _qa_brief(row)
     target = _qa_generated_file(row, brief, volume)
-    want = (volume or "").strip().lower()
-    vol = want if want in {"business", "technical"} else generate_volume(brief)
+    vol = _record_qa_volume(brief, volume)
     return await inspect_bid(
         db,
         public_id=row.public_id,
@@ -1071,8 +1139,7 @@ async def inspect_record_qa_upload(
     row = await _get_row(db, public_id)
     brief = _qa_brief(row)
     path = save_qa_upload(row.public_id, data)
-    want = (volume or "").strip().lower()
-    vol = want if want in {"business", "technical"} else generate_volume(brief)
+    vol = _record_qa_volume(brief, volume)
     vol = normalize_qa_volume(vol)
     biz = (row.docx_file or "").strip()
     tech = (getattr(row, "tech_docx_file", None) or "").strip()
@@ -1119,6 +1186,11 @@ async def get_record_qa(
     row = await _get_row(db, public_id)
     want = (volume or "").strip().lower()
     vol = normalize_qa_volume(want) if want else None
+    brief = _qa_brief(row)
+    if generate_volume(brief) == "full" and not brief.generateBoth:
+        vol = "full"
+    elif vol == "full":
+        _record_qa_volume(brief, vol)
     if not vol:
         latest = load_qa_report(row.public_id)
         vol = normalize_qa_volume(str((latest or {}).get("volume") or ""))

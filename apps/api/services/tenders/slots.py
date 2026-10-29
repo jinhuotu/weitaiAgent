@@ -156,6 +156,35 @@ def attachments_for_slots(slots: list[PlaceholderItem]) -> dict[str, list[Path]]
     return out
 
 
+def prepare_bid_slots(brief) -> tuple[list[PlaceholderItem], dict[str, list[Path]]]:
+    """Standalone builders use the same selected keys as the record pipeline."""
+    from api.services.tenders.placeholders import this_bid_keys
+    from api.services.tenders.requirement_bid import invitation_text
+
+    required, include = this_bid_keys(
+        extra=brief.extraPlaceholders, required_keys=brief.requiredSlotKeys,
+        include_keys=brief.includeSlotKeys, has_agent=bool(brief.authEnabled),
+        outline_items=brief.outlineItems, requirements=brief.bidRequirements,
+        source_text=invitation_text(brief), invitation_id=brief.invitationId,
+    )
+    brief.requiredSlotKeys, brief.includeSlotKeys = required, include
+    slots = collect_slots(brief.extraPlaceholders, include_keys=include,
+                          outline_items=brief.outlineItems)
+    return slots, attachments_for_slots(slots)
+
+
+def missing_library_notes(
+    slots: list[PlaceholderItem], media: dict, *, volume: str = '',
+) -> list[str]:
+    from api.services.tenders.categories import slot_volume
+    from api.services.tenders.placeholders import CRITICAL_SLOT_KEYS
+
+    return [f'资料库缺少{slot.title}，请在资料库对应项上传' for slot in slots
+            if slot.key in CRITICAL_SLOT_KEYS and not media.get(slot.key)
+            and (volume not in {'business', 'technical'}
+                 or slot_volume(slot.key, slot.title) == volume)]
+
+
 def _invite_id(invitation_id: str) -> str:
     raw = (invitation_id or "").strip()
     if not _DRAWING_ID_RE.fullmatch(raw):

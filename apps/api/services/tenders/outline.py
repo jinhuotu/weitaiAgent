@@ -229,6 +229,15 @@ def compact_title(text: str) -> str:
     return re.sub(r"[\s/／|｜]+", "", text or "")
 
 
+def toc_title_key(text: str) -> str:
+    """仅供目录与正文对齐；不改显示标题、分类或层级。"""
+    title = _ITEM_PREFIX.sub("", (text or "").strip())
+    key = re.sub(r"[\s、，,：:／/|｜]+", "", title)
+    if re.fullmatch(r"(?:技术(?:和|与|及)?商务|商务(?:和|与|及)?技术)(?:差异|偏差|偏离)表", key):
+        return "商务和技术偏差表"
+    return key
+
+
 def bid_item_title(title: str) -> str:
     t = (title or "").strip()
     t = re.sub(r"^附(?:件)?[（(]?[一二三四五六七八九十0-9]+[)）]?[：:、.\s]*", "", t)
@@ -702,8 +711,22 @@ def _biz_sort_key(item: OutlineItem, idx: int) -> tuple[int, int, int]:
     return (9, 0, idx)
 
 
+def _format_order_locked(items: list[OutlineItem]) -> bool:
+    """原版格式章目录已带一、二、编号时，不再按报价/技术模板重排。"""
+    n = 0
+    for item in items:
+        if item.skipped or not item.tocEligible:
+            continue
+        raw = re.sub(r"\s+", "", item.rawTitle or "")
+        if re.match(r"^[一二三四五六七八九十]{1,3}、", raw):
+            n += 1
+    return n >= 3
+
+
 def _order_biz_outline(items: list[OutlineItem]) -> list[OutlineItem]:
     """商务标：承诺函/函件 → 法人证明/授权 → 资质 → 概况与业绩 → 报价 → 偏离。"""
+    if _format_order_locked(items):
+        return list(items)
     keyed = [(_biz_sort_key(item, i), item) for i, item in enumerate(items)]
     keyed.sort(key=lambda row: row[0])
     return [item for _, item in keyed]
@@ -1252,6 +1275,17 @@ def _extracted_item_level(raw: str) -> int:
     return 2 if lettered_heading(raw) or _SUB_MARK.match(raw.strip()) else item_level(raw)
 
 
+def _indent_level(raw: str) -> int:
+    """无编号目录靠行首缩进区分父子。0 表示看不出，交给编号规则。"""
+    s = (raw or "").replace("\t", "  ")
+    n = len(s) - len(s.lstrip(" \u3000"))
+    if n >= 4:
+        return 3
+    if n >= 2:
+        return 2
+    return 0
+
+
 def normalize_subset_outline(
     items: list[OutlineItem], *, source_titles: dict[str, str] | None = None,
 ) -> list[OutlineItem]:
@@ -1732,23 +1766,26 @@ def _use_body_title(catalog: str, body_title: str) -> str:
 def _items_from_catalog(entries: list[str]) -> list[OutlineItem]:
     items: list[OutlineItem] = []
     for head in entries:
-        lettered = lettered_heading(head)
-        shown = lettered[0] if lettered else head
+        src = head.strip()
+        lettered = lettered_heading(src)
+        shown = lettered[0] if lettered else src
         title = _clean_item(shown) or shown
         if is_policy_statement_title(shown) or is_policy_statement_title(title):
             continue
         kind = classify_kind(title)
         kind = kind if kind in OUTLINE_KINDS else "unknown"
+        # 格式章目录里的一行就是一节。rawTitle 留着，前端才不会当噪声删掉。
         items.append(
             OutlineItem(
                 id=f"o{len(items) + 1:02d}",
                 title=title,
-                rawTitle=shown if shown != title else "",
+                rawTitle=shown,
                 kind=kind,
                 source=source_for_kind(kind),
                 required=True,
                 skipped=False,
-                level=_extracted_item_level(shown),
+                tocEligible=True,
+                level=_indent_level(head) or _extracted_item_level(shown),
                 body=(lettered[1] if lettered else ""),
             )
         )
@@ -1760,7 +1797,8 @@ _PLAIN_TOC_HEAD = re.compile(r"^目\s*录$")
 
 def _plain_toc_entries(body: str) -> tuple[list[str], str]:
     """Word 版格式章的目录常没有一、二、编号：认「目录」行后连续的裸标题行。"""
-    lines = [ln.strip() for ln in (body or "").splitlines()]
+    # 只去行尾空白，行首空格是子目录缩进。
+    lines = [ln.rstrip() for ln in (body or "").splitlines()]
     best: list[str] = []
     best_end = -1
     for i, ln in enumerate(lines):
@@ -1776,7 +1814,7 @@ def _plain_toc_entries(body: str) -> tuple[list[str], str]:
             if not title or is_policy_statement_title(s) or (key and key in seen):
                 break
             seen.add(key)
-            entries.append(title)
+            entries.append(s)
             j += 1
         if len(entries) > len(best):
             best = entries
@@ -1861,6 +1899,38 @@ def _trailing_attach(rest: str) -> list[str]:
     return out
 
 
+def is_outline_chapter(item: OutlineItem) -> bool:
+    """Chapter semantics, independent of form filling and required attachments."""
+    from api.services.tenders.format_rules import peel_toc_lead
+
+    raw = compact_title(item.title).strip('：:')
+    title = compact_title(peel_toc_lead(item.title)).strip('：:')
+    title = re.sub(r'^\d+(?:[.．]\d+)*[、.．]?', '', title)
+    if item.skipped or not title or len(title) > 60:
+        return False
+    # 从格式章目录收进来的条目按章节留在目录里，不再被表单黑名单丢掉。
+    if item.tocEligible is True:
+        return True
+    if item.tocEligible is False:
+        return False
+    denied = (r'^(?:投标函|响应函|附表|设备表|已标价的?工程量清单|已标价工程量清单|'
+              r'执业资格证明|类似项目名称|企业资质|营业执照|中小企业声明函)')
+    if re.match(denied, title) or re.match(denied, raw):
+        return False
+    if title in {'资格证明', '资质证明', '资质证书', '法定代表人身份证明', '授权委托书'}:
+        return False
+    # Real grouping chapters are distinct from a certificate/form of the same name.
+    if re.search(r'(?:资格|商务|技术|承诺|报价).{0,6}(?:文件|部分|资料)$', title):
+        return True
+    return item.kind in {'unknown', 'tech_plan', 'tech_chapter'} and not is_outline_junk(item)
+
+
+def mark_outline_chapters(items: list[OutlineItem]) -> list[OutlineItem]:
+    for item in items:
+        item.tocEligible = is_outline_chapter(item)
+    return items
+
+
 def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
     """从邀请书/招标书正文抽出格式章节条目。找不到则返回空列表，不报错。"""
     raw = unmash_invitation_text(text or "")
@@ -1875,7 +1945,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
                 kept = letter_body.get(item.id) or ""
                 if kept:
                     item.body = kept
-            return chapter, catalog_items
+            return chapter, mark_outline_chapters(catalog_items)
         body = _explode_enum_lines(body)
     lines = _candidate_lines(body or raw, whole_doc=not bool(body))
     items: list[OutlineItem] = []
@@ -1941,7 +2011,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
     for item in items:
         if item.kind == "quote" and looks_like_quote_form(item.body or ""):
             item.source = "copy"
-    return chapter, items
+    return chapter, mark_outline_chapters(items)
 
 
 _BODY_MAX = 80000
@@ -1982,6 +2052,10 @@ def titles_from_format_text(text: str) -> list[OutlineItem]:
 
 def choose_layout_mode(chapter: str, items: list[OutlineItem]) -> str:
     """识别到格式章就按本标大纲组卷，不再退回公司固定五件套。"""
+    from api.services.tenders.slice_rules import is_format_start
+
+    if is_format_start(chapter):
+        return "outline"
     active = [item for item in items if not item.skipped]
     if not active:
         return "chapter5"

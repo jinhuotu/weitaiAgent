@@ -16,16 +16,24 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from common.config import get_settings
+from db.asyncmy_compat import install_asyncmy_buffer_workaround
 
 _settings = get_settings()
 _url = _settings.database_url
 if "charset=" not in _url:
     _url = f"{_url}{'&' if '?' in _url else '?'}charset=utf8mb4"
 
+if _url.startswith("mysql+asyncmy:"):
+    install_asyncmy_buffer_workaround()
+
 engine = create_async_engine(
     _url,
     echo=_settings.debug,
     pool_pre_ping=True,
+    pool_size=10,  # 默认连接池大小
+    max_overflow=20,  # 最多额外创建的连接数
+    pool_timeout=30,  # 获取连接的超时时间（秒）
+    pool_recycle=3600,  # 连接回收时间（秒），避免 MySQL 的 wait_timeout
 )
 AsyncSessionLocal = async_sessionmaker(
     engine,

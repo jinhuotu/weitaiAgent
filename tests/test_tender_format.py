@@ -52,6 +52,8 @@ def test_extract_full_format_chapter() -> None:
     assert fmt.pageNumberPos == "bottom-center"
     assert fmt.pageNumberStart == "toc"
     assert extract_tender_no(text) == "WT-2026-088"
+    assert extract_tender_no("项目编号：豫财招标采购-2026-906") == "豫财招标采购-2026-906"
+    assert extract_tender_no("项目编号：2026年10月28日") == ""
     assert "封面含" in "；".join(fmt.notes)
 
 
@@ -832,6 +834,73 @@ def test_plain_line_is_not_a_placeholder() -> None:
     doc.add_paragraph("项目概况说明")
     _attach_library(doc, default_brief(), {})
     assert doc.element.body.find(qn("w:tbl")) is None
+
+
+def test_paste_boxes_take_matching_scans(tmp_path) -> None:
+    from PIL import Image
+
+    from api.services.tenders.pdf_format import _attach_library
+
+    files = {}
+    for key, color in (("license", "blue"), ("finance", "red"), ("social", "green")):
+        path = tmp_path / f"{key}.png"
+        Image.new("RGB", (12, 8), color).save(path)
+        files[key] = [path]
+    doc = Document()
+    doc.add_paragraph("此处粘贴营业执照复印件（在此粘贴扫描件）")
+    doc.add_paragraph("此处粘贴纳税证明（在此粘贴扫描件）")
+    doc.add_paragraph("此处粘贴社保证明（在此粘贴扫描件）")
+    doc.add_paragraph("此处粘贴委托代理人身份证（在此粘贴扫描件）")
+    doc.add_paragraph("项目概况说明")
+    notes = _attach_library(doc, default_brief(), files)
+    blob = "\n".join(p.text or "" for p in doc.paragraphs)
+    assert "项目概况说明" in blob
+    assert doc.element.body.find(qn("w:tbl")) is None
+    # Photos have their own inline paragraphs after their material placeholders.
+    for title in ("营业执照", "纳税", "社保"):
+        holder = next(p for p in doc.paragraphs if title in p.text)
+        assert next(holder._p.iter(qn("w:drawing")), None) is None
+        assert next(holder._p.getnext().iter(qn("w:drawing")), None) is not None
+        assert "在此粘贴扫描件" not in holder.text
+    id_line = next(p for p in doc.paragraphs if "身份证" in (p.text or ""))
+    assert "在此粘贴扫描件" in (id_line.text or "")
+    assert next(id_line._p.iter(qn("w:drawing")), None) is None
+    assert any("已贴上营业执照" in n for n in notes)
+    assert any("已贴上纳税证明" in n for n in notes)
+    assert any("已贴上社保证明" in n for n in notes)
+    assert any(n.startswith("缺") and "身份证" in n for n in notes)
+
+
+def test_paste_box_without_file_keeps_placeholder() -> None:
+    from api.services.tenders.pdf_format import _attach_library
+
+    doc = Document()
+    doc.add_paragraph("此处粘贴营业执照（在此粘贴扫描件）")
+    notes = _attach_library(doc, default_brief(), {})
+    assert "在此粘贴扫描件" in (doc.paragraphs[0].text or "")
+    assert any(n.startswith("缺") and "营业执照" in n for n in notes)
+    assert doc.element.body.find(qn("w:tbl")) is None
+    assert next(doc.element.body.iter(qn("w:drawing")), None) is None
+
+
+def test_auth_letter_gets_legal_id_when_no_id_line(tmp_path) -> None:
+    from PIL import Image
+
+    from api.services.tenders.pdf_format import _paste_id_pages
+
+    front = tmp_path / "front.png"
+    back = tmp_path / "back.png"
+    Image.new("RGB", (8, 8), "red").save(front)
+    Image.new("RGB", (8, 8), "green").save(back)
+    doc = Document()
+    doc.add_paragraph("法定代表人授权委托书")
+    doc.add_paragraph("")
+    doc.add_paragraph("本人系投标人的法定代表人。")
+    notes = _paste_id_pages(doc, default_brief(), {"id_legal": [front, back]})
+    host = doc.paragraphs[1]._p
+    assert list(host.iter(qn("w:drawing")))
+    assert any("已贴上" in n and "身份证" in n for n in notes)
+    assert "本人系投标人" in (doc.paragraphs[2].text or "")
 
 
 def test_filee_convert_is_preferred(tmp_path, monkeypatch) -> None:

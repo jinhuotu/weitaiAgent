@@ -866,9 +866,10 @@ def test_id_legal_front_back_side_by_side_one_page(tmp_path) -> None:
     cx = int(extents[0].get("cx") or 0)
     cy = int(extents[0].get("cy") or 0)
     assert cx > cy
-    assert cx > int(Cm(15.8).emu)
-    assert cx < int(Cm(17.2).emu)
-    assert cy < int(Cm(6.5).emu)
+    sec = doc.sections[-1]
+    assert cx <= sec.page_width - sec.left_margin - sec.right_margin
+    assert cx <= int(Cm(17.4).emu)
+    assert cy <= int(Cm(5.4).emu)
 
 
 def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) -> None:
@@ -905,14 +906,15 @@ def test_placeholder_skips_internal_notes_and_keeps_heading_with_body(tmp_path) 
     xml = doc.element.body.xml
     assert "a:blip" in xml or "pic:blipFill" in xml
     table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
-    assert "（在此粘贴扫描件）" in text
+    assert "（在此粘贴扫描件）" in blob
     assert any("未嵌入 Word" in n or "装订时请" in n for n in notes) or boxes >= 1
 
     finance = next(p for p in doc.paragraphs if "近三年财务审计报告" in (p.text or ""))
     prev = finance._element.getprevious()
     assert prev is not None
     has_break = any(br.get(qn("w:type")) == "page" for br in prev.iter(qn("w:br")))
-    assert has_break
+    # Smaller scans can share this page; don't force each material onto a new page.
+    assert not has_break
 
 
 def test_placeholder_embeds_credit_pdf_and_merges_slots(tmp_path) -> None:
@@ -949,7 +951,7 @@ def test_placeholder_embeds_credit_pdf_and_merges_slots(tmp_path) -> None:
     xml = doc.element.body.xml
     assert "a:blip" in xml or "pic:blipFill" in xml
     table_text = "\n".join(cell.text for table in doc.tables for row in table.rows for cell in row.cells)
-    assert table_text.count("（在此粘贴扫描件）") == 1
+    assert blob.count("（在此粘贴扫描件）") == 1
     assert not any("信用" in (n or "") and "未嵌入" in (n or "") for n in notes)
 
 
@@ -1232,8 +1234,8 @@ def test_quote_payload_from_llm_patch() -> None:
     assert int(sheet.lines[0].qty) == 6
 
 
-def test_collect_slots_uses_catalog_instead_of_defaults() -> None:
-    from api.services.tenders.placeholders import collect_slots
+def test_collect_slots_catalog_overrides_without_deleting_defaults() -> None:
+    from api.services.tenders.placeholders import DEFAULT_SLOTS, collect_slots
     from api.services.tenders.schema import PlaceholderItem
 
     catalog = [PlaceholderItem(key="iso_cert", title="ISO体系证书", hint="现行有效")]
@@ -1241,7 +1243,7 @@ def test_collect_slots_uses_catalog_instead_of_defaults() -> None:
         [PlaceholderItem(key="iso_cert", title="忽略", hint="邀请书要求")],
         catalog=catalog,
     )
-    assert [s.key for s in slots] == ["iso_cert"]
+    assert [s.key for s in slots] == ['iso_cert', *(item.key for item in DEFAULT_SLOTS)]
     assert slots[0].title == "ISO体系证书"
     assert slots[0].hint == "邀请书要求"
 
@@ -1249,7 +1251,7 @@ def test_collect_slots_uses_catalog_instead_of_defaults() -> None:
         [PlaceholderItem(key="safety", title="安全生产许可证", hint="第3条")],
         catalog=catalog,
     )
-    assert [s.key for s in extras] == ["iso_cert", "safety"]
+    assert [s.key for s in extras] == ['iso_cert', *(item.key for item in DEFAULT_SLOTS), 'safety']
 
 
 def test_this_bid_keys_does_not_dump_catalog() -> None:
@@ -1322,7 +1324,7 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     missing = _missing_required_titles(["id_legal"], slots, {})
     assert missing == ["法定代表人身份证正反面"]
     notes = _missing_slot_warnings(missing)
-    assert notes and "虚线框占位" in notes[0]
+    assert notes == ['资料库缺少法定代表人身份证正反面，请在资料库对应项上传']
     assert _missing_slot_warnings([]) == []
 
 

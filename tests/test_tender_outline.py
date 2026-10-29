@@ -790,6 +790,44 @@ def test_owner_rep_stays_out_of_business_volume() -> None:
     assert owner.kind == "tech_chapter"
 
 
+def test_format_directory_is_not_reordered_by_biz_sort() -> None:
+    from api.services.tenders.outline import _order_biz_outline
+
+    items = [
+        OutlineItem(
+            id="a",
+            title="资格、资信证明文件",
+            rawTitle="一、资格、资信证明文件",
+            kind="unknown",
+            tocEligible=True,
+        ),
+        OutlineItem(
+            id="b",
+            title="合同条款响应书",
+            rawTitle="二、合同条款响应书",
+            kind="commitment_copy",
+            tocEligible=True,
+        ),
+        OutlineItem(
+            id="c",
+            title="商务和技术偏差表",
+            rawTitle="三、商务和技术偏差表",
+            kind="tech_dev",
+            tocEligible=True,
+        ),
+        OutlineItem(
+            id="d", title="响应方案", rawTitle="四、响应方案", kind="tech_plan", tocEligible=True
+        ),
+        OutlineItem(
+            id="e", title="分项报价表", rawTitle="五、分项报价表", kind="quote", tocEligible=True
+        ),
+    ]
+    out = _order_biz_outline(list(reversed(items)))
+    assert [item.id for item in out] == ["e", "d", "c", "b", "a"]
+    out = _order_biz_outline(items)
+    assert [item.id for item in out] == ["a", "b", "c", "d", "e"]
+
+
 def test_ensure_biz_essentials_keeps_invitation_letter() -> None:
     items = [
         OutlineItem(id="o1", title="投标函", kind="letter", source="copy", body="致：甲方\n我方确认收到招标文件"),

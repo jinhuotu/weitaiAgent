@@ -817,10 +817,20 @@ async def parse_invitation(
     )
 
     chapter, outline_items = extract_outline(invitation)
+    if path.suffix.lower() == '.docx':
+        from api.services.tenders.native_format import word_format_section
+
+        native_chapter, native_section = word_format_section(path)
+        if native_chapter:
+            chapter = native_chapter
+            _, native_items = extract_outline(native_section)
+            if native_items:
+                outline_items = native_items
     brief.authNeed = extract_auth_need(invitation, outline_items)
     brief.authEnabled = bool(brief.authEnabled)
     # 抽出的目录原样保留。按固定模板生成时不读这批条目；按本标生成时也不补公司固定章节。
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
+    brief.requirementsDriven = False
     brief.formatConfirmed = False
     brief.outlineChapter = chapter
     brief.outlineItems = hydrate_tech_excerpts(outline_items)
@@ -855,6 +865,7 @@ async def parse_invitation(
         path,
         quote_path,
         record_sheet=await _quote_record_sheet(db, created_by, quote_record_ids),
+        source_name=quote_upload.filename if quote_upload is not None else '',
     )
     if quote_filled:
         filled = [*filled, "quoteLines"]
@@ -889,7 +900,16 @@ async def parse_invitation(
     if brief.performanceLines and "performanceLines" not in filled:
         filled = [*filled, "performanceLines"]
 
-    slots = collect_slots(extras, catalog=catalog, include_keys=include_keys)
+    # Outline/requirements are now available; an earlier LLM-only material list
+    # must not keep the matching library keys out of this bid.
+    required_keys, include_keys = this_bid_keys(
+        extra=extras, catalog=catalog, required_keys=required_keys, include_keys=include_keys,
+        has_agent=has_agent, outline_items=brief.outlineItems,
+        requirements=brief.bidRequirements, source_text=invitation,
+    )
+    brief.requiredSlotKeys, brief.includeSlotKeys = required_keys, include_keys
+    slots = collect_slots(extras, catalog=catalog, include_keys=include_keys,
+                          outline_items=brief.outlineItems)
     catalog_rows = await list_library_items(db)
     file_counts = {
         str(row.get("key") or ""): int(row.get("fileCount") or 0)
@@ -984,6 +1004,36 @@ async def parse_invitation(
             )
     else:
         notes.append("未从招标书抽出「投标/响应文件格式」章节，生成仍用公司固定模板")
+    from api.services.tenders.requirement_bid import prepare_requirements_bid
+
+    requirement_notes = prepare_requirements_bid(brief, text=invitation)
+    # Requirements synthesis (or recovery of auto-numbered native headings) can
+    # add sections after the first matching pass. Return keys for the final outline.
+    required_keys, include_keys = this_bid_keys(
+        extra=extras, catalog=catalog, required_keys=required_keys, include_keys=include_keys,
+        has_agent=has_agent, outline_items=brief.outlineItems,
+        requirements=brief.bidRequirements, source_text=invitation,
+    )
+    brief.requiredSlotKeys, brief.includeSlotKeys = required_keys, include_keys
+    slots = collect_slots(extras, catalog=catalog, include_keys=include_keys,
+                          outline_items=brief.outlineItems)
+    previous_match_notes = set(attachment_match_notes(attachment_match))
+    attachment_match = build_attachment_match(
+        catalog_rows, required_keys=required_keys, include_keys=include_keys,
+        created_keys=created_keys,
+    )
+    notes = [note for note in notes if note not in previous_match_notes]
+    notes.extend(attachment_match_notes(attachment_match))
+    if brief.requirementsDriven:
+        notes = [note for note in notes if '公司固定模板' not in note
+                 and '承诺函只填单位和日期' not in note]
+        notes.extend(requirement_notes)
+        brief.bidRequirements = bind_requirements(
+            brief.bidRequirements, catalog=catalog, file_counts=file_counts,
+            outline_items=brief.outlineItems, performance_lines=brief.performanceLines,
+            deviation_lines=brief.deviationLines, layout_mode=brief.layoutMode,
+            biz_filled=biz_clause_filled(brief),
+        )
     if brief.authNeed == "required":
         notes.append("招标书写了须授权委托；默认法人自签，要用委托人请打开「启用授权委托」")
     elif brief.authNeed == "optional":
@@ -1139,6 +1189,8 @@ def apply_kb_format_suggestions(
     from api.services.tenders.tables import extract_dev_headers, extract_quote_headers
 
     if has_invite_format_chapter(chapter):
+        brief.layoutMode = 'outline'
+        brief.requirementsDriven = False
         return []
     parts: list[str] = []
     names: list[str] = []
@@ -1255,9 +1307,11 @@ def _merge_quote(
     invite_path,
     quote_path,
     record_sheet=None,
+    source_name: str = '',
 ) -> tuple[list[str], BidBrief, bool]:
     del patch, invitation, invite_path
     notes: list[str] = []
+    from api.services.tenders.quote import quote_source_notes
     sheet = parse_quote_path(quote_path) if quote_path is not None else None
     source = "file" if sheet is not None else ""
     if sheet is None and record_sheet is not None:
@@ -1265,8 +1319,13 @@ def _merge_quote(
         source = "record"
     if sheet is None and quote_path is not None:
         notes.append("报价清单未能按表格解析，生成时不填写报价分项。")
-    elif sheet is None:
-        notes.append("未上传报价清单，生成时不填写报价分项。未采用模型或历史投标书中的台数。")
+    if sheet is None:
+        if quote_path is None:
+            notes.append("未上传报价清单，生成时不填写报价分项。未采用模型或历史投标书中的台数。")
+        if (brief.quoteAutoPrice
+                and float(brief.bidPriceYuan or 0) == float(brief.quoteSourceIncTax)):
+            brief.bidPriceYuan = 0
+            notes.append('已清空上次清单自动填入的总价，避免沿用其他项目报价')
         if brief.quoteLines:
             data = brief.model_dump()
             data["quoteLines"] = []
@@ -1274,9 +1333,24 @@ def _merge_quote(
             data["quoteSourceIncTax"] = 0
             brief = BidBrief.model_validate(data)
             notes.append("已清空上次表单里的分项，避免沿用其他项目工程量")
+        brief.quoteTitle = ''
+        brief.quoteSource = ''
+        brief.quoteSourceIncTax = 0
+        brief.quoteHeaders = []
+        brief.quoteRoles = []
+        brief.quoteSourceName = source_name or ''
+        brief.quoteSourceTitle = ''
+        brief.quoteSourceProjects = []
+        brief.quoteMatchStatus = ''
+        brief.quoteMatchNote = ''
+        brief.quoteAutoPrice = False
         return notes, brief, False
     before = float(brief.bidPriceYuan or 0)
-    brief = attach_sheet(brief, sheet, source=source)
+    brief = attach_sheet(brief, sheet, source=source,
+                         source_name=source_name or (Path(quote_path).name if quote_path else '报价记录'))
+    notes.extend(quote_source_notes(brief))
+    if brief.quoteMatchStatus == 'unmatched':
+        return notes, brief, False
     if source == "record":
         notes.append(f"已引用报价记录分项 {len(sheet.lines)} 项（《{sheet.title}》，清单含税 {sheet.total_inc_tax}）")
     else:

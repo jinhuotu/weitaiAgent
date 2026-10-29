@@ -142,6 +142,34 @@ def compact_line(text: str) -> str:
     return re.sub(r"[\s/／|｜]+", "", text or "")
 
 
+def classify_procurement_type(text: str, titles: list[str] | None = None) -> str:
+    """Classify the technical response route without changing outline classification."""
+    sample = compact_line("\n".join([*(titles or []), (text or "")[:20_000]]))
+    for label, kind in (("货物类", "goods"), ("服务类", "service"), ("工程类", "engineering")):
+        if label in sample:
+            return kind
+    signals = {
+        "goods": (
+            ("参数表", 4), ("技术参数", 3), ("设备型号", 3),
+            ("配置清单", 3), ("货物采购", 4), ("供货范围", 2),
+        ),
+        "service": (
+            ("服务方案", 4), ("服务质量", 3), ("服务响应", 3),
+            ("运维服务", 4), ("服务团队", 3), ("应急预案", 1),
+        ),
+        "engineering": (
+            ("施工组织设计", 5), ("施工部署", 4), ("施工方案", 3),
+            ("工程量清单", 3), ("施工图纸", 3), ("文明施工", 2),
+        ),
+    }
+    scores = {
+        kind: sum(weight for cue, weight in cues if cue in sample)
+        for kind, cues in signals.items()
+    }
+    winner = max(scores, key=scores.get)
+    return winner if scores[winner] > 0 else "engineering"
+
+
 def strip_item_prefix(text: str) -> str:
     s = (text or "").strip().strip("·•-—_ ")
     s = re.sub(r"^\d+(?:\.\d+)+[、.．:：\s]*", "", s)
@@ -180,7 +208,10 @@ def is_chapter_title(title: str) -> bool:
     return classify_content(title).role == "chapter"
 
 
-_VETO_MARKS = ("★", "※", "废标", "否决", "实质性", "无效投标", "不予受理")
+# 三级条款标记：mandatory（★/※/实质性）、important（▲/重要性）、general（其余）
+_MANDATORY_MARKS = ("★", "※", "废标", "否决", "实质性", "无效投标", "不予受理")
+_IMPORTANT_MARKS = ("▲", "重要性", "重要技术参数", "重要商务条款")
+_VETO_MARKS = _MANDATORY_MARKS  # 保留兼容性
 _VETO_CAP = 80
 _HEADING_RE = re.compile(
     r"^(?:第\s*[一二三四五六七八九十百零〇0-9]{1,4}\s*[章部分节]|[一二三四五六七八九十]{1,3}、)"
@@ -191,11 +222,26 @@ _DEV_EMPTY = {"", "待确认", "待补充", "待补", "待响应", "/", "无", "
 
 
 def _has_veto(line: str) -> bool:
-    if any(mark in line for mark in _VETO_MARKS):
+    """识别否决性（mandatory）条款标记。"""
+    if any(mark in line for mark in _MANDATORY_MARKS):
         return True
     # 「不得分」是评分用语，不是否决。
     rest = line.replace("不得分", "")
     return "不得" in rest
+
+
+def _has_important(line: str) -> bool:
+    """识别重要性（important）条款标记。"""
+    return any(mark in line for mark in _IMPORTANT_MARKS)
+
+
+def _requirement_strength(line: str) -> str:
+    """判断条款强度：mandatory（必须满足否则废标）、important（负偏离扣分）、general。"""
+    if _has_veto(line):
+        return "mandatory"
+    if _has_important(line):
+        return "important"
+    return "general"
 
 
 _TECH_VETO_TEXT = (
@@ -696,6 +742,8 @@ def extract_requirements(text: str) -> list[BidRequirement]:
             seen.add(key)
             title = strip_item_prefix(s) or s
             title = re.sub(r"\s+", "", title)[:120]
+            # 三级条款强度识别
+            strength = _requirement_strength(s)
             out.append(
                 BidRequirement(
                     id=f"r{len(out) + 1:02d}",
@@ -703,6 +751,7 @@ def extract_requirements(text: str) -> list[BidRequirement]:
                     category=hit.category or "notice",
                     targetKind=hit.target_kind,
                     targetTitle=hit.target_title,
+                    strength=strength,
                 )
             )
             if len(out) >= 40:
@@ -720,6 +769,7 @@ def apply_bid_requirements(brief: BidBrief, reqs: list[BidRequirement]) -> list[
         _merge_perf(brief, perf)
     n_qual = sum(1 for r in reqs if r.category in {"qualification", "material"})
     n_veto = sum(1 for r in reqs if (r.strength or "") == "mandatory")
+    n_important = sum(1 for r in reqs if (r.strength or "") == "important")
     n_biz = sum(1 for r in reqs if (r.strength or "") == "mandatory" and r.volume == "business")
     n_tech = sum(1 for r in reqs if (r.strength or "") == "mandatory" and r.volume == "technical")
     notes.append(
@@ -729,7 +779,15 @@ def apply_bid_requirements(brief: BidBrief, reqs: list[BidRequirement]) -> list[
     )
     if n_veto:
         notes.append(
-            f"否决项 {n_veto} 条已按卷分开：商务标 {n_biz} 条，技术标 {n_tech} 条。"
+            f"必须响应项（★）{n_veto} 条已按卷分开：商务标 {n_biz} 条，技术标 {n_tech} 条。"
+            "完全响应，负偏离=废标。"
+        )
+    if n_important:
+        notes.append(
+            f"重要响应项（▲）{n_important} 条：尽量响应，负偏离扣分不废标。"
+        )
+    if n_veto or n_important:
+        notes.append(
             "切换左上角只看当前卷。可删除误报；重新识别会整份替换。不拦生成和下载。"
         )
     return notes

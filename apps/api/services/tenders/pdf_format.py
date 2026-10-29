@@ -356,7 +356,9 @@ def fill_pasted_format(doc: Document, brief, media: dict | None = None) -> None:
     for table in list(doc.tables):
         _swap_tokens(table._tbl, brief)
         _fill_table(table, brief)
-    _paste_id_pages(doc, brief, media)
+    # 建立全局已贴集合，供后续贴图函数共享
+    global_pasted: set[str] = set()
+    _attach_library(doc, brief, media, global_pasted=global_pasted)
 
 
 def _fix_cover_line(para, brief, clear_runs, form_run, add_pad, ymd) -> None:
@@ -753,42 +755,147 @@ def _cap_sign_gap(para) -> None:
         spacing.set(qn("w:before"), "160")
 
 
-def _paste_id_pages(doc: Document, brief, media: dict | None) -> str:
-    from api.services.tenders.placeholders import (
-        _insert_slot_media,
-        _last_body_child,
-        _relocate_appended_before,
-    )
+def _embed_in_place(doc: Document, host, files: list[Path], *, pair: bool) -> bool:
+    from api.services.tenders.placeholders import _insert_slot_media
 
-    files = [p for p in ((media or {}).get("id_legal") or []) if getattr(p, "is_file", lambda: False)()]
-    who = (getattr(brief, "legalPersonName", "") or "").strip() or "所选人员"
+    prior = set(doc.element.body)
+    n_img = _insert_slot_media(doc, files, compact_pair=pair)
+    fresh = [el for el in doc.element.body if el not in prior and el.tag != qn("w:sectPr")]
+    if not n_img:
+        for el in fresh:
+            parent = el.getparent()
+            if parent is not None:
+                parent.remove(el)
+        return False
+    runs = []
+    for el in fresh:
+        for node in list(el.iter(qn("w:drawing"))) + list(el.iter(qn("w:pict"))):
+            run = node.getparent()
+            if run is not None and run.tag == qn("w:r") and run not in runs:
+                runs.append(run)
+    for run in runs:
+        host.append(run)
+    for el in fresh:
+        parent = el.getparent()
+        if parent is not None:
+            parent.remove(el)
+    return bool(runs)
+
+
+def _paste_id_pages(doc: Document, brief, media: dict | None, *, global_pasted: set[str] | None = None) -> list[str]:
+    """贴身份证扫描件，全局去重：同一资料键只贴一次。
+
+    Args:
+        doc: Word 文档对象
+        brief: 投标摘要信息
+        media: 资料库文件字典
+        global_pasted: 全局已贴集合，跨所有贴图函数共享
+    """
     toc_els = toc_block_ids(doc)
     paras = list(doc.paragraphs)
+    notes: list[str] = []
+    seen_keys: set[str] = global_pasted if global_pasted is not None else set()
+
+    def _files_for(key: str) -> list[Path]:
+        return [
+            p
+            for p in ((media or {}).get(key) or [])
+            if getattr(p, "is_file", lambda: False)()
+        ]
+
+    def _who(key: str) -> str:
+        if key == "id_agent":
+            return (getattr(brief, "agentName", "") or "").strip() or "委托代理人"
+        return (getattr(brief, "legalPersonName", "") or "").strip() or "法定代表人"
+
+    def _attach(para_index: int, para, key: str, title: str) -> None:
+        # 全局去重：如果已贴过，直接跳过
+        if key in seen_keys:
+            return
+        seen_keys.add(key)
+        who = _who(key)
+        files = _files_for(key)
+        n = re.sub(r"\s+", "", para.text or "")
+        if not files:
+            if "此处粘贴" in n or "在此粘贴" in n:
+                notes.append(f"缺{who}身份证，已保留原占位")
+                return
+            _dash_after(doc, para, key, title or n)
+            notes.append(f"截件有{title or n}，未贴上{who}的扫描件")
+            return
+        if not _embed_in_place(doc, para._p, files, pair=True):
+            if "此处粘贴" in n or "在此粘贴" in n:
+                notes.append(f"缺{who}身份证，已保留原占位")
+            else:
+                _dash_after(doc, para, key, title or n)
+                notes.append(f"截件有{title or n}，未贴上{who}的扫描件")
+            return
+        if "此处粘贴" in n or "在此粘贴" in n:
+            _strip_paste_holder(para)
+        notes.append(f"已贴上{who}的身份证")
+
     for i, para in enumerate(paras):
         if para._p in toc_els:
             continue
         n = re.sub(r"\s+", "", para.text or "")
-        # 身份证明页才贴。授权委托书那句带「委托」，不在这里再插一张，避免又空出一截。
-        if not n.startswith("附") or "法定代表人身份证" not in n or "委托" in n:
+        if "身份证" not in n:
             continue
-        if not files:
-            _dash_after(doc, para, "id_legal", n)
-            return f"截件有法定代表人身份证位置，未贴上{who}的扫描件"
-        before = next(
-            (p for p in paras[i + 1 :] if re.sub(r"\s+", "", p.text or "").startswith("投标人")),
-            None,
-        )
-        last = _last_body_child(doc)
-        n_img = _insert_slot_media(doc, files, compact_pair=True)
-        if n_img and before is not None:
-            _relocate_appended_before(doc, before=before, last_before=last)
-        elif not n_img:
-            _dash_after(doc, para, "id_legal", n)
-            return f"截件有法定代表人身份证位置，未贴上{who}的扫描件"
-        return f"已贴上{who}的身份证"
-    if files:
-        return "截件没有法定代表人身份证标题，未贴扫描件"
-    return ""
+        if re.match(r"^(?:[一二三四五六七八九十]{1,3}、|第)", n):
+            continue
+        # 授权委托书章节的身份证按代理人处理；其余按法定代表人处理。
+        agent = ("委托代理人身份证" in n) or ("代理人身份证" in n) or ("授权代理人身份证" in n)
+        # 只在明确的贴图位置或章节标题上贴，避免把表单里的「身份证号码」当贴图处。
+        if not (
+            n.startswith("附")
+            or "正反面" in n
+            or "复印件" in n
+            or "扫描件" in n
+            or "粘贴处" in n
+            or "此处粘贴" in n
+            or n in {"法定代表人身份证明", "授权委托书"}
+        ):
+            continue
+        if agent or "委托" in n:
+            _attach(i, para, "id_agent", n)
+        else:
+            _attach(i, para, "id_legal", n)
+
+    # 若存在明确章节标题但循环未命中（例如只有章节标题），再补一次。
+    if "id_legal" not in seen_keys:
+        from docx.text.paragraph import Paragraph
+
+        for i, para in enumerate(paras):
+            if para._p in toc_els:
+                continue
+            n = re.sub(r"\s+", "", para.text or "")
+            if n not in {"法定代表人身份证明", "法定代表人授权委托书"}:
+                continue
+            host = para
+            nxt = para._p.getnext()
+            if nxt is not None and nxt.tag == qn("w:p"):
+                nxt_text = "".join(t.text or "" for t in nxt.iter(qn("w:t")))
+                if not re.sub(r"\s+", "", nxt_text):
+                    host = Paragraph(nxt, doc)
+            _attach(i, host, "id_legal", n)
+            break
+    if "id_agent" not in seen_keys:
+        for i, para in enumerate(paras):
+            if para._p in toc_els:
+                continue
+            n = re.sub(r"\s+", "", para.text or "")
+            if n == "授权委托书":
+                # 只有资料库有代理人身份证时才贴，避免法人投标时画多余框。
+                if _files_for("id_agent"):
+                    _attach(i, para, "id_agent", n)
+                break
+
+    if not notes:
+        # 保持旧调用方的「无位置」提示语。
+        for key in ("id_legal",):
+            files = _files_for(key)
+            if files:
+                notes.append("截件没有法定代表人身份证标题，未贴扫描件")
+    return notes
 
 
 def _slice_pdf_pages(pdf: Path, dest: Path, start: int, end: int) -> None:
@@ -885,6 +992,82 @@ def _word_format_file(invitation_id: str) -> Path | None:
     return None
 
 
+def format_paste_source(invitation_id: str) -> str:
+    src = _word_format_file(invitation_id or "")
+    if src is None:
+        return ""
+    try:
+        doc = Document(str(src))
+    except Exception:
+        logger.warning("read format paste cues failed", exc_info=True)
+        return ""
+    lines = []
+    for el in doc.element.body.iter(qn("w:p")):
+        text = "".join(node.text or "" for node in el.iter(qn("w:t"))).strip()
+        if "此处粘贴" in text or "在此粘贴" in text:
+            lines.append(text)
+    return "\n".join(lines)
+
+
+def unify_full_docx(path: Path, brief, *, link_toc: bool = True) -> None:
+    """完整标填完商务、技术正文后，共用目录书签和连续页码。"""
+    from api.services.tenders.categories import is_volume_label
+    from api.services.tenders.document import _ensure_header
+    from api.services.tenders.format_rules import apply_footer_page_number
+    from api.services.tenders.schema import DocumentFormat
+
+    doc = Document(str(path))
+    from api.services.tenders.native_format import ensure_toc_rows
+    from api.services.tenders.slice_rules import is_format_start
+
+    native = is_format_start(getattr(brief, 'outlineChapter', ''))
+    if native:
+        ensure_toc_rows(doc, brief, volume="full")
+    in_front = True
+    cover_named = False
+    for para in list(doc.paragraphs):
+        text = para.text.strip()
+        if _is_toc_heading(text):
+            in_front = False
+        title = text.split("\t", 1)[0].strip()
+        if not is_volume_label(title):
+            continue
+        if in_front and not cover_named:
+            # 保留封面原有段落和字体，只更换卷名。
+            runs = list(para.runs)
+            if runs:
+                runs[0].text = "投标文件"
+                for run in runs[1:]:
+                    run.text = ""
+            else:
+                para.add_run("投标文件")
+            cover_named = True
+        elif para._p.find("w:pPr/w:sectPr", doc.element.nsmap) is not None:
+            # 节属性承载原范本纸张/边距，清卷名时保留这些属性。
+            for run in list(para.runs):
+                run.text = ""
+        else:
+            para._p.getparent().remove(para._p)
+
+    fmt = getattr(brief, "documentFormat", None) or DocumentFormat()
+    sections = list(doc.sections)
+    # 沿用既有正文起编位置，清除技术部分及后续附件里的重启页码。
+    start = next((i for i, sec in enumerate(sections)
+                  if sec._sectPr.find("w:pgNumType", doc.element.nsmap) is not None
+                  and sec._sectPr.find("w:pgNumType", doc.element.nsmap).get(qn("w:start")) is not None), 0)
+    for i, sec in enumerate(sections):
+        _ensure_header(sec, (getattr(brief, "projectName", "") or "").strip(), cover=(i == 0))
+        apply_footer_page_number(sec, fmt, numbered=i >= start, restart=i == start)
+    if link_toc and not native:
+        _link_toc_body(doc, brief, preserve_existing=True)
+        _repair_format_table_toc(doc, brief)
+    if native:
+        from api.services.tenders.assemble import _fill_toc_pages
+
+        _fill_toc_pages(doc, fmt)
+    doc.save(str(path))
+
+
 def assemble_from_word_format(
     brief,
     dest: Path,
@@ -895,6 +1078,12 @@ def assemble_from_word_format(
     catalog_facts=None,
 ):
     """按本标：填格式章副本。技术标只裁正文，封面目录页码另写；只改标书写明的边距、正文字体和页码。"""
+    from api.services.tenders.native_format import (
+        ensure_toc_rows, fill_native_cover, normalize_bookmarks, original_cover, prefer_native_format,
+        supplement_sections,
+    )
+
+    native = prefer_native_format(brief)
     if (getattr(brief, "layoutMode", None) or "").strip() != "outline":
         return None
     src = _word_format_file(getattr(brief, "invitationId", "") or "")
@@ -909,23 +1098,45 @@ def assemble_from_word_format(
     vol = (volume or "").strip().lower()
     _drop_invite_chrome(doc)
     slice_notes: list[str] = []
+    cover_nodes = []
+    if native:
+        fill_native_cover(doc, brief)
+        if vol == 'technical' and not brief.techAnonymous:
+            cover_nodes = original_cover(doc, brief)
     tech_front = False
     if vol == "technical":
-        kept = _keep_technical_only(doc)
+        kept = _keep_technical_only(doc, brief=brief if native else None)
         slice_notes.append(kept)
         tech_front = "只保留格式章里的技术部分" in kept
-    elif vol == "business" and bool(getattr(brief, "splitSlice", False)):
-        slice_notes.append(_drop_technical(doc))
+        if native and not tech_front:
+            # With no original technical forms, build only the absent technical
+            # sections, never ship the business forms as an anonymous tech volume.
+            for el in list(doc.element.body):
+                if el.tag != qn('w:sectPr'):
+                    doc.element.body.remove(el)
+            tech_front = True
+    elif vol == "business" and (native or bool(getattr(brief, "splitSlice", False))):
+        slice_notes.append(_drop_technical(doc, brief=brief if native else None))
+    if native:
+        slice_notes.extend(supplement_sections(doc, brief, vol, media=catalog_media))
+        normalize_bookmarks(doc)
+        if not tech_front:
+            ensure_toc_rows(doc, brief, volume=vol)
     if kind == "pdf":
         _pull_pdf_blank_lines(doc)
     blank_notes = _fill_word_blanks(doc, brief, catalog_facts)
     sheet_notes = _fill_slice_sheets(doc, brief)
     blanks = _open_blank_labels(doc)
-    lib_notes = _attach_library(doc, brief, catalog_media)
+    # 建立全局已贴集合，供所有贴图函数共享，实现全局去重
+    global_pasted: set[str] = set()
     pasted_ids = set()
-    if any(("已贴上" in n or "未贴上" in n) and "身份证" in n for n in lib_notes):
-        pasted_ids.add("id_legal")
-    _scrub_undefined_toc(doc)
+    lib_notes = _attach_library(
+        doc, brief, catalog_media, slots=catalog_slots, handled=pasted_ids, global_pasted=global_pasted
+    )
+    if not native:
+        # Native TOC fields were just bound to real body bookmarks. The legacy
+        # scrubber unconditionally removes PAGEREF, including these valid fields.
+        _scrub_undefined_toc(doc)
     _separate_toc_page(doc)
     fmt = getattr(brief, "documentFormat", None)
     if fmt is not None:
@@ -945,19 +1156,21 @@ def assemble_from_word_format(
             volume=vol,
             skip_keys=pasted_ids,
             requirements=list(getattr(brief, "bidRequirements", None) or []),
+            global_pasted=global_pasted,
         )
     )
     from api.services.tenders.document import _ensure_header
 
     anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
     if tech_front:
-        _install_tech_front(doc, brief, anon=anon)
+        _install_tech_front(doc, brief, anon=anon, cover_nodes=cover_nodes)
     project = "" if anon else (getattr(brief, "projectName", "") or "").strip()
     for i, section in enumerate(doc.sections):
         _ensure_header(section, project, cover=(i == 0))
-    # 仅新建的技术子集目录使用直接锚点；原格式章目录继续走原路径。
-    linked = 0 if tech_front else _link_toc_body(doc)
-    if not tech_front:
+    # full 在商务和技术正文都填完后，由 unify_full_docx 统一处理一次目录。
+    # 单卷继续沿用既有目录处理路径。
+    linked = 0 if native or tech_front or vol == "full" else _link_toc_body(doc, brief)
+    if not native and not tech_front and vol != "full":
         linked += _repair_format_table_toc(doc, brief)
     if tech_front:
         _arm_tech_pages(doc, brief)
@@ -974,20 +1187,24 @@ def assemble_from_word_format(
         if pending:
             slice_notes.append(f"子集目录 {pending} 条未能安全定位或估页，已保留「待更新」占位")
         slice_notes.append("技术标已另写封面和目录，页码从正文起编")
+    if native:
+        normalize_bookmarks(doc)
     doc.save(str(dest))
     if kind == "pdf":
         lead = "已按 PDF 转出的格式章组卷，预填横线收回同一行，正文表格未重排"
     else:
         lead = "已按上传的 Word 原版投标文件格式组卷，只填这份截件的副本"
     notes = [lead, *slice_notes, *blank_notes, *sheet_notes, *lib_notes]
+    if native and vol != 'technical' and brief.bidPriceYuan <= 0:
+        notes.append('【待补充】投标总价未填写，请核实后定稿')
     if blanks:
         shown = "、".join(blanks[:12])
         tail = f"等 {len(blanks)} 处" if len(blanks) > 12 else ""
         notes.append(f"对不上的空保持原样：{shown}{tail}")
     if linked:
         notes.append(f"目录 {linked} 条已按后文位置写上页码，从正文第 1 页起")
-    elif not tech_front:
-        notes.append("目录对不上页码的条目不写页码")
+    elif not native and not tech_front and vol != "full":
+        notes.append("目录未定位条目已保留点线和待更新页码占位")
     return dest, notes
 
 
@@ -1028,15 +1245,23 @@ def _section_kind(text: str) -> str:
     return ""
 
 
-def _keep_technical_only(doc: Document) -> str:
+def _keep_technical_only(doc: Document, *, brief=None) -> str:
     """技术标只留格式章里的技术部分。没有技术标题时整份不动。"""
     body = doc.element.body
     children = list(body)
+    toc = set(toc_block_ids(doc))
+    # Both volume filters must agree on independent chapter boundaries. A
+    # letter's composition list mentioning a technical document is still prose.
+    kinds = _business_slice_kinds(doc, brief, toc)
+    if brief is None:
+        # Legacy technical packs may contain management/qualification forms
+        # under the technical root. Preserve their existing volume semantics.
+        kinds = {el: kind for el, kind in kinds.items() if _section_kind(_el_text(el)) == kind}
     saw = False
     for el in children:
-        if el.tag != qn("w:p"):
+        if el in toc or el.tag != qn("w:p"):
             continue
-        if _section_kind(_el_text(el)) == "tech":
+        if kinds.get(el) == "tech":
             saw = True
             break
     if not saw:
@@ -1045,8 +1270,12 @@ def _keep_technical_only(doc: Document) -> str:
     for el in children:
         if el.tag == qn("w:sectPr"):
             continue
+        if el in toc:
+            _detach_para_sect(el, body)
+            body.remove(el)
+            continue
         if el.tag == qn("w:p"):
-            kind = _section_kind(_el_text(el))
+            kind = kinds.get(el, "")
             if kind == "tech":
                 mode = "tech"
             elif kind == "biz":
@@ -1058,15 +1287,30 @@ def _keep_technical_only(doc: Document) -> str:
     return "技术标只保留格式章里的技术部分"
 
 
-def _drop_technical(doc: Document) -> str:
+def _native_section_kinds(doc: Document, brief) -> dict:
+    if brief is None:
+        return {}
+    from api.services.tenders.native_format import body_sections, section_volume
+
+    return {el: ('tech' if section_volume(item) == 'technical' else 'biz')
+            for el, _, item in body_sections(doc, brief)}
+
+
+def _drop_technical(doc: Document, *, brief=None) -> str:
     """分卷商务标去掉格式章里的技术部分。没有技术标题时整份不动。"""
     body = doc.element.body
     children = list(body)
+    toc = set(toc_block_ids(doc))
+    if brief is not None:
+        from api.services.tenders.native_format import _body_toc_block
+
+        toc = set(_body_toc_block(doc, brief))
+    kinds = _business_slice_kinds(doc, brief, toc)
     saw = False
     for el in children:
-        if el.tag != qn("w:p"):
+        if el in toc or el.tag != qn("w:p"):
             continue
-        if _section_kind(_el_text(el)) == "tech":
+        if kinds.get(el) == "tech":
             saw = True
             break
     if not saw:
@@ -1075,8 +1319,14 @@ def _drop_technical(doc: Document) -> str:
     for el in list(body):
         if el.tag == qn("w:sectPr"):
             continue
+        if el in toc:
+            # 目录行只决定自身是否入卷，不能改变后续正文的商务/技术状态。
+            if el.tag == qn("w:p") and _section_kind(_el_text(el)) == "tech":
+                _detach_para_sect(el, body)
+                body.remove(el)
+            continue
         if el.tag == qn("w:p"):
-            kind = _section_kind(_el_text(el))
+            kind = kinds.get(el, "")
             if kind == "tech":
                 mode = "tech"
             elif kind == "biz":
@@ -1087,6 +1337,86 @@ def _drop_technical(doc: Document) -> str:
         body.remove(el)
     return "分卷商务标已去掉格式章里的技术部分"
 
+
+def _business_slice_kinds(doc: Document, brief, toc: set) -> dict:
+    """Classify independent chapters, protecting composition lists inside letters.
+
+    Use the same decisions for the initial technical-section check and removal.
+    A list item's wording or stale outline metadata cannot start deletion mode.
+    """
+    from docx.text.paragraph import Paragraph
+
+    from api.services.tenders.format_rules import peel_toc_lead
+    from api.services.tenders.word_structure import numbering_info
+
+    native = _native_section_kinds(doc, brief)
+    result = {}
+    in_letter = False
+    for el in doc.element.body:
+        if el in toc or el.tag != qn("w:p"):
+            continue
+        text = re.sub(r"\s+", "", _el_text(el))
+        if not text:
+            continue
+        arabic_item = bool(re.match(r"^[（(]\d{1,2}[)）]", text))
+        styled = _outline_level(el)
+        para = Paragraph(el, doc)
+        style = para.style
+        auto_list = el.find("w:pPr/w:numPr", el.nsmap) is not None
+        while style is not None:
+            auto_list = (
+                auto_list or style.element.find("w:pPr/w:numPr", style.element.nsmap) is not None
+            )
+            outline = style.element.find("w:pPr/w:outlineLvl", style.element.nsmap)
+            if not styled and outline is not None:
+                value = int(outline.get(qn("w:val"), "9"))
+                styled = value + 1 if value < 9 else 0
+            style = style.base_style
+        top_numbered = bool(
+            re.match(
+                r"^(?:第[一二三四五六七八九十百0-9]+[章节部分]|[一二三四五六七八九十]+、)", text
+            )
+        )
+        numbering = numbering_info(doc, el)
+        auto_heading = numbering is not None and numbering[2].startswith("chineseCounting")
+        if in_letter and (arabic_item or (auto_list and not top_numbered and not auto_heading and styled != 1)):
+            continue
+        if re.match(
+            r"^(?:投标人|响应人|法定代表人(?:或其委托代理人)?|委托代理人|日期)[：:（(]", text
+        ) and any(word in text for word in ("签字", "盖章", "公章", "印章", "日期", "年")):
+            in_letter = False
+            continue
+        if len(text) > 60 or re.search(r"[。；;：:]", text):
+            continue
+        bare = re.sub(r"\s+", "", peel_toc_lead(text))
+        if re.fullmatch(r"(?:投标|响应)函(?:及(?:投标|响应)函附录|附录)?", bare):
+            in_letter = True
+            result[el] = "biz"
+            continue
+        bare_business = bool(
+            re.fullmatch(
+                r"(?:已标价(?:的)?)?工程量清单|法定代表人身份证明|授权委托书|"
+                r"投标保证金|项目管理机构|拟分包项目情况表|资格审查资料|报价表",
+                bare,
+            )
+        )
+        bare_technical = bare in _BARE_TECH and not auto_list and not arabic_item
+        independent = bool(top_numbered or styled or auto_heading or bare_business or bare_technical)
+        if in_letter and not independent:
+            continue
+        if not independent:
+            # Old format files sometimes use Normal for a standalone bare title.
+            # Parenthesized numeric entries are not such titles.
+            independent = not arabic_item and (el in native or bare in {*_BARE_TECH, *_BIZ_HEAD})
+        if not independent:
+            continue
+        in_letter = False
+        kind = native.get(el, _section_kind(text))
+        if not kind and any(word in bare for word in ("项目管理机构", "拟分包", "资格审查资料")):
+            kind = "biz"
+        if kind:
+            result[el] = kind
+    return result
 
 _BARE_TECH = (
     "施工组织设计",
@@ -1131,13 +1461,13 @@ def _outline_level(el) -> int:
     if outline is not None:
         raw = outline.get(qn("w:val")) or ""
         if raw.isdigit():
-            return min(3, int(raw) + 1)
+            return min(3, int(raw) + 1) if int(raw) < 9 else 0
     style = ppr.find(qn("w:pStyle"))
     if style is None:
         return 0
     val = style.get(qn("w:val")) or ""
     hit = re.search(r"(\d)", val)
-    if hit and ("heading" in val.lower() or "标题" in val or val.isdigit()):
+    if hit and ("heading" in val.lower() or "标题" in val):
         return min(3, int(hit.group(1)) or 1)
     return 0
 
@@ -1228,18 +1558,33 @@ def _collect_tech_heads(doc: Document) -> list[tuple]:
 
 
 def _tech_cover_nodes(brief, *, anon: bool) -> list:
+    """
+    生成技术标封面节点。
+    暗标封面：仅项目名称+标段+"技术标（暗标）"，
+    严禁投标人名称/标识/人员信息，可识别信息用"******"（六个*）代替。
+    """
     nodes = [OxmlElement("w:p") for _ in range(4)]
-    if not anon:
-        project = (getattr(brief, "projectName", "") or "").strip()
-        if project:
-            nodes.append(_styled_p(project, size_pt=18, bold=True, center=True))
-    nodes.append(_styled_p("技术标", size_pt=22, bold=True, center=True))
+    project = (getattr(brief, "projectName", "") or "").strip()
+    if project:
+        nodes.append(_styled_p(project, size_pt=18, bold=True, center=True))
+    nodes.append(_styled_p("技术标（暗标）" if anon else "投标文件", size_pt=22, bold=True, center=True))
     if anon:
+        # 暗标模式：只显示标段，不显示投标人信息
+        lot = (getattr(brief, 'lotName', '') or '').strip()
+        if lot:
+            nodes.append(_styled_p(lot, size_pt=14, center=True))
+        # 暗标提示：封面及全文不得出现投标人名称/标识/人员信息
+        nodes.append(OxmlElement("w:p"))
+        nodes.append(_styled_p("（本标为暗标，全文不得出现投标人名称、标识及人员信息）", size_pt=12, center=True))
         return nodes
+    # 非暗标模式：显示完整投标信息
+    nodes.append(_styled_p(f"项目编号：{brief.tenderNo.strip() or '【待补充】'}", size_pt=14, center=True))
     bidder = (getattr(brief, "bidderName", "") or "").strip()
     if bidder:
         nodes.append(OxmlElement("w:p"))
-        nodes.append(_styled_p(f"投标人：{bidder}", size_pt=14, center=True))
+        nodes.append(_styled_p(f"投标人（盖章）：{bidder}", size_pt=14, center=True))
+    nodes.append(_styled_p(f"法定代表人（签字）：{brief.legalPersonName}", size_pt=14, center=True))
+    nodes.append(_styled_p(f"日期：{brief.bidDate}", size_pt=14, center=True))
     return nodes
 
 
@@ -1325,7 +1670,7 @@ def _collect_subset_tech_heads(doc: Document, brief) -> list[tuple]:
     return heads
 
 
-def _install_tech_front(doc: Document, brief, *, anon: bool) -> None:
+def _install_tech_front(doc: Document, brief, *, anon: bool, cover_nodes: list | None = None) -> None:
     """新建技术子集目录，直接关联已定位的正文标题，避开重新匹配编号。"""
     from docx.text.paragraph import Paragraph
 
@@ -1340,6 +1685,14 @@ def _install_tech_front(doc: Document, brief, *, anon: bool) -> None:
     ):
         return
     heads = _collect_subset_tech_heads(doc, brief)
+    from api.services.tenders.slice_rules import is_format_start
+    native = is_format_start(getattr(brief, 'outlineChapter', ''))
+    if native:
+        from api.services.tenders.outline import classify_kind, is_outline_chapter
+
+        heads = [(el, level, title, source) for el, level, title, source in heads
+                 if el is not None and is_outline_chapter(source if source is not None else
+                    OutlineItem(title=title, kind=classify_kind(title), level=level))]
     if not heads:
         for el in doc.element.body:
             if el.tag != qn("w:p"):
@@ -1361,10 +1714,12 @@ def _install_tech_front(doc: Document, brief, *, anon: bool) -> None:
         _bookmark_paragraph(Paragraph(el, doc), bookmark)
     old = set(doc.element.body)
     fmt = brief.documentFormat or DocumentFormat()
+    if native:
+        fmt = fmt.model_copy(update={'tocNumbering': 'cn'})
     _write_toc(doc, items, brief, fmt, bookmarks, subset=True)
     toc_nodes = [el for el in doc.element.body if el not in old]
     _bookmark_paragraph(Paragraph(toc_nodes[0], doc), "weitai_subset_toc")
-    nodes = _tech_cover_nodes(brief, anon=anon)
+    nodes = cover_nodes if cover_nodes and not anon else _tech_cover_nodes(brief, anon=anon)
     nodes.append(_sect_break(doc))
     nodes.extend(toc_nodes)
     nodes.append(_sect_break(doc))
@@ -1926,42 +2281,128 @@ def _is_toc_heading(text: str) -> bool:
     return n in {"目录", "目次"} or (n.startswith("目录") and len(n) <= 8)
 
 
-def toc_block_ids(doc: Document) -> list:
-    """目录标题到正文之前的段落。占位和贴图不能插进这段。
+def _toc_row_label(el) -> str | None:
+    """Explicit TOC rows include plain cached page numbers, not just Word fields."""
+    if el.tag != qn("w:p"):
+        return None
+    raw = _el_text(el).strip()
+    from docx.text.paragraph import Paragraph
 
-    返回元素本身。lxml 代理的 id() 会复用，不能拿 id 当键。
+    lines = [line.strip() for line in Paragraph(el, None).text.splitlines() if line.strip()]
+    if len(lines) > 1 and any(re.search(r"[。；;：:]", line) for line in lines):
+        # A converted first chapter can contain heading tabs followed by its
+        # salutation/body in the same paragraph. It is not a cached TOC row.
+        return None
+    if len(lines) > 1 and all(
+        len(line) <= 70
+        and re.match(r"^(?:[一二三四五六七八九十]+、|[（(][一二三四五六七八九十0-9]+[）)])", line)
+        and not re.search(r"[。；;：:]", line)
+        for line in lines
+    ):
+        return raw
+    style = el.find("w:pPr/w:pStyle", el.nsmap)
+    style_id = style.get(qn("w:val"), "") if style is not None else ""
+    marked = (
+        "PAGEREF" in el.xml
+        or el.find(".//w:r/w:tab", el.nsmap) is not None
+        or el.find(".//w:hyperlink", el.nsmap) is not None
+        or re.match(r"(?:TOC|目录)\s*\d+$", style_id, re.I)
+    )
+    # A title and terminal page cache can be separate runs or a single text run.
+    page = re.search(r"(?:[\s.．·…]+|(?<=[\u4e00-\u9fff）)]))([0-9]{1,4})\s*$", raw)
+    if page and not re.search(r"[。；;：:]", raw):
+        title = raw[: page.start()].rstrip(" .．·…\t")
+        if title and len(title) <= 70:
+            return title
+    if marked:
+        return re.sub(r"[\t\s.．·…]+(?:\d+|待更新)?$", "", raw).strip()
+    return None
+
+
+def toc_block_ids(doc: Document) -> list:
+    """Return the entire old directory across page/section breaks, up to body.
+
+    Elements, rather than lxml proxy ids, are returned. Pagination alone is never
+    a boundary: field, tab and plain page-cache rows all belong to the same TOC.
     """
+    from api.services.tenders.native_format import _cover_signoff
+    from api.services.tenders.outline import toc_title_key
+    from api.services.tenders.word_structure import outline_level
+
     children = [el for el in doc.element.body if el.tag != qn("w:sectPr")]
-    start = None
-    for i, el in enumerate(children):
-        if el.tag == qn("w:p") and _is_toc_heading(_el_text(el)):
-            start = i
-            break
+    start = next(
+        (
+            n
+            for n, el in enumerate(children)
+            if el.tag == qn("w:p") and _is_toc_heading(_el_text(el))
+        ),
+        None,
+    )
     if start is None:
         return []
-    els = [children[start]]
-    lines: list[str] = []
-    for el in children[start + 1 :]:
+    result = [children[start]]
+    keys = set()
+    for index in range(start + 1, len(children)):
+        el = children[index]
         if el.tag == qn("w:tbl"):
             break
         if el.tag != qn("w:p"):
             continue
-        text = _compact_el(el)
-        starts = _starts_new_page(el)
-        if starts and lines:
-            if text and len(text) <= 48 and "。" not in text and not _repeats_toc(text, lines):
-                els.append(el)
-            break
-        if not text:
-            els.append(el)
+        raw = _el_text(el).strip()
+        if not raw or _is_toc_heading(raw):
+            result.append(el)
+            if raw:
+                # A second old directory heading starts another set of plain
+                # rows; repeated titles here are not yet body chapters.
+                keys.clear()
             continue
-        if len(text) > 48 or "。" in text:
+        if _cover_signoff(raw):
+            continue
+        row = _toc_row_label(el)
+        key = toc_title_key(raw)
+        # The first body heading may be unstyled and absent from a partial TOC.
+        # Its following salutation, prose or table is positive body evidence.
+        following = next(
+            (
+                node
+                for node in children[index + 1 :]
+                if node.tag == qn("w:tbl") or _el_text(node).strip()
+            ),
+            None,
+        )
+        body_follows = following is not None and (
+            following.tag == qn("w:tbl")
+            or (
+                _toc_row_label(following) is None
+                and bool(re.search(r"[。；;：:]", _el_text(following)))
+                and not _cover_signoff(_el_text(following))
+            )
+        )
+        if row is not None:
+            # A real chapter name can itself end in a number (e.g. ISO9001).
+            # Heading/body evidence wins over an ambiguous plain page-cache suffix.
+            if body_follows and (outline_level(doc, el) or key in keys) and "PAGEREF" not in el.xml:
+                break
+            result.append(el)
+            keys.add(toc_title_key(row))
+            continue
+        if len(raw) > 70 or re.search(r"[。；;：:]", raw):
             break
-        if len(lines) >= 2 and _repeats_toc(text, lines):
+        if key in keys or body_follows:
             break
-        els.append(el)
-        lines.append(text)
-    return els
+        if outline_level(doc, el):
+            # A plain styled directory entry is still a TOC row if the actual
+            # identically titled body chapter appears later.
+            repeated_later = any(
+                toc_title_key(_el_text(paragraph)) == key
+                for node in children[index + 1 :]
+                for paragraph in node.iter(qn("w:p"))
+            )
+            if not repeated_later:
+                break
+        result.append(el)
+        keys.add(key)
+    return result
 
 
 def _toc_page_index(pages: list[list]) -> int | None:
@@ -2074,6 +2515,13 @@ def _toc_heading_hit(text: str, keys: list[str]) -> bool:
         return False
     bare = _norm_toc(_strip_toc_no(text))
     text = _norm_toc(text)
+    # 「中小企业声明函（货物）」与目录「中小企业声明函」是同一条。
+    bare = re.sub(r"[（(](?:货物|工程|服务)[)）]$", "", bare)
+    text = re.sub(r"[（(](?:货物|工程|服务)[)）]$", "", text)
+    from api.services.tenders.outline import toc_title_key
+
+    if any(toc_title_key(bare) == toc_title_key(key) for key in keys if len(key) >= 2):
+        return True
     for key in sorted((_norm_toc(k) for k in keys), key=len, reverse=True):
         if len(key) < 4 and key not in {text, bare}:
             continue
@@ -2098,9 +2546,12 @@ def _format_toc_targets(doc: Document, brief) -> list[tuple]:
         return []
     body = list(doc.element.body)
     remaining = body[body.index(block[-1]) + 1:]
+    body_names = {node.get(qn("w:name")) for el in remaining
+                  for node in el.iter(qn("w:bookmarkStart"))}
+    entries = set(_toc_entry_elements(doc, block, brief))
     targets = []
     for index, entry in enumerate(block[1:]):
-        if entry.tag != qn("w:p"):
+        if entry not in entries:
             continue
         para = Paragraph(entry, doc)
         title = re.sub(r"[.．·…]{3,}\s*$", "", para.text.split("\t", 1)[0]).strip()
@@ -2110,6 +2561,12 @@ def _format_toc_targets(doc: Document, brief) -> list[tuple]:
         hits = []
         for el in remaining:
             if el.tag not in {qn("w:p"), qn("w:tbl")}:
+                continue
+            # 只修复有正文锚点的原目录目标；不能因正文里的短句相同就
+            # 将无锚点的草稿段落收进目录并重新编号。
+            if next(el.iter(qn("w:bookmarkStart")), None) is None:
+                continue
+            if el.tag == qn("w:p") and "PAGEREF" in el.xml:
                 continue
             direct = Paragraph(el, doc).text if el.tag == qn("w:p") else ""
             if _toc_heading_hit(re.sub(r"\s+", "", direct), keys) or any(
@@ -2128,7 +2585,10 @@ def _format_toc_targets(doc: Document, brief) -> list[tuple]:
         # 本地 ID 只作为分配器输入；PAGEREF 和锚点共享其返回的名字。
         item = OutlineItem(id=source.id if source is not None else f"format_{index:02d}", title=title,
                            level=source.level if source is not None else _toc_entry_level(title))
-        targets.append((entry, hit, item, source_title, _pageref_bookmark(para)))
+        bookmark = _pageref_bookmark(para)
+        if bookmark not in body_names:
+            bookmark = None
+        targets.append((entry, hit, item, source_title, bookmark))
     return targets
 
 
@@ -2196,6 +2656,7 @@ def _repair_format_table_toc(doc: Document, brief) -> int:
         if bookmark not in pages:
             continue
         para = Paragraph(entry, doc)
+        _drop_pageref_fields(entry)
         if not any(node.getparent().tag == qn("w:r") for node in entry.iter(qn("w:tab"))):
             para.add_run().add_tab()
         _add_pageref_run(para, bookmark, str(max(1, pages[bookmark] - first + 1)))
@@ -2204,59 +2665,117 @@ def _repair_format_table_toc(doc: Document, brief) -> int:
     return written
 
 
-def _link_toc_body(doc: Document) -> int:
+def _toc_entry_elements(doc: Document, block: list, brief=None) -> list:
+    """有目录域/制表位时，裸段落需由正文书签或原大纲标题确认。
+
+    纯文本旧范本没有这些标记，仍由首次目录链接定位正文并创建书签。
+    混排时不能把草稿中的短标题、分项说明自动提升成新目录项。
+    """
+    from docx.text.paragraph import Paragraph
+
+    from api.services.tenders.outline import toc_title_key
+
+    entries = [el for el in block[1:] if el.tag == qn("w:p")
+               and (raw := _compact_el(el)) and not _is_toc_heading(raw)
+               and len(raw) <= 40 and "。" not in raw]
+    marked = {el for el in entries if "PAGEREF" in el.xml
+              or next(el.iter(qn("w:tab")), None) is not None}
+    if not marked:
+        return entries
+    body = list(doc.element.body)
+    anchored_keys = set()
+    body_keys = set()
+    outline_keys = {toc_title_key(title) for item in getattr(brief, "outlineItems", [])
+                    if not item.skipped for title in (item.title, item.rawTitle) if title}
+    for el in body[body.index(block[-1]) + 1:]:
+        if "PAGEREF" in el.xml:
+            continue
+        for para in el.iter(qn("w:p")):
+            if next(para.iter(qn("w:tab")), None) is not None:
+                continue
+            key = toc_title_key(Paragraph(para, doc).text)
+            body_keys.add(key)
+            if next(para.iter(qn("w:bookmarkStart")), None) is not None:
+                anchored_keys.add(key)
+    keys = anchored_keys | (outline_keys & body_keys)
+    return [el for el in entries if el in marked
+            or toc_title_key(Paragraph(el, doc).text) in keys]
+
+
+def _link_toc_body(doc: Document, brief=None, *, preserve_existing: bool = False) -> int:
     """目录条目按后文标题所在页写页码。正文第一处从 1 起，封面和目录不占号。"""
     block = toc_block_ids(doc)
     if len(block) < 2:
         return 0
-    entries = []
-    for el in block[1:]:
-        if el.tag != qn("w:p"):
-            continue
-        raw = _compact_el(el)
-        if not raw or _is_toc_heading(raw) or len(raw) > 40 or "。" in raw:
-            continue
-        entries.append(el)
+    entries = _toc_entry_elements(doc, block, brief)
     if not entries:
-        return 0
-    cursor = block[-1].getnext()
-    pairs: list[tuple] = []
-    for ent in entries:
-        keys = _title_keys(_compact_el(ent))
-        found = None
-        el = cursor
-        while el is not None:
-            if el.tag == qn("w:p") and _toc_heading_hit(_compact_el(el), keys):
-                found = el
-                break
-            el = el.getnext()
-        if found is None:
-            continue
-        pairs.append((ent, found))
-        cursor = found.getnext()
-    if not pairs:
         return 0
     from docx.text.paragraph import Paragraph
 
-    from api.services.tenders.document import _bookmark_paragraph, _estimate_bookmark_pages
+    from api.services.tenders.document import (
+        _bookmark_paragraph, _estimate_bookmark_pages, _pageref_bookmark, _subset_bookmarks,
+    )
+    from api.services.tenders.outline import toc_title_key
+    from api.services.tenders.schema import OutlineItem
 
-    for i, (toc_el, body_el) in enumerate(pairs):
-        _bookmark_paragraph(Paragraph(body_el, doc), f"toc_fmt_{i:02d}")
-        _mark_outline(body_el, _toc_entry_level(_compact_el(toc_el)))
+    cursor = block[-1].getnext()
+    existing_anchors = {}
+    if preserve_existing:
+        # 表格目录已由修复器落位后，重复归一化应复用其正文锚点，
+        # 避免用文本扫描覆盖已修好的 PAGEREF 并再造一份书签。
+        host = cursor
+        while host is not None:
+            if host.tag == qn("w:p"):
+                for mark in host.iter(qn("w:bookmarkStart")):
+                    existing_anchors[mark.get(qn("w:name"))] = host
+            host = host.getnext()
+    pairs: list[tuple] = []
+    for ent in entries:
+        title = Paragraph(ent, doc).text.split("\t", 1)[0].strip()
+        title = re.sub(r"[.．·…]{3,}\s*\d*$", "", title).strip()
+        keys = _title_keys(title)
+        found = None
+        if preserve_existing:
+            found = existing_anchors.get(_pageref_bookmark(Paragraph(ent, doc)))
+        el = cursor if found is None else None
+        while el is not None:
+            # 原版格式章的标题常带制表位/自动编号，不能因为有 w:tab 就跳过正文锚点。
+            if (el.tag == qn("w:p") and "PAGEREF" not in el.xml
+                    and _toc_heading_hit(_compact_el(el), keys)):
+                found = el
+                break
+            el = el.getnext()
+        source = next((item for item in getattr(brief, "outlineItems", [])
+                       if not item.skipped and toc_title_key(item.title) == toc_title_key(title)), None)
+        pairs.append((ent, found, source or OutlineItem(id=f"fmt_{len(pairs):02d}", title=title)))
+        if found is not None:
+            cursor = found.getnext()
+    allocated = _subset_bookmarks(doc, [item for _ent, _body, item in pairs])
+    bookmarks = []
+    for (toc_el, body_el, _item), allocated_name in zip(pairs, allocated, strict=True):
+        old = _pageref_bookmark(Paragraph(toc_el, doc))
+        names = {n.get(qn("w:name")) for n in body_el.iter(qn("w:bookmarkStart"))} if body_el is not None else set()
+        bookmark = old if old in names else allocated_name
+        bookmarks.append(bookmark)
+        if body_el is not None:
+            if bookmark not in names:
+                _bookmark_paragraph(Paragraph(body_el, doc), bookmark)
+            _mark_outline(body_el, _toc_entry_level(_compact_el(toc_el)))
     pages = _estimate_bookmark_pages(doc)
-    first = pages.get("toc_fmt_00") or 0
-    if first < 1:
-        return 0
+    first = next((pages[bm] for bm in bookmarks if bm in pages), 0)
     tab = _toc_tab_pos(doc)
     written: list = []
-    for i, (toc_el, _body_el) in enumerate(pairs):
-        abs_page = pages.get(f"toc_fmt_{i:02d}") or 0
-        if abs_page < 1:
-            continue
-        _set_toc_field(doc, toc_el, f"toc_fmt_{i:02d}", str(abs_page - first + 1), tab)
-        written.append(toc_el)
-    if written:
-        _wrap_toc_field(written)
+    for (toc_el, _body_el, _item), bookmark in zip(pairs, bookmarks, strict=True):
+        abs_page = pages.get(bookmark) or 0
+        cache = str(abs_page - first + 1) if abs_page and first else "待更新"
+        _set_toc_field(doc, toc_el, bookmark, cache, tab)
+        if not abs_page:
+            # 未定位域锁定占位，防止 Word 更新域时显示“未定义书签”。
+            begins = [n for n in toc_el.iter(qn("w:fldChar")) if n.get(qn("w:fldCharType")) == "begin"]
+            begins[-1].set(qn("w:fldLock"), "true")
+        else:
+            written.append(toc_el)
+    _wrap_toc_field([ent for ent, _body, _item in pairs])
     return len(written)
 
 
@@ -2347,6 +2866,11 @@ def _set_plain_page(el, num: str, pos: str = "8500") -> None:
 def _strip_toc_page_tail(el) -> None:
     _drop_pageref_fields(el)
     runs = [c for c in list(el) if c.tag == qn("w:r")]
+    outer_ends = []
+    while runs and any(n.get(qn('w:fldCharType')) == 'end'
+                       for n in runs[-1].iter(qn('w:fldChar'))):
+        outer_ends.insert(0, runs.pop())
+        el.remove(outer_ends[0])
     while runs:
         text = "".join(t.text or "" for t in runs[-1].iter(qn("w:t")))
         has_tab = runs[-1].find(qn("w:tab")) is not None
@@ -2357,6 +2881,8 @@ def _strip_toc_page_tail(el) -> None:
             runs.pop()
             continue
         break
+    for run in outer_ends:
+        el.append(run)
 
 
 def _set_toc_field(doc: Document, el, bookmark: str, num: str, pos: str) -> None:
@@ -2366,6 +2892,19 @@ def _set_toc_field(doc: Document, el, bookmark: str, num: str, pos: str) -> None
     from api.services.tenders.document import _add_pageref_run, _no_underline, _set_dot_leader_font
 
     _strip_toc_page_tail(el)
+    # The outer TOC ends after its last PAGEREF result, including on repeated
+    # calls. Leaving this end before the new page field breaks the field nesting.
+    outer_ends = []
+    for run in reversed(list(el)):
+        if run.tag != qn('w:r') or not any(n.get(qn('w:fldCharType')) == 'end'
+                                          for n in run.iter(qn('w:fldChar'))):
+            break
+        outer_ends.insert(0, run)
+        el.remove(run)
+    # 原生目录的 Tab 可能藏在超链接中，不能再叠加第二个页码制表符。
+    for old in list(el.iter(qn("w:tab"))):
+        if old.getparent().tag == qn("w:r"):
+            old.getparent().remove(old)
     level = _outline_level(el) or _toc_entry_level(_el_text(el))
     ppr = el.find(qn("w:pPr"))
     if ppr is None:
@@ -2397,6 +2936,8 @@ def _set_toc_field(doc: Document, el, bookmark: str, num: str, pos: str) -> None
     _no_underline(tab_run)
     tab_run.add_tab()
     _add_pageref_run(para, bookmark, num)
+    for run in outer_ends:
+        el.append(run)
 
 
 def _wrap_toc_field(entries: list) -> None:
@@ -2542,6 +3083,8 @@ def _separate_toc_page(doc: Document) -> None:
             break
     if start is None:
         return
+    from api.services.tenders.native_format import _cover_signoff
+
     toc_lines: list[str] = []
     boundary = None
     for el in children[start + 1 :]:
@@ -2554,6 +3097,8 @@ def _separate_toc_page(doc: Document) -> None:
             continue
         text = _compact_el(el)
         if not text:
+            continue
+        if _cover_signoff(text):
             continue
         if len(text) > 40 or "。" in text:
             prev = _prev_text_para(el)
@@ -2597,11 +3142,30 @@ def _strip_toc_no(text: str) -> str:
 
 
 def _repeats_toc(text: str, toc_lines: list[str]) -> bool:
+    from api.services.tenders.outline import toc_title_key
+
     own = _strip_toc_no(text)
+    own_key = toc_title_key(text)
     for prev in toc_lines:
         core = _strip_toc_no(prev)
         if text == prev or text == core or own == core or (len(text) >= 2 and text in core):
             return True
+        # 「资格资信」和正文「资格、资信」是同一条
+        if own_key and own_key == toc_title_key(prev):
+            return True
+    return False
+
+
+def _next_repeats_toc(el, lines: list[str]) -> bool:
+    nxt = el.getnext()
+    while nxt is not None:
+        if nxt.tag == qn("w:tbl"):
+            return False
+        if nxt.tag == qn("w:p"):
+            text = _compact_el(nxt)
+            if text:
+                return _repeats_toc(text, lines)
+        nxt = nxt.getnext()
     return False
 
 
@@ -2629,7 +3193,16 @@ def _next_is_body(el) -> bool:
     return False
 
 
-_HINTS = ("（项目名称）", "(项目名称)", "（招标人名称）", "（投标人名称）", "（采购人名称）")
+_HINTS = (
+    "（项目名称）", "(项目名称)", "（招标人名称）", "（投标人名称）", "（采购人名称）",
+    "（法定代表人姓名）", "(法定代表人姓名)",
+    "（委托代理人姓名）", "(委托代理人姓名)",
+    "（代理人姓名）", "(代理人姓名)",
+    "（姓名）", "(姓名)",
+    "（身份证号）", "(身份证号)",
+    "（证件号码）", "(证件号码)",
+    "____年____月____日", "年　月　日",
+)
 
 
 _NOTE_LEAD = re.compile(r"^(备注|注)[：:]")
@@ -2868,6 +3441,8 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
         _settle_table_note(tbl)
     for el in doc.element.body.iter(qn("w:p")):
+        _fill_date_placeholders(el, brief)
+        _fill_mixed_hints(el, brief)
         _fill_hints(el, brief)
         _swap_tokens(el, brief)
         _fill_para_blanks(el, brief)
@@ -2883,43 +3458,185 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
     return notes
 
 
-def _hint_value(hint: str, brief) -> str:
+def _date_value(brief) -> str:
+    from api.services.tenders.document import _ymd
+
+    year, month, day = _ymd(getattr(brief, "bidDate", "") or "")
+    if not (year or month or day):
+        return ""
+    return f"{year}年{month}月{day}日"
+
+
+def _hint_value(hint: str, brief, *, before: str = "", after: str = "") -> str:
     if "项目名称" in hint:
         return (brief.projectName or "").strip()
     if "投标人" in hint:
         return (brief.bidderName or "").strip()
+    if "招标人" in hint or "采购人" in hint:
+        return (brief.tenderer or "").strip()
+    if "年" in hint and "月" in hint and "日" in hint:
+        return _date_value(brief)
+
+    tail = f"{before} {after}"
+    # 授权委托书里两处「（姓名）」：前者法定代表人，后者代理人。
+    # 先看提示语本身，再看「现委托」在前还是「法定代表人」在前。
+    if any(mark in hint for mark in ("委托代理人", "代理人")):
+        return (getattr(brief, "agentName", "") or "").strip() or (
+            getattr(brief, "legalPersonName", "") or ""
+        ).strip()
+    if "法定代表人" in hint:
+        return (getattr(brief, "legalPersonName", "") or "").strip()
+
+    head = before[-24:]
+    rest = after[:48]
+    if "身份证" in hint or "证件号" in hint:
+        if "代理" in tail and "法定代表人" not in tail:
+            return (getattr(brief, "agentIdNo", "") or "").strip()
+        if head.endswith(("身份证号码：", "委托代理人身份证号码：")) or "代理" in head:
+            return (getattr(brief, "agentIdNo", "") or "").strip()
+        return (getattr(brief, "legalPersonIdNo", "") or "").strip()
+
+    if "姓名" in hint:
+        # 「现委托 XXX（姓名）为我方代理人」把第二个（姓名）判给代理人。
+        if "现委托" in head or head.endswith(("委托", "委托的")):
+            return (getattr(brief, "agentName", "") or "").strip() or (
+                getattr(brief, "legalPersonName", "") or ""
+            ).strip()
+        if "现委托" in rest:
+            # 第一处（姓名）在「现委托」之前，仍属法定代表人。
+            pass
+        elif "代理人" in rest[:16] or "为我方" in rest[:16]:
+            return (getattr(brief, "agentName", "") or "").strip() or (
+                getattr(brief, "legalPersonName", "") or ""
+            ).strip()
+        return (getattr(brief, "legalPersonName", "") or "").strip()
     return (brief.tenderer or "").strip()
 
 
 def _fill_hints(el, brief) -> None:
-    blob = _el_text(el)
     for hint in _HINTS:
-        if hint not in blob:
-            continue
-        value = _hint_value(hint, brief)
-        if not value:
+        blob = _el_text(el)
+        positions: list[int] = []
+        start = 0
+        while True:
+            pos = blob.find(hint, start)
+            if pos < 0:
+                break
+            positions.append(pos)
+            start = pos + len(hint)
+        if not positions:
             continue
         runs = [r for r in el.iter(qn("w:r"))]
-        walked = 0
-        start_run = 0
-        pos = blob.find(hint)
-        for i, run in enumerate(runs):
-            n = len(_run_text(run))
-            if walked + n > pos:
-                start_run = i
-                break
-            walked += n
-        placed = False
-        for prev in reversed(runs[:start_run]):
-            if _run_under(prev) and not re.sub(r"[\s_＿　]", "", _run_text(prev)):
-                _seat_run(prev, value)
-                placed = True
-                break
-        if not placed:
-            _replace_span(el, hint, value)
+        for pos in reversed(positions):
+            blob = _el_text(el)
+            # 重新定位该提示语在当前文本中的位置（前序替换可能改变长度）。
+            # 从后往前处理，位置保持稳定。
+            value = _hint_value(
+                hint,
+                brief,
+                before=blob[max(0, pos - 40) : pos],
+                after=blob[pos + len(hint) : pos + len(hint) + 40],
+            )
+            if not value:
+                continue
+            walked = 0
+            start_run = 0
+            for i, run in enumerate(runs):
+                n = len(_run_text(run))
+                if walked + n > pos:
+                    start_run = i
+                    break
+                walked += n
+            placed = False
+            for prev in reversed(runs[:start_run]):
+                if _run_under(prev) and not re.sub(r"[\s_＿　]", "", _run_text(prev)):
+                    _seat_run(prev, value)
+                    placed = True
+                    break
+            if placed:
+                _replace_span(el, hint, "")
+                if placed:
+                    _drop_blank_tab(prev)
+            else:
+                _replace_span_at(el, pos, pos + len(hint), value)
+
+
+_DATE_PLACEHOLDER = re.compile(
+    r"[_＿]{2,}\s*年\s*[_＿]{2,}\s*月\s*[_＿]{2,}\s*日"
+    r"|[_＿\s　]*年[　 \t]*月[　 \t]*日"
+    r"|[　 \t]*年[　 \t]*月[　 \t]*日"
+)
+
+_MIXED_HINTS = (
+    "法定代表人姓名", "委托代理人姓名", "代理人姓名", "身份证号", "证件号码", "姓名",
+)
+
+
+def _mixed_hint_re():
+    hints = "|".join(re.escape(f"（{name}）") + "|" + re.escape(f"({name})")
+                     for name in _MIXED_HINTS)
+    return re.compile(r"(?:[_＿]{2,}\s*)?(" + hints + r")(?:\s*[_＿]{2,})?")
+
+
+def _fill_date_placeholders(el, brief) -> None:
+    value = _date_value(brief)
+    if not value:
+        return
+    blob = _el_text(el)
+    for match in reversed(list(_DATE_PLACEHOLDER.finditer(blob))):
+        raw = match.group(0)
+        if not re.search(r"[_＿]{2,}|年\s*月\s*日", raw):
             continue
-        _replace_span(el, hint, "")
-        _drop_blank_tab(prev)
+        # 「自投标截止之日起 N 日历天」这类不是日期占位。
+        if "日起" in raw or "之日起" in blob[max(0, match.start() - 6) : match.start()]:
+            continue
+        _replace_span_at(el, match.start(), match.end(), value)
+
+
+def _fill_mixed_hints(el, brief) -> None:
+    """下划线+括号混排占位（____（姓名）____）整体替换成实际值。"""
+    pattern = _mixed_hint_re()
+    blob = _el_text(el)
+    matches = list(pattern.finditer(blob))
+    if not matches:
+        return
+    for match in reversed(matches):
+        raw = match.group(0)
+        if not (raw.startswith(("_", "＿")) or raw.rstrip().endswith(("_", "＿"))):
+            # 两头都没有下划线的裸括号提示留给 _fill_hints 处理。
+            continue
+        hint = match.group(1)
+        pos = match.start(1)
+        value = _hint_value(
+            hint,
+            brief,
+            before=blob[max(0, pos - 40) : pos],
+            after=blob[pos + len(hint) : pos + len(hint) + 40],
+        )
+        if not value:
+            continue
+        _replace_span_at(el, match.start(), match.end(), value)
+
+
+def _replace_span_at(el, start: int, end: int, value: str) -> None:
+    """按整段位置替换提示语，提示语可能拆在相邻的几个 w:t 里。"""
+    nodes = [t for t in el.iter(qn("w:t")) if t.text]
+    walked = 0
+    first = True
+    for node in nodes:
+        text = node.text or ""
+        n = len(text)
+        a, b = walked, walked + n
+        walked = b
+        if b <= start or a >= end:
+            continue
+        left = text[: max(0, start - a)]
+        right = text[max(0, end - a) :]
+        if first:
+            node.text = left + value + right
+            first = False
+        else:
+            node.text = left + right
 
 
 def _replace_span(el, hint: str, value: str) -> None:
@@ -3070,15 +3787,31 @@ def _fill_para_blanks(el, brief) -> None:
 def _fill_label_gap(el, brief) -> None:
     """整段只有标签时，把值接在标签后面，不改别的行。"""
     blob = re.sub(r"\s+", "", _el_text(el))
-    if "年" in blob and "月" in blob:
+    if "年" in blob and "月" in blob and "日" in blob:
         return
-    pairs = (
+    pairs = [
         ("招标编号：", (getattr(brief, "tenderNo", "") or "").strip()),
         ("招标编号:", (getattr(brief, "tenderNo", "") or "").strip()),
         ("投标人或联合体牵头人：", (brief.bidderName or "").strip()),
         ("投标人或联合体牵头人:", (brief.bidderName or "").strip()),
         ("投标人或联合体牵头人：（盖单位章）", (brief.bidderName or "").strip()),
-    )
+        ("投标人名称：", (brief.bidderName or "").strip()),
+        ("投标人名称:", (brief.bidderName or "").strip()),
+        ("投标人：", (brief.bidderName or "").strip()),
+        ("投标人:", (brief.bidderName or "").strip()),
+        ("项目名称：", (brief.projectName or "").strip()),
+        ("项目名称:", (brief.projectName or "").strip()),
+        ("姓名：", (getattr(brief, "legalPersonName", "") or "").strip()),
+        ("姓名:", (getattr(brief, "legalPersonName", "") or "").strip()),
+        ("法定代表人：", (getattr(brief, "legalPersonName", "") or "").strip()),
+        ("法定代表人:", (getattr(brief, "legalPersonName", "") or "").strip()),
+        ("委托代理人：", (getattr(brief, "agentName", "") or "").strip() or (getattr(brief, "legalPersonName", "") or "").strip()),
+        ("委托代理人:", (getattr(brief, "agentName", "") or "").strip() or (getattr(brief, "legalPersonName", "") or "").strip()),
+    ]
+    date_val = _date_value(brief)
+    if date_val:
+        pairs.append(("日期：", date_val))
+        pairs.append(("日期:", date_val))
     for label, value in pairs:
         if not value or value in blob or blob != label:
             continue
@@ -3219,10 +3952,125 @@ def _dash_after(doc: Document, para, key: str, title: str) -> None:
     draw_placeholder_box(doc, PlaceholderItem(key=key, title=title or "待补资料"), after=para)
 
 
-def _attach_library(doc: Document, brief, media: dict | None) -> list[str]:
-    """只认「附：法定代表人身份证」这种写明要贴的位置。其它附件看 attachToSection。"""
-    id_note = _paste_id_pages(doc, brief, media)
-    return [id_note] if id_note else []
+def _box_keys(text: str) -> list[str]:
+    n = re.sub(r"\s+", "", text or "")
+    if "身份证" in n:
+        return []
+    cue = "此处粘贴" in n or "在此粘贴" in n
+    short = "。" not in n and len(n) <= 36 and any(w in n for w in ("复印件", "扫描件", "粘贴处"))
+    if not cue and not short:
+        return []
+    keys = []
+    if "营业执照" in n:
+        keys.append("license")
+    if any(word in n for word in ("纳税", "完税", "税收", "财务", "审计")):
+        keys.append("finance")
+    if "社保" in n or "社会保障" in n:
+        keys.append("social")
+    return keys
+
+
+def _box_label(key: str, text: str) -> str:
+    if key == "license":
+        return "营业执照"
+    if key == "social":
+        return "社保证明"
+    if any(word in text for word in ("纳税", "完税", "税收")):
+        return "纳税证明"
+    return "财务审计报告"
+
+
+def _strip_paste_holder(para) -> None:
+    el = para._p if hasattr(para, "_p") else para
+    for node in el.iter(qn("w:t")):
+        raw = node.text or ""
+        raw = raw.replace("（在此粘贴扫描件）", "").replace("(在此粘贴扫描件)", "")
+        raw = raw.replace("在此粘贴扫描件", "")
+        node.text = raw
+
+
+def _frame_pics(nodes) -> None:
+    for el in nodes:
+        if el.tag != qn("w:p"):
+            continue
+        drawing = next(el.iter(qn("w:drawing")), None)
+        if drawing is None:
+            drawing = next(el.iter(qn("w:pict")), None)
+        if drawing is None:
+            continue
+        p_pr = el.find(qn("w:pPr"))
+        if p_pr is None:
+            p_pr = OxmlElement("w:pPr")
+            el.insert(0, p_pr)
+        if p_pr.find(qn("w:pBdr")) is not None:
+            continue
+        borders = OxmlElement("w:pBdr")
+        for edge in ("top", "left", "bottom", "right"):
+            border = OxmlElement("w:" + edge)
+            border.set(qn("w:val"), "single")
+            border.set(qn("w:sz"), "8")
+            border.set(qn("w:space"), "6")
+            border.set(qn("w:color"), "000000")
+            borders.append(border)
+        p_pr.append(borders)
+
+
+def _paste_scan_boxes(doc: Document, media: dict | None) -> list[str]:
+    toc_els = toc_block_ids(doc)
+    notes: list[str] = []
+
+    def _files_for(key: str) -> list[Path]:
+        return [
+            p
+            for p in ((media or {}).get(key) or [])
+            if getattr(p, "is_file", lambda: False)()
+        ][:2]
+
+    for el in list(doc.element.body.iter(qn("w:p"))):
+        if el in toc_els:
+            continue
+        text = "".join(node.text or "" for node in el.iter(qn("w:t")))
+        keys = _box_keys(text)
+        if not keys:
+            continue
+        pasted = False
+        for key in keys:
+            label = _box_label(key, text)
+            files = _files_for(key)
+            if not files:
+                notes.append(f"缺{label}，已保留原占位")
+                continue
+            if not _embed_in_place(doc, el, files, pair=False):
+                notes.append(f"缺{label}，已保留原占位")
+                continue
+            pasted = True
+            notes.append(f"已贴上{label}扫描件")
+        if pasted:
+            _strip_paste_holder(el)
+    return notes
+
+
+def _attach_library(
+    doc: Document, brief, media: dict | None, *, slots=None, handled=None, global_pasted: set[str] | None = None
+) -> list[str]:
+    """附加资料库扫描件，支持全局去重。
+
+    Args:
+        doc: Word 文档对象
+        brief: 投标摘要信息
+        media: 资料库文件字典
+        slots: 占位项列表
+        handled: 已处理的资料键集合
+        global_pasted: 全局已贴集合，跨所有贴图函数共享
+    """
+    from api.services.tenders.scan_placement import place_library_scans
+
+    notes, placed = place_library_scans(doc, brief, media, slots, global_pasted=global_pasted)
+    if handled is not None:
+        handled.update(placed)
+    if global_pasted is not None:
+        global_pasted.update(placed)
+    return notes
 
 
 _QUOTE_COLS = (

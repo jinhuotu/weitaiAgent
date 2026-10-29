@@ -3,9 +3,45 @@
 读取优先级：进程环境变量 > 仓库根目录 .env > 本文件默认值。
 """
 
+import socket
 from functools import lru_cache
+from ipaddress import AddressValueError, IPv4Address
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _lan_ipv4() -> str | None:
+    """Prefer the current outbound LAN interface, then local IPv4 interfaces."""
+    candidates: list[str] = []
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # UDP connect chooses an interface without sending data to this address.
+            sock.connect(("8.8.8.8", 80))
+            candidates.append(sock.getsockname()[0])
+    except OSError:
+        pass
+    try:
+        candidates.extend(
+            address[4][0]
+            for address in socket.getaddrinfo(
+                socket.gethostname(), None, family=socket.AF_INET, type=socket.SOCK_DGRAM
+            )
+        )
+    except OSError:
+        pass
+    for candidate in candidates:
+        try:
+            ip = IPv4Address(candidate)
+        except (AddressValueError, ValueError):
+            continue
+        if ip.is_private and not (ip.is_loopback or ip.is_link_local or ip.is_unspecified):
+            return str(ip)
+    return None
+
+
+def _default_onlyoffice_document_server_url() -> str:
+    return f"http://{_lan_ipv4() or '127.0.0.1'}:8082"
 
 
 class Settings(BaseSettings):
@@ -150,8 +186,10 @@ class Settings(BaseSettings):
     tender_preview_converter: str = "auto"
 
     # ---- OnlyOffice 在线 Word ----
-    # 浏览器加载 Document Server 的 api.js；容器内需能访问 onlyoffice_public_api_base
-    onlyoffice_document_server_url: str = "http://127.0.0.1:8082"
+    # 浏览器加载 api.js：显式环境变量优先，否则使用当前局域网 IP；探测失败时单机回环兜底。
+    onlyoffice_document_server_url: str = Field(
+        default_factory=_default_onlyoffice_document_server_url
+    )
     onlyoffice_jwt_secret: str = "onlyoffice-dev-secret-change-me"
     # 文档服务拉取 docx / 回调保存用的 API 根（Windows/Mac Docker 默认 host.docker.internal）
     onlyoffice_public_api_base: str = "http://host.docker.internal:8100"

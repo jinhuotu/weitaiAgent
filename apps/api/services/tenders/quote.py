@@ -62,6 +62,7 @@ class QuoteSheet:
     source_inc_tax: Decimal
     headers: tuple[str, ...] = ()
     roles: tuple[str, ...] = ()
+    source_projects: tuple[str, ...] = ()
 
 
 def _qty(value: object) -> Decimal:
@@ -239,6 +240,17 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
             break
     if not lines:
         return None
+    projects = []
+    for row in normalized_rows[:header_i]:
+        for col, value in enumerate(row):
+            label = _cell_text(value)
+            match = re.search(r'(?:项目名称|工程名称)\s*[:：]\s*(.+)', label)
+            if match:
+                projects.append(match.group(1).strip())
+            elif re.fullmatch(r'(?:项目名称|工程名称)\s*[:：]?', label) and col + 1 < len(row):
+                name = _cell_text(row[col + 1])
+                if name:
+                    projects.append(name)
     if total_ex <= 0:
         total_ex = sum((ln.amount for ln in lines), Decimal("0"))
     if tax_rate <= 0:
@@ -255,6 +267,7 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
         source_inc_tax=total_inc,
         headers=layout.titles,
         roles=layout.roles,
+        source_projects=tuple(projects),
     )
 
 
@@ -374,6 +387,7 @@ def sheet_from_quote_records(rows: list) -> QuoteSheet | None:
         source_inc_tax=total_inc,
         headers=("序号", "名称", "规格型号", "单位", "数量", "不含税单价（元）", "合价"),
         roles=("seq", "name", "spec", "unit", "qty", "price", "amount"),
+        source_projects=tuple(titles),
     )
 
 
@@ -425,19 +439,91 @@ def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
         source_inc_tax=total_inc,
         headers=tuple(h for h in (brief.quoteHeaders or []) if str(h).strip()),
         roles=tuple(brief.quoteRoles or ()),
+        source_projects=tuple(brief.quoteSourceProjects),
     )
+
+
+def _match_sheet(brief: BidBrief, sheet: QuoteSheet | None, *, source: str, source_name: str):
+    from api.services.tenders.source_match import match_source, require_source_match
+
+    result = match_source(
+        brief, title=sheet.title if sheet is not None else brief.quoteTitle,
+        headers=sheet.headers if sheet is not None else brief.quoteHeaders,
+        projects=sheet.source_projects if sheet is not None else brief.quoteSourceProjects,
+        source_name=source_name,
+        rows=((ln.name, '\n'.join((ln.spec, *ln.groups, ln.unit)))
+              for ln in (sheet.lines if sheet is not None else brief.quoteLines)),
+    )
+    return require_source_match(result) if source in {'file', 'record'} else result
+
+
+def _reject_sheet(brief: BidBrief, reason: str) -> None:
+    if brief.quoteAutoPrice and float(brief.bidPriceYuan or 0) == float(brief.quoteSourceIncTax):
+        brief.bidPriceYuan = 0
+    brief.quoteSourceTitle = brief.quoteSourceTitle or brief.quoteTitle
+    brief.quoteLines = []
+    brief.quoteTitle = ''
+    brief.quoteHeaders = []
+    brief.quoteRoles = []
+    brief.quoteSourceIncTax = 0
+    brief.quoteAutoPrice = False
+    brief.quoteMatchStatus = 'unmatched'
+    brief.quoteMatchNote = reason
+
+
+def quote_source_notes(brief: BidBrief) -> list[str]:
+    if not brief.quoteMatchStatus:
+        return []
+    label = brief.quoteSourceName or brief.quoteSourceTitle or '当前表单分项'
+    status = {'matched': '已匹配', 'unmatched': '未匹配', 'unverified': '待核验'}
+    note = f'报价清单来源：{label}；{status.get(brief.quoteMatchStatus, "待核验")}'
+    if brief.quoteMatchStatus == 'unmatched':
+        note += '。清单与本次标书不匹配，未采用；生成时不填写报价分项'
+    if brief.quoteMatchNote:
+        note += '（' + brief.quoteMatchNote + '）'
+    return [note]
 
 
 def resolve_quote_sheet(brief: BidBrief, template_path: Path | None = None) -> tuple[QuoteSheet | None, str]:
     del template_path
+    # Validate raw rows first: zero-quantity/price rows are filtered by the
+    # table parser but can still influence other modules or model queries.
+    if brief.quoteLines:
+        result = _match_sheet(brief, None, source=brief.quoteSource,
+                              source_name=brief.quoteSourceName)
+        brief.quoteMatchStatus = result.status
+        brief.quoteMatchNote = result.reason
+        if result.status == 'unmatched':
+            _reject_sheet(brief, result.reason)
+            return None, 'template'
     custom = sheet_from_brief(brief)
     if custom is not None:
         return custom, (brief.quoteSource or "form")
+    if brief.quoteMatchStatus == 'unmatched':
+        return None, 'template'
     return None, "none"
 
 
-def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief:
+def validate_quote_source(brief: BidBrief) -> list[str]:
+    """Recheck mutable/legacy form data before any module or LLM can consume it."""
+    resolve_quote_sheet(brief)
+    return quote_source_notes(brief)
+
+
+def attach_sheet(
+    brief: BidBrief, sheet: QuoteSheet, *, source: str, source_name: str = '',
+) -> BidBrief:
     data = brief.model_dump()
+    data['quoteAutoPrice'] = (brief.quoteAutoPrice
+                              and float(brief.bidPriceYuan or 0) == float(brief.quoteSourceIncTax))
+    data.update(quoteSource=source, quoteSourceName=source_name,
+                quoteSourceTitle=sheet.title, quoteSourceProjects=list(sheet.source_projects))
+    result = _match_sheet(brief, sheet, source=source, source_name=source_name)
+    data.update(quoteMatchStatus=result.status, quoteMatchNote=result.reason)
+    if result.status == 'unmatched':
+        rejected = BidBrief.model_validate(data)
+        _reject_sheet(rejected, result.reason)
+        return rejected
     data["quoteLines"] = [
         {
             "seq": ln.seq,
@@ -460,6 +546,7 @@ def attach_sheet(brief: BidBrief, sheet: QuoteSheet, *, source: str) -> BidBrief
         data["quoteRoles"] = list(sheet.roles)
     if float(data.get("bidPriceYuan") or 0) <= 0 and sheet.total_inc_tax > 0:
         data["bidPriceYuan"] = float(sheet.total_inc_tax)
+        data['quoteAutoPrice'] = True
     return BidBrief.model_validate(data)
 
 
@@ -620,10 +707,16 @@ def _parse_docx(path: Path) -> QuoteSheet | None:
     from docx import Document
 
     doc = Document(str(path))
+    title = next((p.text.strip() for p in doc.paragraphs[:20]
+                  if p.text.strip() and re.search(r'项目|采购|报价|清单', p.text)), '')
+    projects = tuple(re.findall(r'(?:项目名称|工程名称)\s*[:：]\s*([^\n；;]{2,120})',
+                                '\n'.join(p.text for p in doc.paragraphs[:20])))
     best: QuoteSheet | None = None
     for table in doc.tables:
         rows = [[c.text for c in row.cells] for row in table.rows]
-        sheet = sheet_from_rows(rows)
+        sheet = sheet_from_rows(rows, title_hint=title)
+        if sheet is not None:
+            sheet = replace(sheet, source_projects=tuple(dict.fromkeys((*projects, *sheet.source_projects))))
         if sheet is not None and (best is None or len(sheet.lines) > len(best.lines)):
             best = sheet
     return best

@@ -1100,6 +1100,41 @@ async def resolve_attachments(
         # 缺件就空着，绝不拿身份证/信用中国等其他槽位文件顶替
         if paths:
             out[key] = paths
+    # 同名资料若建了自定义 key（营业执照挂在 mxxxx），标准项空着时借过来
+    known = {item.key for item in DEFAULT_SLOTS}
+    by_title: dict[str, list[Path]] = {}
+    for key, parent in parents.items():
+        if key in known:
+            continue
+        paths = _files_of(parent, children.get(parent.public_id, []))
+        title = re.sub(r"\s+", "", parent.name or "")
+        if paths and title:
+            by_title.setdefault(title, paths)
+    for item in slots:
+        key = (item.key or "").strip()
+        if not key or out.get(key):
+            continue
+        title = re.sub(r"\s+", "", item.title or "")
+        borrowed = by_title.get(title) or []
+        if borrowed:
+            out[key] = borrowed
+    from api.services.tenders.material_identity import material_key_aliases, unique_material_files
+
+    aliases = material_key_aliases(slots, preferred_keys=known)
+    groups: dict[str, list[str]] = {}
+    for key, canonical in aliases.items():
+        groups.setdefault(canonical, []).append(key)
+    hashes = {}
+    for canonical, keys in groups.items():
+        ordered = [canonical, *(key for key in keys if key != canonical)]
+        paths = unique_material_files(
+            (path for key in ordered for path in out.get(key, [])), cache=hashes
+        )
+        if paths:
+            # Keep alias lookups valid for required-material checks, but give
+            # them the same canonical file set instead of independent copies.
+            for key in keys:
+                out[key] = paths
     return out
 
 

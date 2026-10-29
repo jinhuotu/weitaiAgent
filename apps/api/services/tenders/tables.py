@@ -46,6 +46,7 @@ _WIDTH = {
     "requirement": 36,
     "response": 36,
     "deviation": 12,
+    "explanation": 14,
     "extra": 14,
     "skip": 10,
 }
@@ -142,6 +143,8 @@ def dev_role(cell: object) -> str | None:
         return None
     if n in {"序号", "编号", "no"} or n.startswith("序号"):
         return "seq"
+    if n in {"说明", "备注", "响应说明"}:
+        return "explanation"
     if any(k in n for k in ("偏差说明", "偏离说明", "偏离情况", "偏差情况")):
         return "deviation"
     if n in {"偏差", "偏离"} or n.endswith("偏差") or n.endswith("偏离"):

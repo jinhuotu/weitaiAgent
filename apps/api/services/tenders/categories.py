@@ -224,6 +224,30 @@ def technical_soft_issues(
         issues.append(f"技术标：{len(empty_chaps)} 章尚未起草（{empty_chaps[0]}）")
     elif not tech_plan_text(brief):
         issues.append("技术标：技术方案尚未起草")
+    if getattr(brief, "autoDraftTechPlan", False):
+        body = "\n".join((item.draftBody or "") for item in tech_outline_items(brief))
+        from api.services.tenders.gen_tech_plan import _technical_requirements
+
+        from api.services.tenders.assets import load_invitation_text
+
+        reqs = _technical_requirements(brief, load_invitation_text(brief.invitationId))
+        covered = {"".join((line.requirement or "").split()) for line in brief.deviationLines}
+        missing = [r.text for r in reqs if "".join(r.text.split()) not in covered]
+        if missing:
+            issues.append(f"技术标：{len(missing)} 条技术要求未列入偏离表（{missing[0][:32]}）")
+        titles_with_body = {item.title for item in tech_outline_items(brief) if (item.draftBody or "").strip()}
+        score_gaps = [r.text for r in reqs if r.category == "scoring" and r.targetTitle
+                      and r.targetTitle not in titles_with_body]
+        if score_gaps:
+            issues.append(f"技术标：{len(score_gaps)} 个评分点对应章节正文仍为空（{score_gaps[0][:32]}）")
+        unlocated = [line.requirement for line in brief.deviationLines
+                     if "章节位置【待补充】" in (line.response or "")]
+        if unlocated:
+            issues.append(f"技术标：{len(unlocated)} 条技术偏离尚未定位正文章节")
+        if brief.projectName and brief.projectName not in body:
+            issues.append("技术标：正文未引用本项目名称，请核对项目事实")
+        if "【待补充】" in body:
+            issues.append(f"技术标：正文有 {body.count('【待补充】')} 处事实待补充")
     drawing_files = media.get(TECH_DRAWING_KEY) or [] if isinstance(media, dict) else []
     if not drawing_files:
         issues.append("技术标：尚未上传本项目图纸")
@@ -251,3 +275,23 @@ def technical_soft_issues(
         if not files:
             issues.append(f"技术标：{item.title or item.key}未上传，可能扣分")
     return issues
+
+
+def business_soft_issues(brief: BidBrief) -> list[str]:
+    """Report unanswered commercial clauses without rewriting bid content."""
+    if not getattr(brief, "autoDraftBizResp", False):
+        return []
+    from api.services.tenders.assets import load_invitation_text
+    from api.services.tenders.gen_biz_resp import business_requirements, _chapter_role
+
+    requirements = business_requirements(brief, load_invitation_text(brief.invitationId))
+    covered = {"".join((row.requirement or "").split()) for row in brief.bizDeviationLines
+               if (row.response or "").strip() and "【待补充】" not in row.response
+               and (row.deviation or "").strip() != "待确认"}
+    missing = [r.text for r in requirements if "".join(r.text.split()) not in covered]
+    notes = [f"商务标：{len(missing)} 条商务要求仍待核实或响应（{missing[0][:32]}）"] if missing else []
+    roles = {_chapter_role(i) for i in brief.outlineItems if not i.skipped and (i.draftBody or "").strip()}
+    for role, label in (("offer", "商务优惠及特殊承诺"), ("commitment", "响应承诺正文")):
+        if role not in roles:
+            notes.append(f"商务标：{label}正文未生成或需人工补充")
+    return notes

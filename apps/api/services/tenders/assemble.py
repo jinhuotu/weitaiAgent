@@ -14,6 +14,8 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
+from api.services.tenders.business_draft_policy import business_draft_body
+
 from api.services.tenders.document import (
     _add_bottom_sign_spacer,
     _apply_toc_page_numbers,
@@ -37,6 +39,7 @@ from api.services.tenders.document import (
     _usable_width_twips,
     _write_toc_line,
     _subset_bookmarks,
+    _set_bookmark_outline,
 )
 from api.services.tenders.format_rules import (
     apply_footer_page_number,
@@ -241,6 +244,241 @@ def _blank_person_brief(brief: BidBrief) -> BidBrief:
     )
 
 
+def _toc_end_index(doc: Document, paragraphs) -> int:
+    """目录块最后一个段落在 paragraphs 中的下标。
+
+    生成前的格式骨架目录还没有 PAGEREF 域，部分模板的目录条目也没有
+    w:r/w:tab 内容制表符（只有 pPr 制表位），因此优先按“目录标题→正文”
+    整块识别；识别不到时再退回页码域/制表符特征。
+    """
+    from api.services.tenders.pdf_format import toc_block_ids
+
+    block = toc_block_ids(doc)
+    if block:
+        tail = block[-1]
+        index = next((n for n, p in enumerate(paragraphs) if p._p is tail), -1)
+        if index >= 0:
+            return index
+    # A legacy skeleton can omit the TOC title and have only tab-stop settings.
+    # Require both a front-page boundary and a repeated body title before treating
+    # such settings as directory evidence; real body headings also use tab stops.
+    from api.services.tenders.native_format import _key
+
+    first_break = next(
+        (n for n, p in enumerate(paragraphs) if _paragraph_has_page_break(p._p)), None
+    )
+    front_rows = []
+    if first_break is not None:
+        body_titles = {_key(p.text) for p in paragraphs[first_break + 1:] if p.text.strip()}
+        front_rows = [
+            n for n, p in enumerate(paragraphs[:first_break])
+            if p._p.find("w:pPr/w:tabs/w:tab", p._p.nsmap) is not None
+            and p.text.strip() and _key(p.text) in body_titles
+        ]
+    return max(
+        [*front_rows, *(
+            n
+            for n, p in enumerate(paragraphs)
+            if "PAGEREF" in p._p.xml or p._p.find(".//w:r/w:tab", p._p.nsmap) is not None
+        )],
+        default=-1,
+    )
+
+
+def _section_has_draft(doc, heading, brief: BidBrief, draft: str) -> bool:
+    """Do not append the same draft after a fallback module already rendered it."""
+    from api.services.tenders.native_format import _key as toc_title_key
+
+    titles = {toc_title_key(t) for item in brief.outlineItems
+              for t in (item.title, item.rawTitle) if t}
+    text = []
+    node = heading._p.getnext()
+    while node is not None:
+        content = ''.join(n.text or '' for n in node.iter(qn('w:t')))
+        if node.tag == qn('w:p') and toc_title_key(content) in titles:
+            break
+        text.append(content)
+        node = node.getnext()
+    def compact(value):
+        return re.sub(r'\s+', '', value)
+
+    return bool(draft.strip()) and compact(draft) in compact(''.join(text))
+
+
+def _fill_drafted_format_sections(
+    path: Path, brief: BidBrief, *, full_bid: bool = False,
+) -> tuple[int, list[str]]:
+    """Insert draft body only after a matching heading in a copied technical format."""
+    from api.services.tenders.native_format import _key
+
+    doc = Document(str(path))
+    paragraphs = doc.paragraphs
+    toc_end = _toc_end_index(doc, paragraphs)
+    excluded = set()
+    full_markers = set()
+    if full_bid:
+        from api.services.tenders.full_bid_sections import letter_region, missing_technical_body
+
+        excluded = letter_region(doc, brief)
+        full_markers = {node.get(qn("w:name"))
+                        for node in doc.element.iter(qn("w:bookmarkStart"))}
+    changed = False
+    inserted = 0
+    missing: list[str] = []
+    fmt = brief.documentFormat or DocumentFormat()
+    targets = []
+    for item in brief.outlineItems:
+        if item.skipped or item.kind not in _OUTLINE_DRAFT_KINDS or not (item.draftBody or "").strip():
+            continue
+        names = {_key(t) for t in (item.title, item.rawTitle) if t}
+        heading = next((p for n, p in enumerate(paragraphs) if n > toc_end
+                        and p._p not in excluded
+                        and "PAGEREF" not in p._p.xml
+                        and p._p.find(".//w:r/w:tab", p._p.nsmap) is None
+                        and _key(p.text.splitlines()[0] if p.text else "") in names), None)
+        targets.append((item, heading))
+    filled_targets = {
+        heading._p for item, heading in targets
+        if heading is not None and not missing_technical_body(item.draftBody)
+    } if full_bid else set()
+    suppressed = []
+    for item, heading in targets:
+        if heading is None:
+            missing.append(item.title)
+            continue
+        if full_bid and heading._p in filled_targets and missing_technical_body(item.draftBody):
+            suppressed.append(item.title)
+            continue
+        marker = ""
+        if full_bid:
+            from hashlib import sha256
+
+            identity = f"{item.id}\0{_key(heading.text)}\0{item.draftBody}"
+            marker = "full_draft_" + sha256(identity.encode()).hexdigest()[:24]
+            if marker in full_markers:
+                continue
+        if _section_has_draft(doc, heading, brief, item.draftBody):
+            continue
+        # The existing format owns the heading, its style and its section order.
+        staging = Document()
+        _write_body(staging, item.draftBody, fmt)
+        cursor = heading._p
+        first_added = None
+        for element in list(staging.element.body):
+            if element.tag.endswith("}sectPr"):
+                continue
+            cursor.addnext(element)
+            cursor = element
+            if first_added is None:
+                first_added = next(element.iter(qn("w:p")), None)
+            changed = True
+        if full_bid and first_added is not None:
+            from docx.text.paragraph import Paragraph
+
+            _bookmark_paragraph(Paragraph(first_added, doc), marker)
+            full_markers.add(marker)
+        inserted += 1
+    if changed:
+        doc.save(path)
+    return inserted, [
+        *(f"技术方案未找到格式章正文落位：{title}" for title in missing),
+        *(f"综合标：{title}已有对应技术正文，未追加重复的待补充提示" for title in suppressed),
+    ]
+
+
+def _fill_business_format_sections(
+    path: Path, brief: BidBrief, *, full_bid: bool = False,
+) -> tuple[int, list[str]]:
+    """Append generated responses inside matching copied-format sections."""
+    from api.services.tenders.gen_biz_resp import _chapter_role
+    from api.services.tenders.business_draft_policy import business_contexts, protected_business_titles
+    from api.services.tenders.native_format import _key
+
+    def heading_key(text):
+        return _key(text) if full_bid else re.sub(r"\s+", "", text)
+
+    doc = Document(str(path))
+    protected = protected_business_titles(brief, business_contexts(brief, doc=doc))
+    paragraphs = doc.paragraphs
+    toc_end = _toc_end_index(doc, paragraphs)
+    excluded = set()
+    if full_bid:
+        from api.services.tenders.full_bid_sections import letter_region
+
+        excluded = letter_region(doc, brief)
+    names = {heading_key(name) for item in brief.outlineItems
+             for name in (item.title, item.rawTitle) if name}
+    headings = [p for n, p in enumerate(paragraphs) if n > toc_end
+                and p._p not in excluded
+                and "PAGEREF" not in p._p.xml
+                and p._p.find(".//w:r/w:tab", p._p.nsmap) is None
+                and heading_key(p.text.splitlines()[0] if p.text else "") in names]
+    inserted = 0
+    missing = []
+    for item in brief.outlineItems:
+        if item.skipped or item.title in protected:
+            continue
+        role = _chapter_role(item)
+        if role == "deviation" and not brief.bizDeviationLines:
+            continue
+        if role not in {"deviation", "offer", "commitment"} or (role != "deviation" and not (item.draftBody or "").strip()):
+            continue
+        title_set = {heading_key(name) for name in (item.title, item.rawTitle) if name}
+        heading = next((p for p in headings if heading_key(p.text.splitlines()[0] if p.text else "") in title_set), None)
+        if heading is None:
+            missing.append(item.title)
+            continue
+        draft = business_draft_body(item) if role != "deviation" else ""
+        if role != "deviation" and not draft:
+            continue
+        if role != 'deviation' and _section_has_draft(doc, heading, brief, draft):
+            continue
+        following = next((p for p in headings if p._p.getparent() is heading._p.getparent()
+                          and heading._p.getparent().index(p._p) > heading._p.getparent().index(heading._p)), None)
+        parent = heading._p.getparent()
+        stop = parent.index(following._p) if following else len(parent) - 1
+        if role == "deviation":
+            from docx.table import Table
+            from api.services.tenders.tables import dev_role
+
+            original = next((node for node in list(parent)[parent.index(heading._p) + 1:stop]
+                             if node.tag == qn("w:tbl")), None)
+            if original is not None:
+                table = Table(original, doc._body)
+                roles = [dev_role(cell.text) for cell in table.rows[0].cells]
+                if "requirement" in roles and ("response" in roles or "deviation" in roles):
+                    if any(cell.text.strip() for row in table.rows[1:] for cell in row.cells):
+                        missing.append(f"{item.title}原表已有内容，未覆盖")
+                        continue
+                    from api.services.tenders.business_render import commercial_rows
+
+                    display_rows = commercial_rows(brief)
+                    while len(table.rows) <= len(display_rows):
+                        table.add_row()
+                    for n, values in enumerate(display_rows, 1):
+                        mapped = dict(zip(("seq", "requirement", "response", "deviation", "explanation"), values))
+                        for cell, field in zip(table.rows[n].cells, roles):
+                            if field in mapped:
+                                cell.text = mapped[field]
+                    inserted += 1
+                    continue
+        cursor = parent[stop - 1] if stop > parent.index(heading._p) else heading._p
+        staging = Document()
+        if role == "deviation":
+            render_module(staging, brief, item)
+        else:
+            _write_body(staging, draft, brief.documentFormat or DocumentFormat())
+        for element in list(staging.element.body):
+            if element.tag.endswith("}sectPr"):
+                continue
+            cursor.addnext(element)
+            cursor = element
+        inserted += 1
+    if inserted:
+        doc.save(path)
+    return inserted, [f"商务响应未找到格式章正文落位：{title}" for title in missing]
+
+
 def assemble_bid_docx(
     brief: BidBrief,
     dest: Path,
@@ -251,15 +489,81 @@ def assemble_bid_docx(
     catalog_facts: list | None = None,
     volume: str | None = None,
 ) -> tuple[Path, list[str]]:
-    warnings: list[str] = []
+    from api.services.tenders.native_format import prefer_native_format
+    from api.services.tenders.quote import validate_quote_source
+
+    native = prefer_native_format(brief)
+    quote_notes = validate_quote_source(brief)
+    warnings: list[str] = list(quote_notes)
     vol = (volume or "").strip()
     anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
     named = brief
     if anon:
         brief = _blank_person_brief(brief)
 
+    if (brief.layoutMode or '').strip() != 'requirements':
+        from api.services.tenders.requirement_bid import prepare_requirements_bid
+
+        prepared = named.model_copy(deep=True)
+        requirement_notes = prepare_requirements_bid(prepared)
+        if prepared.requirementsDriven:
+            from api.services.tenders.document import build_bid_docx
+
+            path, notes = build_bid_docx(
+                prepared, dest, qualification_pdf=qualification_pdf,
+                catalog_slots=catalog_slots, catalog_media=catalog_media,
+                catalog_facts=catalog_facts, volume=vol,
+            )
+            return path, list(dict.fromkeys([*requirement_notes, *notes]))
+
+    # Native/requirements outline preparation must precede slot selection. Explicit
+    # media (including an empty filtered mapping) must never be refilled from disk.
+    from api.services.tenders.slots import missing_library_notes
+
+    if catalog_slots is None:
+        from api.services.tenders.slots import prepare_bid_slots
+
+        catalog_slots, local_media = prepare_bid_slots(brief)
+        if catalog_media is None:
+            catalog_media = local_media
+    elif catalog_media is None:
+        catalog_media = attachments_for_slots(catalog_slots)
+    material_notes = missing_library_notes(catalog_slots, catalog_media, volume=vol)
+    quote_notes.extend(material_notes)
+    warnings.extend(material_notes)
+
     def finish(path: Path, notes: list[str]) -> tuple[Path, list[str]]:
-        out = list(notes or [])
+        out = list(dict.fromkeys([*quote_notes, *(notes or [])]))
+        if getattr(brief, "autoDraftBizResp", False) and vol != "technical":
+            from api.services.tenders.business_render import finalize_business_responses
+
+            document = Document(path)
+            out.extend(finalize_business_responses(
+                document, brief, **({"full_bid": True} if vol == "full" else {})
+            ))
+            document.save(path)
+        if vol == "full":
+            from api.services.tenders.pdf_format import unify_full_docx
+
+            unify_full_docx(path, brief, link_toc=(brief.layoutMode or "").strip() == "outline")
+        elif native:
+            from api.services.tenders.native_format import ensure_toc_rows
+
+            document = Document(path)
+            ensure_toc_rows(document, brief, volume=vol)
+            if vol == 'technical':
+                page_start = 'body'
+                spec = brief.documentFormat.technicalFormat
+                if spec.pageStartSet:
+                    page_start = spec.pageNumberStart
+                _fill_toc_pages(document, DocumentFormat(pageNumberStart=page_start), subset=True)
+            document.save(path)
+            out = [note for note in out if '目录未定位条目' not in note]
+            out.append('目录已在正文填充后统一更新页码；实际分页以 Word/在线编辑器排版为准')
+        if brief.requirementsDriven:
+            from api.services.tenders.requirement_bid import complete_requirements_docx
+
+            out.extend(complete_requirements_docx(path, brief, vol))
         if not anon:
             return path, out
         from api.services.tenders.classifier import ANON_DEFER_NOTE
@@ -283,6 +587,21 @@ def assemble_bid_docx(
             catalog_facts=catalog_facts,
         )
         if hit is not None:
+            if getattr(brief, "autoDraftTechPlan", False) and vol in {"technical", "full"}:
+                inserted, missing = _fill_drafted_format_sections(
+                    hit[0], brief, **({"full_bid": True} if vol == "full" else {})
+                )
+                if inserted:
+                    hit[1][:] = [note for note in hit[1] if "未写入技术草稿" not in note]
+                    hit[1].append(f"已在格式章既有章节填入 {inserted} 段技术正文")
+                hit[1].extend(missing)
+            if getattr(brief, "autoDraftBizResp", False) and vol in {"business", "full", ""}:
+                inserted, missing = _fill_business_format_sections(
+                    hit[0], brief, **({"full_bid": True} if vol == "full" else {})
+                )
+                if inserted:
+                    hit[1].append(f"已在格式章既有章节填入 {inserted} 处商务响应")
+                hit[1].extend(missing)
             return finish(*hit)
         # 上传过招标书却没截出 docx-raw：直接失败，不写说明稿，也不改用固定模板
         if (brief.invitationId or "").strip():
@@ -293,7 +612,11 @@ def assemble_bid_docx(
                 "未截到投标文件格式章，请上传带格式章的 Word 后重新识别。未改用公司固定模板。",
                 status_code=422,
             )
-    if vol == "full":
+    if brief.requirementsDriven:
+        from api.services.tenders.requirement_bid import volume_items
+
+        items = volume_items(brief, vol)
+    elif vol == "full":
         items = items_for_full(brief)
     elif vol in {"business", "technical"}:
         items = items_for_volume(brief, vol)
@@ -347,10 +670,7 @@ def assemble_bid_docx(
     if subset:
         items = normalize_subset_outline(items)
     repair_tables = subset
-    bookmarks = (
-        _subset_bookmarks(doc, items) if subset else
-        [f"toc_{(item.id or f'o{i + 1:02d}')}" for i, item in enumerate(items)]
-    )
+    bookmarks = _subset_bookmarks(doc, items)
     _write_toc(doc, items, brief, fmt, bookmarks, subset=subset)
     body_section_index = 1
     if fmt.pageNumberStart == "body":
@@ -390,11 +710,16 @@ def assemble_bid_docx(
             break
         kind = (item.kind or "unknown").strip() or "unknown"
         verbatim = (brief.layoutMode or "").strip() == "outline"
-        if is_policy_statement_title(item.title):
+        if brief.requirementsDriven and item.id.startswith('req-group-'):
+            if i:
+                _chapter_break(doc)
+            _write_heading(doc, item.title, fmt, bookmarks[i])
             continue
-        if not verbatim and is_invite_pack_title(item.title):
+        if not brief.requirementsDriven and is_policy_statement_title(item.title):
             continue
-        if kind == "quote" and quote_done:
+        if not brief.requirementsDriven and not verbatim and is_invite_pack_title(item.title):
+            continue
+        if kind == "quote" and quote_done and not brief.requirementsDriven:
             continue
         if kind == "quote":
             quote_done = True
@@ -415,6 +740,26 @@ def assemble_bid_docx(
             item = item.model_copy(update={"body": slice_copied_letter_body(item.body, item.title)})
         if not (i == 0 and fmt.pageNumberStart == "body"):
             _chapter_break(doc)
+        if (brief.requirementsDriven and kind in {'commitment_copy', 'unknown'}
+                and not (item.body or '').strip()):
+            _write_heading(doc, _display_title(item), fmt, bookmarks[i])
+            _write_body(doc, item.draftBody.strip() or
+                        f'【待补充】请依据本项目招标要求填写并核实「{item.title}」的响应事实。', fmt)
+            _write_body(doc, '投标人（盖章）：\n法定代表人或委托代理人（签字）：\n日期：', fmt)
+            if not item.draftBody.strip():
+                warnings.append(f'【待补充】{item.title}尚无经确认的声明/响应正文')
+            continue
+        if brief.requirementsDriven and kind == 'quote' and not brief.quoteLines:
+            _write_heading(doc, _display_title(item), fmt, bookmarks[i])
+            _write_body(doc, f'投标总价：{rmb_pair(brief.bidPriceYuan) if brief.bidPriceYuan else "【待补充】"}', fmt)
+            _write_body(doc, '【待补充】分项报价清单，须与投标总价一致。', fmt)
+            table = doc.add_table(rows=2, cols=5)
+            for cell, title in zip(table.rows[0].cells,
+                                   ('名称', '规格', '数量', '单价', '金额'), strict=True):
+                cell.text = title
+            for cell in table.rows[1].cells:
+                cell.text = '【待补充】'
+            continue
         raw_body = cut_invite_pack_body((item.body or "").strip(), item.title)
         if repair_tables:
             pending_anchor = (_body_mark(doc), _display_title(item), bookmarks[i])
@@ -441,6 +786,8 @@ def assemble_bid_docx(
             if req and not looks_like_form_template(req) and not _blurb_is_catalog(req):
                 _write_body(doc, req, fmt)
             if not _try_write_scan_media(doc, item, media, slots=slots):
+                if brief.requirementsDriven:
+                    warnings.append(f'【待补充】{item.title}证明材料未匹配，已保留粘贴位置')
                 draw_placeholder_box(
                     doc,
                     PlaceholderItem(
@@ -473,6 +820,26 @@ def assemble_bid_docx(
             )
             use_module = ((not use_copy) and kind in MODULE_KINDS) or seal_form
         bm = bookmarks[i]
+        if getattr(brief, "autoDraftBizResp", False) and kind == "biz_dev" and brief.bizDeviationLines:
+            _write_heading(doc, _display_title(item), fmt, bm)
+            for note in render_module(doc, brief, item, media=media, inlined=inlined_ids):
+                if note not in warnings:
+                    warnings.append(note)
+            generated += 1
+            continue
+        if getattr(brief, "autoDraftBizResp", False) and not raw_body and (item.draftBody or "").strip():
+            from api.services.tenders.gen_biz_resp import _chapter_role
+
+            if _chapter_role(item) in {"offer", "commitment"}:
+                _write_heading(doc, _display_title(item), fmt, bm)
+                _write_body(doc, business_draft_body(item), fmt)
+                generated += 1
+                continue
+        if getattr(brief, "autoDraftTechPlan", False) and kind in _OUTLINE_DRAFT_KINDS and (item.draftBody or "").strip():
+            _write_heading(doc, _display_title(item), fmt, bm)
+            _write_body(doc, item.draftBody, fmt)
+            generated += 1
+            continue
         if use_module:
             _write_heading(doc, _display_title(item), fmt, bm)
             req = (item.body or "").strip()
@@ -574,6 +941,11 @@ def assemble_bid_docx(
                 if copied_ok:
                     _anchor_section(doc, mark, _display_title(item), bm, fmt, subset=subset)
             if copied_ok:
+                if getattr(brief, "autoDraftBizResp", False) and (item.draftBody or "").strip():
+                    from api.services.tenders.gen_biz_resp import _chapter_role
+
+                    if _chapter_role(item) in {"offer", "commitment"}:
+                        _write_body(doc, business_draft_body(item), fmt)
                 if kind == "auth":
                     _inline_copied_id(
                         doc,
@@ -596,6 +968,11 @@ def assemble_bid_docx(
             start = len(doc.paragraphs)
             _write_heading(doc, _display_title(item), fmt, bm)
             _write_body(doc, filled, fmt)
+            if getattr(brief, "autoDraftBizResp", False) and (item.draftBody or "").strip():
+                from api.services.tenders.gen_biz_resp import _chapter_role
+
+                if _chapter_role(item) in {"offer", "commitment"}:
+                    _write_body(doc, business_draft_body(item), fmt)
             _anchor_section(doc, mark, _display_title(item), bm, fmt, subset=subset)
             copied += 1
             continue
@@ -662,6 +1039,7 @@ def assemble_bid_docx(
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
 
     _collapse_extra_page_breaks(doc)
+    _set_bookmark_outline(doc, {bm: item.level for bm, item in zip(bookmarks, items, strict=True)})
     _fill_toc_pages(doc, fmt, subset=subset)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -913,7 +1291,7 @@ def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False)
         pages = {k: max(1, v) for k, v in raw.items()}
     else:
         pages = {k: max(1, v - 1) for k, v in raw.items()}
-    _apply_toc_page_numbers(doc, pages)
+    _apply_toc_page_numbers(doc, pages, pending="待更新")
 
 
 def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume: str = "") -> None:
@@ -983,6 +1361,10 @@ def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume:
         seal = doc.add_paragraph()
         seal.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _run(seal, "（封面加盖公章）", size=12, font=font)
+    if brief.requirementsDriven:
+        sign = doc.add_paragraph()
+        sign.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        _run(sign, '法定代表人或委托代理人（签字）：', size=12, font=font)
 
 
 def _body_mark(doc: Document) -> int:
@@ -1086,6 +1468,11 @@ def _write_toc(
     head = doc.add_paragraph()
     head.alignment = WD_ALIGN_PARAGRAPH.CENTER
     _run(head, "目录", size=fmt.tocTitleSizePt, bold=True, font=fmt.fontName)
+    if brief.requirementsDriven:
+        for i, (item, bookmark) in enumerate(zip(items, bookmarks, strict=True)):
+            _write_toc_line(doc.add_paragraph(), i, _display_title(item), bookmark,
+                            toc_page_cache(i, fmt), label='', level=item.level, with_pages=True)
+        return
     verbatim = (brief.layoutMode or "").strip() == "outline"
     if verbatim:
         pairs = [

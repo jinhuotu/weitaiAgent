@@ -575,7 +575,11 @@ def _tech_plan(
     notes: list[str] = []
     for block in _split_blocks(body):
         _para(doc, block, indent=True)
-    if _chapter_wants_drawings(item):
+    wants_drawings = _chapter_wants_drawings(item)
+    if brief.requirementsDriven:
+        wants_drawings = any(word in (item.title + item.inviteExcerpt)
+                             for word in ('图纸', '布置图', '设计图'))
+    if wants_drawings:
         title = _para(doc, "图纸", bold=True)
         notes.extend(_embed_tech_drawings(doc, title, media))
     if "【待响应】" in body or "【待补充】" in body:
@@ -617,7 +621,8 @@ def _dev_table(doc: Document, brief: BidBrief, item: OutlineItem) -> None:
     for i, title in enumerate(titles):
         _write_cell(table.rows[0].cells[i], title, size=9, bold=True, underline=False, center=True, bottom_line=False)
     for i, data in enumerate(rows, start=1):
-        mapped = {"seq": data[0], "requirement": data[1], "response": data[2], "deviation": data[3]}
+        mapped = {"seq": data[0], "requirement": data[1], "response": data[2], "deviation": data[3],
+                  "explanation": data[4] if len(data) > 4 else ""}
         for j, role in enumerate(roles):
             val = mapped.get(role, "")
             center = role in {"seq", "deviation"}

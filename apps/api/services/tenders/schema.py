@@ -42,6 +42,7 @@ class DeviationLine(BaseModel):
     requirement: str = ""
     response: str = ""
     deviation: str = ""
+    explanation: str = ""
 
 
 class PerformanceLine(BaseModel):
@@ -198,6 +199,8 @@ class OutlineItem(BaseModel):
     source: str = "copy"
     required: bool = True
     skipped: bool = False
+    # Forms/materials remain available for body filling, but never become TOC chapters.
+    tocEligible: bool | None = None
     body: str = ""
     # 招标原文；组卷时不得当投标响应。
     inviteExcerpt: str = ""
@@ -227,6 +230,7 @@ class BidBrief(BaseModel):
     warrantyPct: int = Field(default=3, ge=0, le=100)
     bidDate: str = Field(default_factory=lambda: date.today().isoformat())
     tenderNo: str = Field(default="")
+    lotName: str = Field(default="")
 
     bidderName: str = Field(default="河南伟泰光电科技有限公司")
     bidderNature: str = Field(default="有限责任公司")
@@ -282,10 +286,17 @@ class BidBrief(BaseModel):
     quoteTaxRate: float = Field(default=0.13, ge=0, le=1)
     quoteSourceIncTax: float = Field(default=0, ge=0)
     quoteSource: str = Field(default="")
+    quoteSourceName: str = Field(default="")
+    quoteSourceTitle: str = Field(default="")
+    quoteSourceProjects: list[str] = Field(default_factory=list)
+    quoteMatchStatus: str = Field(default="")
+    quoteMatchNote: str = Field(default="")
+    quoteAutoPrice: bool = Field(default=False)
     quoteLines: list[QuoteLineIn] = Field(default_factory=list)
     quoteHeaders: list[str] = Field(default_factory=list)
     quoteRoles: list[str] = Field(default_factory=list)
     deviationLines: list[DeviationLine] = Field(default_factory=list)
+    bizDeviationLines: list[DeviationLine] = Field(default_factory=list)
     bizDevHeaders: list[str] = Field(default_factory=list)
     techDevHeaders: list[str] = Field(default_factory=list)
     performanceLines: list[PerformanceLine] = Field(default_factory=list)
@@ -297,9 +308,16 @@ class BidBrief(BaseModel):
     omPlan: str = Field(default="")
     schedulePlan: str = Field(default="")
     techPlanNote: str = Field(default="")
+    autoDraftTechPlan: bool = Field(default=False)
+    autoDraftBizResp: bool = Field(default=False)
+    techPlanSourceIds: list[str] = Field(default_factory=list)
+    techPlanKbIds: list[str] = Field(default_factory=list)
+    bizRespKbIds: list[str] = Field(default_factory=list)
 
     # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标截出的格式章组卷。
     layoutMode: str = Field(default="chapter5")
+    # 格式章不完整时，由全文提交要求综合大纲，使用自动封面和目录组卷。
+    requirementsDriven: bool = Field(default=False)
     # 按本标时，用户预览并点「确认使用这份模板」后才允许生成。目录条目不参与组卷。
     formatConfirmed: bool = Field(default=False)
     # business=只出商务标；technical=只出技术标；full=完整投标文件。空值仍按商务标。

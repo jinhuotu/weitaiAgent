@@ -1,9 +1,11 @@
 """历史标书切章和剥离。不连库、不连向量。"""
 
+import pytest
 from docx import Document
 
 from api.services.knowledge.classify import classify_kb_document
 from api.services.tenders.bid_archive import (
+    accept_history_upload,
     chapters_from_docx,
     chapters_from_outline,
     prepare_chapters,
@@ -134,3 +136,58 @@ def test_empty_outline_falls_back_to_docx(tmp_path) -> None:
     assert len(chapters) == 1
     assert "两小时" in chapters[0][1]
     assert "不要入库" not in chapters[0][1]
+
+
+class _MemDb:
+    def __init__(self) -> None:
+        self.row = None
+
+    def add(self, row) -> None:
+        self.row = row
+
+    async def commit(self) -> None:
+        if self.row is not None and not getattr(self.row, "id", None):
+            self.row.id = 41
+
+    async def refresh(self, row) -> None:
+        row.id = 41
+
+
+@pytest.mark.asyncio
+async def test_upload_without_record_returns_new_id(monkeypatch) -> None:
+    held: dict = {}
+
+    def fake_chapters(_path):
+        return [(
+            "一、售后服务",
+            "售后服务响应时间为两小时，备件供应周期不超过十五个工作日，"
+            "质保期内免费更换损坏部件，并保留巡检记录。",
+        )]
+
+    def fake_schedule(**kwargs):
+        held["chapters"] = kwargs["chapters"]
+        held["record_id"] = kwargs["record_id"]
+
+    monkeypatch.setattr("api.services.tenders.bid_archive.chapters_from_docx", fake_chapters)
+    monkeypatch.setattr("api.services.tenders.bid_archive.schedule_upload", fake_schedule)
+
+    db = _MemDb()
+    out = await accept_history_upload(
+        db,
+        data=b"not-empty",
+        filename="某项目投标文件.docx",
+        user_id=3,
+        username="admin",
+        outcome="lost",
+        record_public_id="",
+        admin=False,
+    )
+    assert out["recordId"]
+    assert len(out["recordId"]) == 16
+    assert out["queued"] == 1
+    assert db.row.project_name == "某项目投标文件"
+    assert db.row.status == "lost"
+    assert db.row.docx_file == ""
+    assert held["record_id"] == 41
+    assert "record:41" in held["chapters"][0]["tags"]
+    assert "outcome:lost" in held["chapters"][0]["tags"]
