@@ -11,8 +11,6 @@ from common.config import get_settings
 _INVITE_ID_RE = re.compile(r"^[a-f0-9]{10,16}$", re.I)
 _INVITE_TEXT_MAX = 80_000
 
-_PDF_NAME = "weitai-qualifications.pdf"
-_PDF_ALIASES = (_PDF_NAME, "伟泰科技资质文件最终版.pdf")
 _CHAPTER5_NAME = "chapter5.docx"
 _QUOTE_NAME = "quote.xlsx"
 
@@ -43,7 +41,7 @@ def save_invitation_text(text: str, *, stem: str = "") -> str:
     raw_stem = (stem or "").strip()
     invite_id = raw_stem if _INVITE_ID_RE.fullmatch(raw_stem) else uuid4().hex[:12]
     dest = tender_invitations_dir() / f"{invite_id}.txt"
-    dest.write_text((text or "").strip()[:_INVITE_TEXT_MAX], encoding="utf-8")
+    dest.write_text((text or "").strip(), encoding="utf-8")
     return invite_id
 
 
@@ -58,6 +56,23 @@ def load_invitation_text(invitation_id: str) -> str:
         return path.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def save_material_source_text(invitation_id: str, text: str) -> None:
+    """Keep full material-recognition input; prompt/QA limits must not truncate it."""
+    if not _INVITE_ID_RE.fullmatch(invitation_id or ''):
+        raise ValueError('invalid invitation id')
+    (tender_invitations_dir() / f'{invitation_id}.materials.txt').write_text(text or '',encoding='utf-8')
+
+
+def load_material_source_text(invitation_id: str) -> str:
+    if not _INVITE_ID_RE.fullmatch(invitation_id or ''):
+        return ''
+    path=tender_invitations_dir() / f'{invitation_id}.materials.txt'
+    try:
+        return path.read_text(encoding='utf-8') if path.is_file() else load_invitation_text(invitation_id)
+    except OSError:
+        return load_invitation_text(invitation_id)
 
 
 def find_chapter5_template() -> Path | None:
@@ -124,17 +139,31 @@ def find_quote_xlsx() -> Path | None:
 
 
 def find_qualification_pdf() -> Path | None:
-    """企业资质 PDF：优先 weitai-qualifications.pdf，否则取 tender-assets 里带「资质」的 PDF。"""
+    """发现资质附件；生成时另行校验所属投标人，不按品牌优先选择。"""
     folder = tender_assets_dir()
-    for name in _PDF_ALIASES:
-        primary = folder / name
-        if primary.is_file() and primary.stat().st_size > 1000:
-            return primary
     candidates = [
         path
         for path in folder.rglob("*.pdf")
-        if path.is_file() and path.stat().st_size > 1000 and "资质" in path.stem
+        if path.is_file() and path.stat().st_size > 1000
+        and ("资质" in path.stem or "qualification" in path.stem.casefold())
     ]
     if candidates:
         return sorted(candidates, key=lambda p: p.stat().st_mtime, reverse=True)[0]
     return None
+
+
+def qualification_matches_company(path: Path, bidder_name: str) -> bool:
+    """A global attachment requires positive identity evidence before adoption."""
+    from api.services.tenders.company_identity import company_key, foreign_bidder
+
+    if not company_key(bidder_name):
+        return False
+    try:
+        import fitz
+
+        with fitz.open(path) as pdf:
+            text = '\n'.join(pdf[i].get_text() for i in range(min(5, len(pdf))))
+    except Exception:
+        return False
+    return (company_key(bidder_name) in company_key(path.stem + '\n' + text)
+            and not foreign_bidder(text, bidder_name))

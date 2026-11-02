@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,6 +17,34 @@ class PlaceholderItem(BaseModel):
     title: str
     hint: str = ""
     attachToSection: str = ""
+    demandIds: list[str] = Field(default_factory=list)
+
+
+class MaterialUse(BaseModel):
+    enabled: bool = False
+    fileIds: list[str] = Field(default_factory=list, max_length=30)
+    mode: Literal['scan', 'reference'] = 'scan'
+    targetSection: str = Field(default='', max_length=200)
+
+
+class MaterialDemand(BaseModel):
+    """A source-grounded material obligation, independent of the library catalog."""
+
+    id: str
+    sourceId: str = ''
+    text: str
+    title: str
+    slotKey: str
+    section: str = ''
+    parentSections: list[str] = Field(default_factory=list)
+    level: int = Field(default=1, ge=1)
+    volume: str = 'full'
+    condition: str = ''
+    mode: Literal['attachment', 'form', 'statement'] = 'attachment'
+    origin: Literal['structure','semantic','explicit','review'] = 'structure'
+    reviewRequired: bool = False
+    outcomes: dict[str, str] = Field(default_factory=dict)
+    placements: dict[str, str] = Field(default_factory=dict)
 
 
 class QuoteLineIn(BaseModel):
@@ -59,19 +88,20 @@ class PerformanceLine(BaseModel):
     summary: str = ""
     note: str = ""
     ongoing: bool = False
+    bidderName: str = ""
     chargerRelated: bool = False
     includeInBid: bool = True
 
 
 class PerformanceRequirement(BaseModel):
-    """本标招标书对类似业绩的资格门槛。没有抽出则为空，不套用充电桩默认 20 万。"""
+    """本标招标书对类似业绩的资格门槛。没有抽出则为空，不套用默认数量或金额。"""
 
     model_config = ConfigDict(populate_by_name=True)
 
     similarScope: str = ""
     keywords: list[str] = Field(default_factory=list)
     minAmountYuan: float = Field(default=0, ge=0)
-    minCount: int = Field(default=0, ge=0, le=20)
+    minCount: int = Field(default=0, ge=0)
     requireCompleted: bool = False
     note: str = ""
 
@@ -219,37 +249,36 @@ class BidBrief(BaseModel):
     projectName: str = Field(default="")
     tenderer: str = Field(default="")
     bidContent: str = Field(default="")
-    quality: str = Field(default="合格")
-    deliveryDays: int = Field(default=30, ge=1, le=3650)
-    warrantyYears: int = Field(default=2, ge=1, le=20)
-    bidValidityDays: int = Field(default=60, ge=1, le=365)
+    quality: str = Field(default="")
+    deliveryDays: int = Field(default=0, ge=0, le=3650)
+    warrantyYears: int = Field(default=0, ge=0, le=20)
+    bidValidityDays: int = Field(default=0, ge=0, le=365)
     bidPriceYuan: float = Field(default=0, ge=0)
-    prepaidPct: int = Field(default=30, ge=0, le=100)
-    arrivalPct: int = Field(default=50, ge=0, le=100)
-    settlementPct: int = Field(default=17, ge=0, le=100)
-    warrantyPct: int = Field(default=3, ge=0, le=100)
+    prepaidPct: int = Field(default=0, ge=0, le=100)
+    arrivalPct: int = Field(default=0, ge=0, le=100)
+    settlementPct: int = Field(default=0, ge=0, le=100)
+    warrantyPct: int = Field(default=0, ge=0, le=100)
     bidDate: str = Field(default_factory=lambda: date.today().isoformat())
     tenderNo: str = Field(default="")
     lotName: str = Field(default="")
 
-    bidderName: str = Field(default="河南伟泰光电科技有限公司")
-    bidderNature: str = Field(default="有限责任公司")
-    bidderAddress: str = Field(
-        default="河南省郑州市高新区开发区梧桐街与红松路交叉口东南角远大产业园区内6号楼三层"
-    )
+    bidderName: str = Field(default="")
+    bidderCreditCode: str = Field(default="", max_length=18)
+    bidderNature: str = Field(default="")
+    bidderAddress: str = Field(default="")
     bidderWebsite: str = Field(default="")
-    bidderPhone: str = Field(default="17630567052")
+    bidderPhone: str = Field(default="")
     bidderFax: str = Field(default="")
     bidderPostcode: str = Field(default="")
-    bidderEmail: str = Field(default="gzwceo@163.com")
-    foundedDate: str = Field(default="2017年07月")
-    businessTerm: str = Field(default="长期")
+    bidderEmail: str = Field(default="")
+    foundedDate: str = Field(default="")
+    businessTerm: str = Field(default="")
 
-    legalPersonName: str = Field(default="郭志伟")
-    legalPersonGender: str = Field(default="男")
-    legalPersonAge: str = Field(default="28")
-    legalPersonTitle: str = Field(default="执行董事")
-    legalPersonIdNo: str = Field(default="410521199802104053")
+    legalPersonName: str = Field(default="")
+    legalPersonGender: str = Field(default="")
+    legalPersonAge: str = Field(default="")
+    legalPersonTitle: str = Field(default="")
+    legalPersonIdNo: str = Field(default="")
     # 资料库身份证归人键（证号）。多本时生成前必须选；空且库里只有一位则生成时自动用那位。
     legalPersonKey: str = Field(default="")
 
@@ -261,7 +290,7 @@ class BidBrief(BaseModel):
     # 经办人开关：默认关，关着不校验委托人；打开才入卷并要填姓名/证号
     authEnabled: bool = Field(default=False)
 
-    trafficFeeNote: str = Field(default="质保期外流量年收费标准：7元/年")
+    trafficFeeNote: str = Field(default="")
     extraNote: str = Field(default="")
     factoryRole: str = Field(default="")
     # 邀请书抽出的控制价/保证金；None=未抽出，0 也要按原文填写。
@@ -279,11 +308,16 @@ class BidBrief(BaseModel):
     includePlaceholders: bool = Field(default=False)
     includeCommitment: bool = Field(default=True)
     extraPlaceholders: list[PlaceholderItem] = Field(default_factory=list)
+    materialDemands: list[MaterialDemand] = Field(default_factory=list)
+    materialIntentHash: str = ''
+    materialIntentComplete: bool = False
+    materialIntentNotes: list[str] = Field(default_factory=list)
+    materialExemptions: list[dict[str,str]] = Field(default_factory=list)
     requiredSlotKeys: list[str] = Field(default_factory=list)
     includeSlotKeys: list[str] = Field(default_factory=list)
 
     quoteTitle: str = Field(default="")
-    quoteTaxRate: float = Field(default=0.13, ge=0, le=1)
+    quoteTaxRate: float = Field(default=0, ge=0, le=1)
     quoteSourceIncTax: float = Field(default=0, ge=0)
     quoteSource: str = Field(default="")
     quoteSourceName: str = Field(default="")
@@ -308,9 +342,13 @@ class BidBrief(BaseModel):
     omPlan: str = Field(default="")
     schedulePlan: str = Field(default="")
     techPlanNote: str = Field(default="")
+    techScorecard: str = Field(default="")
+    technicalPackage: dict = Field(default_factory=dict)
     autoDraftTechPlan: bool = Field(default=False)
     autoDraftBizResp: bool = Field(default=False)
     techPlanSourceIds: list[str] = Field(default_factory=list)
+    # New archives are opt-in inputs; never synthesize outline/placeholder items.
+    materialSelections: dict[str, MaterialUse] = Field(default_factory=dict, max_length=12)
     techPlanKbIds: list[str] = Field(default_factory=list)
     bizRespKbIds: list[str] = Field(default_factory=list)
 

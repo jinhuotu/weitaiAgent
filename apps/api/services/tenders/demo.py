@@ -170,7 +170,7 @@ def _brief_for(case: dict) -> dict:
         data["quoteSource"] = "sheet"
     elif not data.get("quoteLines"):
         data["quoteLines"] = [
-            QuoteLineIn(seq="1", name="充电桩设备及安装", unit="项", qty=1, unitPrice=1, amount=1).model_dump()
+            QuoteLineIn(seq="1", name=(brief.bidContent or "本次报价项目"), unit="项", qty=1, unitPrice=1, amount=1).model_dump()
         ]
         data["quoteTitle"] = "工程量清单"
         data["quoteSource"] = "sheet"

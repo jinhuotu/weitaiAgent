@@ -29,7 +29,7 @@ from common.errors import AppError
 
 def _medical():
     return BidBrief(
-        projectName='甲医院车辆采购（救护车）项目', bidContent='救护车及配套医疗设备采购',
+        projectName='甲医院车辆采购（救护车）项目', bidContent='救护车及配套医疗设备采购，配套车载电源USB充电器',
         tenderer='甲医院', bidPriceYuan=1000, generateVolume='full',
     )
 
@@ -65,7 +65,7 @@ def test_project_category_and_vehicle_parameter_boundaries(title, name, spec, he
 def test_hospital_charger_and_construction_projects_use_their_actual_scope():
     charger = BidBrief(projectName='甲医院充电桩采购项目')
     assert match_source(charger, title='报价清单', rows=[('交流充电桩', '7kW')]).status == 'matched'
-    construction = BidBrief(projectName='甲医院救护车停车区土建工程')
+    construction = BidBrief(projectName='甲医院救护车停车区土建工程', bidContent='土方工程及停车区施工')
     assert match_source(construction, title='报价清单', rows=[('土方工程', '')]).status == 'matched'
 
 

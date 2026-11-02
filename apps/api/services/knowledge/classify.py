@@ -6,7 +6,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from api.services.tenders.history import BIDDER_LOCK, contains_foreign_bidder
+from api.services.tenders.history import contains_foreign_bidder
+from api.services.tenders.company_identity import same_company, COMPANY_RE
 
 TAG_BID_FOREIGN = "bid_foreign"
 
@@ -20,7 +21,6 @@ _INVITE_NAME_SAFE = (
     "资格预审",
 )
 _BID_PACKAGE_NAME = ("投标函", "投标书", "投标文件")
-_WEITAI = (BIDDER_LOCK, "河南伟泰", "伟泰光电")
 _BIDDER_LINE = re.compile(r"投标人\s*[:：]\s*([^\n。；]{2,80})")
 _NAME_NOISE = re.compile(r"[\s_\-—（）()【】\[\]\d.]+")
 # 资格条款里常见「投标人：必须是…有限公司」，不能当成已填投标人。
@@ -97,13 +97,13 @@ def _looks_like_filled_company(name: str) -> bool:
     return n.endswith("有限公司") or "股份有限公司" in n
 
 
-def _other_company_bidders(text: str) -> list[str]:
+def _other_company_bidders(text: str, bidder_name: str = "") -> list[str]:
     found: list[str] = []
     for match in _BIDDER_LINE.finditer(text or ""):
         name = (match.group(1) or "").strip()
         if not _looks_like_filled_company(name):
             continue
-        if any(mark in name for mark in _WEITAI):
+        if same_company(name, bidder_name):
             continue
         if name not in found:
             found.append(name)
@@ -115,6 +115,7 @@ def classify_kb_document(
     name: str = "",
     text: str = "",
     tags: list | None = None,
+    bidder_name: str = "",
 ) -> KbClass:
     # 投标资料库扫描件是公司自有资质/合同，必须进 RAG，不受「整份投标书」启发式影响
     labels = {str(t).strip() for t in (tags or [])}
@@ -123,11 +124,11 @@ def classify_kb_document(
     if name_looks_like_bid_package(name):
         return KbClass(True, "文件名像整份投标文件/投标函，已保留原件但不向量化，检索将跳过")
     blob = f"{name}\n{text or ''}"
-    if contains_foreign_bidder(blob):
+    if contains_foreign_bidder(blob, bidder_name):
         return KbClass(True, "正文或文件名出现其他公司投标主体，不写入检索")
-    others = _other_company_bidders(text or "")
+    others = _other_company_bidders(text or "", bidder_name)
     if others:
-        return KbClass(True, "正文出现非伟泰投标人，不写入检索")
+        return KbClass(True, "正文出现与当前投标人不一致的已填主体，不写入检索")
     return KbClass(False, "")
 
 
@@ -136,7 +137,15 @@ def should_skip_kb_retrieval(
     name: str = "",
     content: str = "",
     tags: list | None = None,
+    bidder_name: str | None = None,
 ) -> bool:
     if has_skip_rag_tag(tags):
         return True
-    return classify_kb_document(name=name, text=content, tags=tags).skip_vectorize
+    labels = {str(t).strip() for t in tags or []}
+    if bidder_name is not None and ({'投标资料', 'tech_bid'} & labels):
+        owners = [tag[7:] for tag in labels if tag.startswith('bidder:')]
+        from api.services.tenders.company_identity import named_bidders
+
+        owners = owners or named_bidders(content)
+        return not owners or any(not same_company(owner, bidder_name) for owner in owners) or contains_foreign_bidder(content, bidder_name)
+    return classify_kb_document(name=name, text=content, tags=tags, bidder_name=bidder_name or '').skip_vectorize

@@ -91,6 +91,7 @@ def test_classify_kb_skips_bid_package_and_foreign_body() -> None:
     weitai = classify_kb_document(
         name="公司简介.txt",
         text="投标人：河南伟泰光电科技有限公司",
+        bidder_name="河南伟泰光电科技有限公司",
     )
     assert not weitai.skip_vectorize
     requirement = classify_kb_document(

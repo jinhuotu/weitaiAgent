@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 from typing import Any
 
@@ -15,6 +16,12 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         "credit",
         (
             "信用中国",
+            "国家企业信用信息公示系统",
+            "公示系统",
+            "企业查询",
+            "信用报告",
+            "重大税收违法",
+            "失信被执行人",
             "信用信息公示",
             "企业信用查询",
             "失信查询",
@@ -42,7 +49,7 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("finance", ("财务审计", "审计报告", "完税证明", "财务报表", "财务报告")),
     ("social", ("社保缴纳", "社保缴费", "社保证明")),
     ("perf", ("类似业绩", "类似项目", "合同及发票", "业绩证明", "业绩合同")),
-    ("product", ("检测报告", "型式试验", "3c认证", "ccc认证", "3c", "桩型证明", "产品合格证")),
+    ("product", ("检测报告", "型式试验", "3c认证", "ccc认证", "3c", "型号证明", "产品合格证")),
     ("seal", ("签章页", "盖章页")),
     ("commitment", ("承诺书", "承诺函", "无违法", "无行贿")),
 )
@@ -62,15 +69,45 @@ _ATTACH_NAMES = (
     ("safety", "安全生产许可证", r"安全生产许可(?:证)?"),
     ("bond", "投标保证金汇款凭证", r"汇款凭证|保证金(?:回单|缴存凭证)"),
     ("bank_permit", "基本账户开户证明", r"基本账户(?:开户证明|证明)|开户许可证"),
-    ("bank_guarantee", "银行保函", r"银行保函"),
+    ("bond", "银行保函", r"(?:银行|电子)保函"),
     ("finance", "财务审计报告及财务报表", r"审计报告|财务报表|财务会计报表"),
     ("perf", "中标通知书或合同协议书", r"中标通知书|合同协议书"),
 )
 
 
-def attachment_requests(text: str) -> list[PlaceholderItem]:
+def attachment_source_excluded(headings):
+    return any(re.search(r'合同.*条款|投标人须知|招标公告|中标后|履约阶段|施工阶段|施工组织设计|技术标|附表[一二三四五六1-6]',compact_title(h)) for h in headings)
+
+
+def attachment_source_kind(headings, *, format_fragment=False):
+    """Classify source hierarchy; an excluded child overrides its ancestors."""
+    headings=list(headings)
+    if attachment_source_excluded(headings):return ''
+    for heading in reversed(headings):
+        name=compact_title(heading)
+        if re.search(r'合同.*条款|投标人须知|招标公告|中标后|履约阶段|施工阶段|施工组织设计|技术标|附表[一二三四五六1-6]',name):
+            return ''
+        if re.search(r'资格.*(?:审查|条件|资料)|资格预审',name):return 'qualification'
+        if re.search(r'评审办法|评标办法|评分(?:标准|办法|细则)',name):return 'scoring'
+        if re.search(r'(?:投标|响应)文件格式|附件清单',name):return 'format'
+    return 'format' if format_fragment else ''
+
+
+def attachment_requirement_allowed(title, evidence=''):
+    """A submission material, not the invitation or a future-stage form."""
+    title=compact_title(title)
+    if not title:return False
+    if re.search(r'招标文件|投标人须知|评标办法|评审办法|合同条款|招标公告|施工组织设计|技术标|附表[一二三四五六1-6]',title):return False
+    historical=bool(re.search(r'已完成|近年|既往|历史|类似项目|业绩',title+evidence))
+    if not historical and re.search(r'中标后|施工阶段|履约期间|合同签订后|开工后',evidence):return False
+    if not historical and re.search(r'开工报审|竣工验收|结算|隐蔽验收|设计变更|图纸会审|进度付款',title):return False
+    return True
+
+
+def attachment_requests(text: str, *, source_kind=None) -> list[PlaceholderItem]:
     """只从附具说明提取资料；同一说明的不同证件分别落位，或选材料保留为一项。"""
     flat = re.sub(r"\s+", "", text or "")
+    if source_kind is not None and source_kind not in {'qualification','scoring','format'}:return []
     result: dict[str, PlaceholderItem] = {}
     for cue in _ATTACH_CUE.finditer(flat):
         clause = cue.group(1)
@@ -80,7 +117,8 @@ def attachment_requests(text: str) -> list[PlaceholderItem]:
                     title = "或".join(word for word in ("中标通知书", "合同协议书") if word in clause)
                 elif key == "finance":
                     title = "及".join(word for word in ("审计报告", "财务会计报表", "财务报表") if word in clause)
-                result.setdefault(key, PlaceholderItem(key=key, title=title, hint=cue.group(0)))
+                if attachment_requirement_allowed(title,cue.group(0)):
+                    result.setdefault(key, PlaceholderItem(key=key, title=title, hint=cue.group(0)))
         # 未列举的材料仍按说明生成有名称的框，不把任意「提供」要求当扫描件。
         if not re.search(r"复印件|扫描件|截图|证明材料|(?:证书|许可证|报告|报表)(?:[（(].*?[）)])?$", clause):
             continue
@@ -101,7 +139,12 @@ def attachment_requests(text: str) -> list[PlaceholderItem]:
             if len(name) > 16 and not re.search(r"许可证|证书|证明|报告|报表|状况表|协议书|通知书|合同|截图|材料|发票|保险|承诺书|学历证|职称证|身份证", name):
                 continue
             key = "request_" + compact_title(name)
-            result.setdefault(key, PlaceholderItem(key=key, title=name, hint=cue.group(0)))
+            normalized=compact_title(name)
+            if re.fullmatch(r'(?:法定代表人|法人代表|法人)(?:的|本人)?身份证(?:正反面)?',normalized):key='id_legal'
+            elif re.fullmatch(r'(?:委托代理人|授权代理人|授权委托人|被授权人|委托人|代理人)(?:的|本人)?身份证(?:正反面)?',normalized):key='id_agent'
+            elif re.fullmatch(r'(?:信用查询|信用报告|信用截图)(?:截图|打印件)?',normalized):key='credit'
+            if attachment_requirement_allowed(name,cue.group(0)):
+                result.setdefault(key, PlaceholderItem(key=key, title=name, hint=cue.group(0)))
     return list(result.values())
 
 
@@ -109,6 +152,12 @@ def attachment_catalog_item(request: PlaceholderItem, catalog: list[PlaceholderI
     """按资料名称匹配，施工资质不能用 ISO 体系证书替代，保函不能用汇款回单替代。"""
     if request.title == "相关证明材料":
         return None
+    from api.services.tenders.material_identity import standard_material_key
+    standard = standard_material_key(request)
+    if standard:
+        found = next((item for item in catalog if item.key == standard), None)
+        if found is not None:
+            return found
     if request.key in {"qualification", "bank_guarantee", "bond"}:
         aliases = {
             "qualification": r"施工资质|企业资质|资质证书|投标人资质",
@@ -124,6 +173,7 @@ def attachment_catalog_item(request: PlaceholderItem, catalog: list[PlaceholderI
     return find_catalog_item(catalog, title=request.title)
 
 
+@lru_cache(maxsize=8192)
 def _titles_loosely_match(left: str, right: str) -> bool:
     x, y = compact_title(left), compact_title(right)
     if len(x) < 4 or len(y) < 4:
@@ -140,6 +190,7 @@ def _titles_loosely_match(left: str, right: str) -> bool:
     return i == len(shorter)
 
 
+@lru_cache(maxsize=8192)
 def _kind_hits(text: str) -> set[str]:
     n = compact_title(text)
     if len(n) < 4:
@@ -177,6 +228,7 @@ _EXCLUSIVE_KINDS = frozenset(
 _WEAK_KINDS = frozenset({"social"})
 
 
+@lru_cache(maxsize=8192)
 def _same_material_kind(left: str, right: str) -> bool:
     ha, hb = _kind_hits(left), _kind_hits(right)
     if not ha or not hb:
@@ -274,7 +326,8 @@ def split_invitation_materials(
     patch: dict[str, Any],
     catalog: list[PlaceholderItem] | None,
 ) -> tuple[list[PlaceholderItem], list[PlaceholderItem]]:
-    """requiredMaterials 必须落在资料库 key；对不上的进 missing，禁止借用其他 key 的文件。"""
+    """Map when equivalent; unknown obligations retain a stable project-local key."""
+    from api.services.tenders.material_intents import material_key
     catalog_items = [item for item in (catalog or []) if item.key]
     mapped: list[PlaceholderItem] = []
     missing: list[PlaceholderItem] = []
@@ -307,8 +360,9 @@ def split_invitation_materials(
                 )
                 continue
             label = title or reason
-            if len(compact_title(label)) >= 4:
-                missing.append(PlaceholderItem(key="", title=label, hint=reason or "邀请书要求，资料库尚无此项"))
+            if len(compact_title(label)) >= 2:
+                missing.append(PlaceholderItem(key=material_key(label), title=label,
+                    hint=reason or "邀请书要求，资料库尚无此项",attachToSection=section))
 
     raw_missing = patch.get("missingMaterials")
     if isinstance(raw_missing, list):
@@ -328,9 +382,10 @@ def split_invitation_materials(
                 continue
             missing.append(
                 PlaceholderItem(
-                    key="",
+                    key=material_key(title),
                     title=title,
                     hint=reason or "邀请书额外要求，请在资料库上传，勿用其他项目扫描件顶替",
+                    attachToSection=_clean_attach_section(raw.get('attachToSection')),
                 )
             )
     return mapped, missing

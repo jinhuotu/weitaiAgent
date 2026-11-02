@@ -103,9 +103,9 @@ def _letter(doc: Document, brief: BidBrief, item: OutlineItem) -> list[str]:
     tenderer = (brief.tenderer or "").strip() or "　　　　"
     project = (brief.projectName or "").strip() or "（项目名称）"
     extra = (brief.extraNote or "").strip() or "无"
-    quality = (brief.quality or "").strip() or "合格"
-    days = str(int(brief.deliveryDays))
-    valid = str(int(brief.bidValidityDays))
+    quality = (brief.quality or "").strip() or "　　　　"
+    days = str(int(brief.deliveryDays)) if brief.deliveryDays else "　　　　"
+    valid = str(int(brief.bidValidityDays)) if brief.bidValidityDays else "　　　　"
     response = "响应" in (item.title or "")
     file_word = "采购文件" if response else "招标文件"
     price_lab = "响应总报价" if response else "投标总价"
@@ -213,7 +213,7 @@ def _letter_appendix(doc: Document, brief: BidBrief) -> list[str]:
         grade = "无"
     _id_field(doc, "项目经理：", pm, **compact)
     _id_field(doc, "注册证号：", cert, **compact)
-    valid = str(int(brief.bidValidityDays)) if brief.bidValidityDays else ""
+    valid = str(int(brief.bidValidityDays)) if brief.bidValidityDays else "　　　　" if brief.bidValidityDays else ""
     _id_field(doc, "投标有效期：", f"自投标截止之日起{valid}日历天" if valid else "", **compact)
     _id_field(doc, "缺陷责任期：", (brief.defectPeriod or "").strip(), **compact)
     _id_field(doc, "履约担保金额：", (brief.perfBond or "").strip(), **compact)

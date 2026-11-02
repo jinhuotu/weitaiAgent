@@ -100,8 +100,9 @@ def _number(value, fmt):
     return str(value)
 
 
-def numbering_labels(doc, paragraphs):
+def numbering_labels(doc, paragraphs, *, toc=False):
     counters = {}
+    toc_counters = {}
     result = {}
     for el in paragraphs:
         if el.tag != qn("w:p"):
@@ -110,6 +111,15 @@ def numbering_labels(doc, paragraphs):
         if info is None:
             continue
         ident, level, fmt, pattern, start, rank = info
+        if toc:
+            toc_counters[rank] = toc_counters.get(rank, start-1) + 1
+            for deeper in [key for key in toc_counters if key > rank]:
+                del toc_counters[deeper]
+            offset = rank - level - 1
+            label = re.sub(r'%(\d+)', lambda m: _number(
+                toc_counters.get(int(m.group(1)) + offset, 1), fmt), pattern)
+            result[el] = (label, rank)
+            continue
         own = counters.setdefault(ident, {})
         own[level] = own.get(level, start - 1) + 1
         for deeper in [key for key in own if key > level]:

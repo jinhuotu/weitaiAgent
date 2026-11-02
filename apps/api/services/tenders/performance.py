@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+
 import json
 import logging
 import re
@@ -20,7 +22,6 @@ logger = logging.getLogger("api.tenders.performance")
 PERF_META_PREFIX = "PERFJSON:"
 _MAX_OCR_CHARS = 6000
 _WEAK_NAME = ("snipaste", "screenshot", "img_", "dsc_", "wechat", "微信", "屏幕", "截图", "图片")
-_CHARGER_MARK = ("充电", "充电桩", "充电机", "群充", "直流桩", "交流桩", "箱变")
 _ONGOING_MARK = ("在建", "未竣工", "施工中", "供货中", "尚未验收")
 _DONE_MARK = ("已竣工", "竣工", "已验收", "验收合格", "已完成", "完工")
 
@@ -41,11 +42,6 @@ def is_weak_title(name: str) -> bool:
     return any(mark in compact for mark in _WEAK_NAME)
 
 
-def is_charger_line(line: PerformanceLine) -> bool:
-    if line.chargerRelated:
-        return True
-    blob = f"{line.projectName} {line.spec} {line.summary} {line.note}"
-    return any(mark in blob for mark in _CHARGER_MARK)
 
 
 def dump_perf_meta(line: PerformanceLine) -> str:
@@ -84,9 +80,6 @@ def performance_from_dict(
     ongoing = bool(item.get("ongoing"))
     if item.get("completed") is True:
         ongoing = False
-    charger = item.get("chargerRelated")
-    if charger is None:
-        charger = any(mark in f"{name} {item.get('spec') or ''} {item.get('summary') or ''}" for mark in _CHARGER_MARK)
     contact = str(item.get("contact") or "").strip()
     if contact in {"无", "没有", "暂无"}:
         contact = ""
@@ -100,7 +93,7 @@ def performance_from_dict(
         summary=str(item.get("summary") or "").strip()[:800],
         note=str(item.get("note") or "").strip()[:400],
         ongoing=ongoing,
-        chargerRelated=bool(charger),
+        bidderName=str(item.get("bidderName") or item.get("seller") or "").strip(),
     )
 
 
@@ -154,15 +147,11 @@ def fallback_from_text(text: str, filename: str) -> PerformanceLine | None:
     if not project:
         return None
     ongoing = any(mark in blob for mark in _ONGOING_MARK) and not any(mark in blob for mark in _DONE_MARK)
-    spec = ""
-    kw = re.search(r"(\d+\s*[kK][wW])", blob)
-    if kw:
-        spec = kw.group(1).replace(" ", "")
-    else:
-        for mark in ("直流", "交流", "群充", "箱变"):
-            if mark in blob:
-                spec = mark
-                break
+    spec_match = re.search(r"(?:规格型号|规格|型号|设备类型|服务范围)[：:]\s*([^\n。；;]{1,120})", blob)
+    measured = re.search(r'(?<![A-Za-z0-9.])\d+(?:\.\d+)?\s*(?:[kMGmunµ]?W|kVA|V|A|Hz|kg|mm|cm|mL|L|Pa|℃)(?![A-Za-z])', blob)
+    spec = spec_match.group(1).strip() if spec_match else (measured.group().replace(' ', '') if measured else '')
+    seller_match = re.search(r"(?:乙方|卖方|承包人|供应商)(?:[（(]?全称[）)]?)?[：:]\s*([^\n]{2,80})", blob)
+    bidder = seller_match.group(1).strip() if seller_match else ""
     return PerformanceLine(
         projectName=project[:255],
         spec=spec[:255],
@@ -170,7 +159,7 @@ def fallback_from_text(text: str, filename: str) -> PerformanceLine | None:
         amountYuan=amount_from_text(blob),
         summary="资料库合同/发票扫描件",
         ongoing=ongoing,
-        chargerRelated=any(mark in blob for mark in _CHARGER_MARK),
+        bidderName=bidder,
     )
 
 
@@ -178,7 +167,7 @@ def rank_performance_lines(
     lines: list[PerformanceLine],
     requirement: PerformanceRequirement | None = None,
 ) -> list[PerformanceLine]:
-    """有招标门槛时符合项在前；否则已竣工优先，不再默认充电桩。"""
+    """有招标门槛时符合项在前；否则按履约状态与合同金额排序。"""
     usable = [item for item in lines if (item.projectName or "").strip() and not is_weak_title(item.projectName)]
     active = requirement_active(requirement)
 
@@ -306,41 +295,8 @@ def apply_include_in_bid(
 
 
 _PERF_ANCHOR = re.compile(
-    r"类似项目|类似业绩|同类项目|同类工程|合同业绩|企业业绩|"
-    r"近三年.{0,12}(?:业绩|类似)|业绩证明|类似的项目"
+    r"业绩|(?:类似|同类)[^。；;\n]{0,48}(?:项目|工程|合同)"
 )
-_SCOPE_WORDS = (
-    "MES",
-    "MOM",
-    "WMS",
-    "TPM",
-    "QMS",
-    "数字化工厂",
-    "数智化",
-    "智能制造",
-    "制造执行",
-    "制造运营",
-    "充电桩",
-    "充电设施",
-    "充电机",
-    "直流桩",
-    "交流桩",
-    "群充",
-    "热力",
-    "供热",
-    "供暖",
-    "信息化",
-    "系统集成",
-    "软件开发",
-    "DICT",
-    "电缆",
-    "箱变",
-    "光伏",
-    "变电站",
-    "电力施工",
-    "EPC",
-)
-_CHARGER_SCOPE = frozenset({"充电桩", "充电设施", "充电机", "直流桩", "交流桩", "群充"})
 _SCOPE_JUNK = (
     "所要求",
     "相符",
@@ -382,7 +338,7 @@ _COUNT_PAT = re.compile(
     r"(?:至少|不少于)(?:提供)?(?P<n>\d+|[一二三四五六七八九十两])(?:个|项|份)"
     r"|提供(?P<n2>\d+|[一二三四五六七八九十两])(?:个|项|份).{0,8}(?:类似|同类)"
 )
-_SCOPE_PAT = re.compile(r"(?:类似|同类)(?:的)?(?P<scope>[^，。；;、]{2,16}?)(?:项目|工程|合同|业绩)")
+_SCOPE_PAT = re.compile(r"(?:类似|同类)(?:的)?(?P<scope>[^，。；;]{2,80}?)(?:项目|工程|合同|业绩)")
 
 
 def requirement_active(req: PerformanceRequirement | None) -> bool:
@@ -410,15 +366,9 @@ def _word_in(blob: str, word: str) -> bool:
 
 
 def _clean_scope(text: str) -> str:
-    s = re.sub(r"\s+", "", text or "")
-    if len(s) < 2:
+    s = re.sub(r"\s+", "", text or "").strip("的：:，,。；; ")
+    if len(s) < 2 or any(j in s for j in _SCOPE_JUNK):
         return ""
-    if any(j in s for j in _SCOPE_JUNK):
-        hits = [w for w in _SCOPE_WORDS if _word_in(s, w)]
-        return "、".join(hits[:3])
-    if len(s) > 16:
-        hits = [w for w in _SCOPE_WORDS if _word_in(s, w)]
-        return "、".join(hits[:3])
     return s[:80]
 
 
@@ -444,14 +394,14 @@ def _type_tokens(req: PerformanceRequirement | None) -> list[str]:
 
 
 def extract_performance_requirement(text: str) -> PerformanceRequirement:
-    """从招标/邀请书抽出业绩门槛。找不到则空对象，不套用默认 20 万。"""
+    """从招标/邀请书抽出业绩门槛。找不到则空对象，不推断金额或数量。"""
     windows = _perf_windows(text)
     if not windows:
         return empty_requirement()
     blob = "".join(windows)
     amount = _amount_from_windows(windows)
     count = _count_from_blob(blob)
-    keywords = [word for word in _SCOPE_WORDS if _word_in(blob, word)]
+    keywords = []
     scopes = []
     for window in windows:
         for match in _SCOPE_PAT.finditer(window):
@@ -462,12 +412,10 @@ def extract_performance_requirement(text: str) -> PerformanceRequirement:
     similar = _clean_scope(scopes[0] if scopes else "") or (
         "、".join(keywords[:3]) if keywords else ""
     )
-    if similar:
-        for word in _SCOPE_WORDS:
-            if _word_in(similar, word) and word not in keywords:
+    for scope in scopes:
+        for word in re.split(r'[/、，,；;]', scope):
+            if _clean_scope(word) and word not in keywords:
                 keywords.append(word)
-    if count <= 0:
-        count = 3
     require_completed = any(mark in blob for mark in ("已竣工", "已完成", "竣工验收", "已验收", "近三年完成"))
     if any(mark in blob for mark in ("在建亦可", "含在建", "在建项目也可")):
         require_completed = False
@@ -497,15 +445,14 @@ def requirement_from_payload(patch: dict[str, Any] | None) -> PerformanceRequire
         if isinstance(item, str) and str(item).strip()
     ]
     similar = _clean_scope(str(raw.get("similarScope") or raw.get("scope") or "").strip())
-    for word in _SCOPE_WORDS:
-        if word in similar and word not in keywords:
-            keywords.append(word)
+    if similar and similar not in keywords:
+        keywords.append(similar)
     keywords = [w for w in keywords if _clean_scope(w)]
     return PerformanceRequirement(
         similarScope=similar[:80],
         keywords=keywords[:8],
         minAmountYuan=max(0.0, amount),
-        minCount=max(0, min(count, 20)),
+        minCount=max(0, count),
         requireCompleted=bool(raw.get("requireCompleted")),
         note=str(raw.get("note") or "").strip()[:160],
     )
@@ -524,12 +471,13 @@ def merge_performance_requirement(
     if amount <= 0 and right.minAmountYuan > 0 and _amount_mentioned(compact_inv, right.minAmountYuan):
         amount = right.minAmountYuan
     count = left.minCount or 0
-    if count <= 0 and 0 < right.minCount <= 20:
+    if count <= 0 and right.minCount > 0 and right.minCount == _count_from_blob("".join(_perf_windows(invitation))):
         count = right.minCount
-    keywords = list(dict.fromkeys([*(left.keywords or []), *(right.keywords or [])]))[:8]
+    evidence = "".join(_perf_windows(invitation))
+    keywords = list(dict.fromkeys([*(left.keywords or []), *(w for w in (right.keywords or []) if _word_in(evidence, w))]))[:8]
     keywords = [w for w in keywords if _clean_scope(w)][:8]
     similar = _clean_scope((left.similarScope or "").strip()) or _clean_scope(
-        (right.similarScope or "").strip()
+        (right.similarScope or "").strip() if _word_in(evidence, right.similarScope or "") else ""
     )
     if not similar and keywords:
         similar = "、".join(keywords[:3])
@@ -646,8 +594,7 @@ def _similar_hit(line: PerformanceLine, blob: str, req: PerformanceRequirement) 
     for word in tokens:
         if _word_in(blob, word):
             return True
-        if word in _CHARGER_SCOPE and is_charger_line(line):
-            return True
+
     return False
 
 
@@ -693,7 +640,7 @@ def _count_from_blob(blob: str) -> int:
         return 0
     raw = match.group("n") or match.group("n2") or ""
     if raw.isdigit():
-        return max(0, min(int(raw), 20))
+        return max(0, int(raw))
     return _CN_COUNT.get(raw, 0)
 
 
@@ -748,13 +695,7 @@ async def _extract_with_llm(db: AsyncSession, text: str, filename: str) -> Perfo
                 {
                     "role": "system",
                     "content": (
-                        "你从河南伟泰光电科技有限公司的合同或发票扫描识别文本中抽取一条投标业绩。"
-                        "只填文本里能确认的字段，禁止编造。只输出一个 JSON 对象。"
-                        "字段：projectName（工程/合同名称）, spec（充电桩规格，如直流功率、群充、箱变）,"
-                        "client（买方/甲方）, contact（甲方联系人，没有则空字符串）,"
-                        "amountYuan（合同额，单位元，数字）, summary（概况：直流桩台数、场站类型、EPC或设备供货）,"
-                        "ongoing（true=在建未竣工，false=已竣工完成）, chargerRelated（是否充电桩相关）,"
-                        "note（补充）。找不到的填空字符串或 false。"
+                        get_prompt("performance_system")
                     ),
                 },
                 {

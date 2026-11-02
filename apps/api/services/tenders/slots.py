@@ -45,7 +45,16 @@ def list_slot_files(key: str) -> list[Path]:
         for p in folder.iterdir()
         if p.is_file() and not p.name.startswith(".") and p.suffix.lower() in _ALLOWED_EXT
     ]
-    return sorted(files, key=lambda p: p.name.lower())
+    readable = []
+    for path in files:
+        try:
+            if path.stat().st_size > 0:
+                with path.open('rb') as stream:
+                    stream.read(1)
+                readable.append(path)
+        except OSError:
+            continue
+    return sorted(readable, key=lambda p: p.name.lower())
 
 
 def clear_slot(key: str) -> int:
@@ -160,12 +169,16 @@ def prepare_bid_slots(brief) -> tuple[list[PlaceholderItem], dict[str, list[Path
     """Standalone builders use the same selected keys as the record pipeline."""
     from api.services.tenders.placeholders import this_bid_keys
     from api.services.tenders.requirement_bid import invitation_text
+    from api.services.tenders.material_intents import prepare_structural_demands
+
+    prepare_structural_demands(brief)
 
     required, include = this_bid_keys(
         extra=brief.extraPlaceholders, required_keys=brief.requiredSlotKeys,
         include_keys=brief.includeSlotKeys, has_agent=bool(brief.authEnabled),
         outline_items=brief.outlineItems, requirements=brief.bidRequirements,
         source_text=invitation_text(brief), invitation_id=brief.invitationId,
+        material_demands=brief.materialDemands if (brief.materialDemands or brief.materialIntentHash) else None,
     )
     brief.requiredSlotKeys, brief.includeSlotKeys = required, include
     slots = collect_slots(brief.extraPlaceholders, include_keys=include,

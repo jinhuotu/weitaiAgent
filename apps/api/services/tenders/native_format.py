@@ -122,6 +122,7 @@ def _recover_styled_chapters(brief: BidBrief) -> None:
             p._p in toc
             or _directory_entry(p._p)
             or not text
+            or _cover_signoff(text)
             or is_format_start(text)
             or re.sub(r"\s+", "", text)
             in {"目录", "投标文件", "响应文件", "商务标", "技术标", "封面格式"}
@@ -234,6 +235,7 @@ def selected_items(brief: BidBrief, volume: str) -> list[OutlineItem]:
         i
         for i in brief.outlineItems
         if not i.skipped
+        and not _cover_signoff(i.title)
         and not is_volume_label(i.title)
         and (volume not in {"business", "technical"} or section_volume(i) == volume)
     ]
@@ -264,6 +266,8 @@ def body_sections(doc, brief: BidBrief) -> list[tuple]:
         paragraphs = [el] if el.tag == qn("w:p") else list(el.iter(qn("w:p")))
         for p in paragraphs:
             title = _text(p)
+            if _cover_signoff(title):
+                continue
             item = keys.get(_key(title))
             if native and el.tag == qn("w:p") and _physical_chapter(p, doc):
                 item = _physical_item(p, doc, item)
@@ -309,6 +313,10 @@ def _physical_chapter(p, doc) -> bool:
     from api.services.tenders.format_rules import peel_toc_lead
 
     text = _text(p)
+    from api.services.tenders.word_structure import numbering_info
+    numbering = numbering_info(doc, p)
+    if re.match(r"^\s*[A-Za-z][.．、）)]", text) or (numbering and numbering[2] in {'upperLetter', 'lowerLetter'}):
+        return False
     if (
         not text
         or len(text) > 70
@@ -362,6 +370,10 @@ def _physical_item(p, doc, existing=None):
                 level = min(4, int(outline.get(qn("w:val"), "0")) + 1)
                 break
             style = style.base_style
+    from api.services.tenders.word_structure import numbering_info
+    info = numbering_info(doc, p)
+    if re.match(r"^\s*[A-Za-z][.．、）)]", title) or (info and info[2] in {"upperLetter", "lowerLetter"}):
+        level = max(2, info[-1] if info else 2)
     if existing is not None:
         return existing.model_copy(update={"rawTitle": title, "level": level, "tocEligible": True})
     return OutlineItem(
@@ -570,13 +582,32 @@ def supplement_sections(doc, brief: BidBrief, volume: str, *, media=None) -> lis
     from api.services.tenders.assemble import _write_body, _write_heading
     from api.services.tenders.assets import find_chapter5_template
     from api.services.tenders.modules import MODULE_KINDS, render_module
+    from api.services.tenders.word_structure import outline_level
 
     present = {_key(item.title) for _, _, item in body_sections(doc, brief)}
+    from api.services.tenders.section_materials import sections, _heading_text, _key as section_key
+    from api.services.tenders.pdf_format import toc_block_ids
+    source_titles = {section_key(_heading_text(head)) for head, _, _ in sections(doc,set(toc_block_ids(doc)))}
     template_path = find_chapter5_template()
     template = Document(template_path) if template_path is not None else None
     notes = []
     for item in selected_items(brief, volume):
+        # Supplement only an absent whole chapter. Alphabetic requirements and
+        # other child items belong to existing source sections, never the tail.
+        source_title = item.rawTitle or item.title
+        if section_key(source_title) in source_titles:
+            continue
+        if item.level > 1 or re.match(r'^\s*[A-Za-z][.．、）)]', source_title):
+            continue
         if _key(item.title) in present:
+            continue
+        from api.services.tenders.section_materials import _key as material_title_key
+        wanted = material_title_key(source_title)
+        if any(
+            material_title_key(_text(p)).startswith(wanted)
+            for p in doc.element.body.iter(qn('w:p'))
+            if wanted and (outline_level(doc, p) or re.match(r'^\s*[A-Za-z][.．、）)]', _text(p)))
+        ):
             continue
         doc.add_page_break()
         copied = _copy_template_section(doc, template, item) if template is not None else False
@@ -847,7 +878,7 @@ def _read_toc_entries(block, doc=None) -> list[dict]:
     rows = []
     from api.services.tenders.word_structure import numbering_labels
 
-    numbers = numbering_labels(doc, block) if doc is not None else {}
+    numbers = numbering_labels(doc, block, toc=True) if doc is not None else {}
     for el in block[1:]:
         if el.tag != qn("w:p"):
             continue
@@ -1533,45 +1564,28 @@ def _cover_signoff(text: str) -> bool:
     n = re.sub(r"\s+", "", text or "")
     if not n or len(n) > 40:
         return False
-    return any(pat.fullmatch(n) for pat in _COVER_LINE)
+    from api.services.tenders.format_rules import peel_toc_lead
+
+    return any(pat.fullmatch(value) for value in (n, peel_toc_lead(n)) for pat in _COVER_LINE)
 
 
 def fill_native_cover(doc, brief: BidBrief) -> None:
     """Fill cover fields within existing runs, retaining their fonts and paragraph XML."""
+    doc.element._fill_styles = doc.styles.element
     from api.services.tenders.document import _ymd
-    from api.services.tenders.pdf_format import _fill_hints, _replace_span, _swap_tokens
+    from api.services.tenders.pdf_format import (
+        _fill_hints, _replace_span, _swap_tokens, _fill_para_blanks,
+        _fill_label_gap, _fill_mixed_hints, _fill_date_placeholders, _tech_cover_nodes,
+        _blank_text, _write_blank_span, _blank_tokens, _run_under,
+    )
 
     children = _cover_elements(doc, brief)
-    if not children:
-        return
     number = brief.tenderNo.strip()
     if not number:
         from api.services.tenders.format_rules import extract_tender_no
         from api.services.tenders.requirement_bid import invitation_text
 
         number = extract_tender_no(invitation_text(brief))
-    cover_text = "".join(_text(el) for el in children)
-    if not any(word in cover_text for word in ("招标编号", "项目编号", "采购编号")):
-        host = next(
-            (
-                el
-                for el in children
-                if el.tag == qn("w:p") and any(word in _text(el) for word in ("投标人", "供应商"))
-            ),
-            None,
-        )
-        if host is not None:
-            number_line = deepcopy(host)
-            for node in list(number_line):
-                if node.tag != qn("w:pPr"):
-                    number_line.remove(node)
-            para = Paragraph(number_line, doc)
-            run = para.add_run(f"项目编号：{number or '【待补充】'}")
-            sample = host.find("w:r/w:rPr", host.nsmap)
-            if sample is not None:
-                run._r.insert(0, deepcopy(sample))
-            host.addprevious(number_line)
-            children.insert(children.index(host), number_line)
     values = (
         ("项目名称", brief.projectName),
         ("招标编号", number),
@@ -1584,8 +1598,14 @@ def fill_native_cover(doc, brief: BidBrief) -> None:
     )
     for el in children:
         for p in el.iter(qn("w:p")):
+            # The technical volume copies this cover before body filling. Use
+            # the same blank-span writers now, rather than capturing empty fields.
+            _fill_date_placeholders(p, brief)
+            _fill_mixed_hints(p, brief)
             _fill_hints(p, brief)
             _swap_tokens(p, brief)
+            _fill_para_blanks(p, brief)
+            _fill_label_gap(p, brief)
             compact = re.sub(r"\s+", "", _text(p))
             if (
                 compact in {"日期", "日期：", "日期:"}
@@ -1599,7 +1619,19 @@ def fill_native_cover(doc, brief: BidBrief) -> None:
                 _replace_span(p, _text(p), shown)
                 continue
             for label, value in values:
-                if not value or not compact.startswith(label) or value in compact:
+                if not value or not compact.startswith(label):
+                    continue
+                if value in compact:
+                    # Old previews may already contain the right value in a
+                    # separate run beside an untouched underline. Move that
+                    # same value into its slot without replacing source facts.
+                    raw = _blank_text(p)
+                    position = raw.find(value)
+                    gap = re.search(r'[_＿\u3000 \t]+$',raw[:position]) if position >= 0 else None
+                    if gap and (re.search(r'[_＿]',gap.group()) or any(
+                            _run_under(run) and a < gap.end() and b > gap.start()
+                            for run,_,a,b,_ in _blank_tokens(p))):
+                        _write_blank_span(p,gap.start(),gap.end(),value)
                     continue
                 # Only blank slots, never replace already populated source facts.
                 extra = ""
@@ -1619,19 +1651,16 @@ def fill_native_cover(doc, brief: BidBrief) -> None:
                     if nodes:
                         suffix = match.group(2) or ""
                         tail = match.group(3) or ""
-                        text = "".join(n.text or "" for n in nodes)
+                        text = _blank_text(p)
                         blank = re.search(r"[_＿　 \t]+(?=[（(]|$)", text)
                         if blank:
-                            _replace_span(p, blank.group(), value)
+                            _write_blank_span(p, blank.start(), blank.end(), value)
                         elif suffix and suffix in text:
-                            _replace_span(p, suffix, value + suffix)
+                            at = text.index(suffix)
+                            _write_blank_span(p, at, at, value)
                         else:
-                            nodes[-1].text = (nodes[-1].text or "").rstrip("_＿　 ") + value
+                            _write_blank_span(p, len(text), len(text), value)
                         if tail and tail in "".join(n.text or "" for n in p.iter(qn("w:t"))):
                             year, month, day = _ymd(brief.bidDate)
                             _replace_span(p, tail, f"{year}年{month}月{day}日")
-                            for tab in list(p.iter(qn("w:tab"))):
-                                holder = tab.getparent()
-                                if holder is not None:
-                                    holder.remove(tab)
                     break

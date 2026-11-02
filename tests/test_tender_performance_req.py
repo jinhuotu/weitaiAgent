@@ -156,8 +156,8 @@ def test_pad_placeholders_when_library_misses() -> None:
 def test_performance_match_issues_count() -> None:
     req = PerformanceRequirement(keywords=["充电桩"], minAmountYuan=200000, minCount=3)
     lines = [
-        PerformanceLine(projectName="充电A", chargerRelated=True, amountYuan=300000),
-        PerformanceLine(projectName="充电B", chargerRelated=True, amountYuan=250000),
+        PerformanceLine(projectName="充电A", spec="充电桩", chargerRelated=True, amountYuan=300000),
+        PerformanceLine(projectName="充电B", spec="充电桩", chargerRelated=True, amountYuan=250000),
         PerformanceLine(projectName="电缆", amountYuan=900000),
     ]
     notes = performance_match_issues(lines, req)
@@ -210,8 +210,8 @@ def test_merge_preserves_user_unchecked() -> None:
 def test_match_issues_use_selected_rows() -> None:
     req = PerformanceRequirement(keywords=["充电桩"], minAmountYuan=200000, minCount=2)
     lines = [
-        PerformanceLine(projectName="充电A", chargerRelated=True, amountYuan=300000, includeInBid=True),
-        PerformanceLine(projectName="充电B", chargerRelated=True, amountYuan=250000, includeInBid=False),
+        PerformanceLine(projectName="充电A", spec="充电桩", chargerRelated=True, amountYuan=300000, includeInBid=True),
+        PerformanceLine(projectName="充电B", spec="充电桩", chargerRelated=True, amountYuan=250000, includeInBid=False),
     ]
     notes = performance_match_issues(lines, req)
     assert notes and "符合招标要求 1 条" in notes[0]
@@ -223,7 +223,7 @@ def test_extract_mes_mom_threshold() -> None:
 资格条件：投标人须提供近三年类似制造执行/MES、MOM项目业绩。
 """
     req = extract_performance_requirement(text)
-    assert req.minCount >= 3
+    assert req.minCount == 0
     assert any(k.upper() in {"MES", "MOM"} for k in req.keywords)
     assert req.minAmountYuan == 0
 
@@ -276,6 +276,6 @@ def test_extract_skips_boilerplate_similar_scope() -> None:
 投标人须提供近三年类似的业绩所要求的与牵引指标项相符项目不少于3个，须已竣工验收。
 """
     req = extract_performance_requirement(text)
-    assert req.minCount >= 3
+    assert req.minCount == 3
     assert "所要求" not in (req.similarScope or "")
     assert "牵引" not in (req.similarScope or "")

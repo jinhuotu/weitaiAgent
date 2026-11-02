@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+from api.services.tenders.generation_parallel import complete_json
+
 import json
 import logging
 import re
@@ -219,6 +222,7 @@ def _chapter_role(item: OutlineItem) -> str:
 
 def _evidence(brief: BidBrief, library_facts: list[dict]) -> str:
     lines = [f"项目名称：{brief.projectName}"] if brief.projectName else []
+    lines.append(f"本次投标人：{brief.bidderName or '【待补充】'}")
     if brief.bidContent:
         lines.append(f"项目内容：{brief.bidContent}")
     if (brief.extraNote or "").strip():
@@ -425,6 +429,7 @@ async def draft_business_response(
                 selected_ids,
                 query=f"{kind} 已中标 商务响应 商务偏离 承诺 {score_words} {keywords}"[:240],
                 quiet=True,
+                bidder_name=brief.bidderName,
             )
             style = _writing_style(await _won_business_docs(db, docs))
         except Exception as exc:  # noqa: BLE001
@@ -442,29 +447,16 @@ async def draft_business_response(
     chapter_titles = {i.title for i in editable if _chapter_role(i) != "deviation"}
     chapter_gaps: set[str] = set()
     clause_gaps = False
-    for offset in range(0, len(requirements), 20):
+    async def generate_batch(offset):
         batch = requirements[offset : offset + 20]
         batch_texts = {row.text for row in batch}
         batch_substantial = [row.text for row in batch if row in substantial]
-        raw = await client.complete(
+        return await complete_json(client,
             [
                 {
                     "role": "system",
                     "content": (
-                        "你是商务标响应起草员。仅根据招标条款和已核实事实逐条起草。"
-                        "每条保留原文 requirement，输出 response、deviation、explanation。"
-                        "deviation 仅为无偏离、正偏离、负偏离或待确认。"
-                        "不能凭空承诺资质、业绩、金额、优惠或合同条件；证据不足写【待补充】并标待确认；不把不符合项写成无偏离。"
-                        "实质性条款逐条核对，优先按招标条件提出正向响应；不能证实履约时标待确认，已知负偏离须如实标出。"
-                        "按商务评分项组织响应，但不得编造分值、业绩或优惠。知识库仅参考写法，禁止套用历史项目事实。"
-                        "chapters 仅使用给定可写标题，围绕该章节用途起草正式响应正文。"
-                        "不得扩写原版固定承诺/声明，不得改变项目经理等专用承诺的用途。"
-                        "正文不得出现本批、现阶段、概括响应、起草说明或不作无依据承诺等生成过程用语。"
-                        "逐条响应只放 clauses，chapters 不再复制条款或逐条响应；未响应条款不在正文展开。"
-                        "营业执照、财务、业绩响应归入对应资格证明，不在合同响应或承诺正文重复罗列。"
-                        "无可核实优惠写【待补充】，不得编造优惠。"
-                        "只返回 JSON：clauses 含 requirement、response、deviation、explanation；"
-                        "chapters 含 title、body。"
+                        get_prompt("biz_resp_system")
                     ),
                 },
                 {
@@ -495,6 +487,13 @@ async def draft_business_response(
             ],
             mode="pro",
         )
+    from api.services.tenders.generation_parallel import ordered_generation
+    offsets = list(range(0, len(requirements), 20))
+    results = await ordered_generation([lambda offset=offset: generate_batch(offset) for offset in offsets], stage='business_response')
+    for offset, raw in zip(offsets, results):
+        batch = requirements[offset:offset+20]
+        batch_texts = {row.text for row in batch}
+        batch_substantial = [row.text for row in batch if row in substantial]
         payload = _parse(raw)
         answered = set()
         for row in payload["clauses"]:
@@ -573,13 +572,9 @@ async def draft_business_response(
     if merge_titles and len(requirements) > 20:
         # Clause batches are not successive paragraphs of a complete chapter.
         # Compose one coherent result rather than concatenating their summaries.
-        raw = await client.complete([
+        raw = await complete_json(client, [
             {"role": "system", "content": (
-                "本次任务是商务响应章节统稿。只使用给定草稿和已核实事实，按章节用途形成一份连贯正文。"
-                "合并重复含义，不增加事实、金额、优惠或合同承诺，不扩写原版固定声明。"
-                "不要逐条复制招标要求或响应；证据不足的事项留给核对表。"
-                "不得出现本批、现阶段、概括响应、起草说明或无依据承诺等生成过程用语。"
-                "只返回JSON：chapters为title、body列表，仅使用给定标题。"
+                get_prompt("biz_resp_compose_system")
             )},
             {"role": "user", "content": (
                 "【已核实事实及用户商务输入】\n" + evidence

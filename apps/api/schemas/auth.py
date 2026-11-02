@@ -21,6 +21,7 @@ class UserInfo(BaseModel):
     username: str
     display_name: str | None = None
     email: str | None = None
+    phone: str | None = None
     is_superuser: bool = False
     roles: list[str] = Field(default_factory=list)
     menus: list[str] = Field(default_factory=list, description="可访问菜单 href")

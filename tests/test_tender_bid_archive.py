@@ -18,6 +18,7 @@ from api.services.tenders.schema import BidBrief, OutlineItem
 def _brief() -> BidBrief:
     return BidBrief(
         projectName="郑州高新新能源项目",
+        bidderName="河南伟泰光电科技有限公司",
         tenderer="郑州某某建设集团",
         tenderNo="26-GCZN-0150",
         bidPriceYuan=1280000,

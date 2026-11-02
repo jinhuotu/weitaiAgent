@@ -129,7 +129,7 @@ def native_env(tmp_path, monkeypatch):
 
 
 def _brief():
-    return BidBrief(
+    return BidBrief(bidderName="测试投标有限公司",
         invitationId="eaeaeaeaeaea",
         outlineChapter="第六章 投标文件格式",
         layoutMode="outline",
@@ -245,6 +245,10 @@ def test_record_pipeline_keeps_critical_keys_and_reports_missing_files(
         )
         return {"docxFile": path.name, "downloadName": "本次测试.docx", "warnings": notes}
 
+    from api.services.tenders import company_materials
+    async def owned_media(db, brief, media):
+        return media, set(), {"person-a", "person-b"}, []
+    monkeypatch.setattr(company_materials, "scoped_library_media", owned_media)
     monkeypatch.setattr(records, "generate_bid", generate)
     brief = _brief()
     result, _ = asyncio.run(records._prepare_and_generate(None, brief))
@@ -258,7 +262,6 @@ def test_record_pipeline_keeps_critical_keys_and_reports_missing_files(
         assert "资料库缺少营业执照，请在资料库对应项上传" in result["warnings"]
         assert "资料库缺少法定代表人身份证正反面，请在资料库对应项上传" in result["warnings"]
 
-
 def test_record_does_not_reload_identity_or_performance_files_after_filtering(
     native_env,
     monkeypatch,
@@ -271,6 +274,10 @@ def test_record_does_not_reload_identity_or_performance_files_after_filtering(
     slot_files.save_slot_file("id_legal", filename=excluded.name, data=excluded.read_bytes())
     slot_files.save_slot_file("perf", filename="wrong-project.png", data=excluded.read_bytes())
     chosen = [p for p in slot_files.list_slot_files("id_legal") if p.name != excluded.name]
+    from api.services.tenders import company_materials
+    async def owned_media(db, brief, media):
+        return media, set(), {"person-a", "person-b"}, []
+    monkeypatch.setattr(company_materials, "scoped_library_media", owned_media)
     monkeypatch.setattr(
         library_kb,
         "legal_persons_from_library",
@@ -297,7 +304,6 @@ def test_record_does_not_reload_identity_or_performance_files_after_filtering(
     asyncio.run(records._prepare_and_generate(None, brief))
     assert set(captured["catalog_media"]["id_legal"]) == set(chosen)
     assert "perf" not in captured["catalog_media"]
-
 
 def test_dedicated_chapter_wins_over_letter_mention_for_attachment_routing():
     items = collect_slots(

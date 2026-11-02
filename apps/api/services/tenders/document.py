@@ -44,10 +44,8 @@ from api.services.tenders.placeholders import (
     inline_id_scans,
 )
 from api.services.tenders.quote import (
-    SECOND_ROUND_YUAN,
     QuoteSheet,
     apply_traffic_note,
-    is_template_sheet,
     money_text,
     qty_text,
     resolve_quote_sheet,
@@ -177,7 +175,8 @@ def _clear_tab_stops(para: Paragraph) -> None:
 
 def _run_underlined(run) -> bool:
     rpr = run._element.find(qn("w:rPr"))
-    return rpr is not None and rpr.find(qn("w:u")) is not None
+    line = rpr.find(qn("w:u")) if rpr is not None else None
+    return line is not None and line.get(qn("w:val"), "single") not in {"none", "0", "false", "off"}
 
 
 def _blank_runs(para: Paragraph) -> list:
@@ -250,29 +249,27 @@ def _normalize_blank_underlines(doc: Document) -> None:
 
 def _put_on_line(run, text: str, *, para: Paragraph | None = None) -> None:
     """把文字写进原有下划线空白：跟相邻正文字体字号一致，不加粗、不放大。"""
-    r = run._element
-    ref = _neighbor_rpr(para, run) if para is not None else r.find(qn("w:rPr"))
-    new_rpr = _clone_fill_rpr(ref, underline=True)
-    old_rpr = r.find(qn("w:rPr"))
-    if old_rpr is not None:
-        r.remove(old_rpr)
-    r.insert(0, new_rpr)
-    for child in list(r):
-        if child.tag in (qn("w:t"), qn("w:tab"), qn("w:br"), qn("w:cr")):
-            r.remove(child)
-    t = OxmlElement("w:t")
-    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    t.text = f" {(text or '').strip() or '　'} "
-    r.append(t)
+    from api.services.tenders.pdf_format import _blank_tokens, _write_blank_span
+    para = para or getattr(run,'_parent',None)
+    if para is not None:
+        para.part.document.element._fill_styles = para.part.document.styles.element
+    el = para._p if para is not None else run._element.getparent()
+    owned = [token for token in _blank_tokens(el) if token[0] is run._element]
+    if owned and (text or '').strip():
+        _write_blank_span(el, owned[0][2], owned[-1][3], text)
 
 
 def _fill_blanks(para: Paragraph, *values: str) -> int:
-    blanks = _blank_runs(para)
+    from api.services.tenders.pdf_format import _blank_ranges, _blank_tokens, _run_under, _write_blank_span
+    para.part.document.element._fill_styles = para.part.document.styles.element
+    tokens = list(_blank_tokens(para._p))
+    blanks = [span for span in _blank_ranges(para._p)
+              if any(_run_under(run) and a < span.end() and b > span.start() for run,_,a,b,_ in tokens)]
     filled = 0
-    for run, val in zip(blanks, values):
+    for span, val in reversed(list(zip(blanks, values))):
         if not (val or "").strip():
             continue
-        _put_on_line(run, val, para=para)
+        _write_blank_span(para._p, span.start(), span.end(), val)
         filled += 1
     return filled
 
@@ -389,14 +386,7 @@ def _underline_value(para: Paragraph, value: str, target_em: int) -> None:
     target = max(0, int(target_em or 0))
     text = (value or "").strip()
     if text:
-        filled = text
-        padded = f" {text} "
-        if target >= 2 and _em_len(padded) <= target + 0.05:
-            filled = padded
-        _form_run(para, filled, underline=True)
-        extra = target - _em_len(filled)
-        if extra >= 0.5:
-            _add_form_pad(para, extra)
+        _form_run(para, text, underline=True)
         return
     if target >= 1:
         _add_form_pad(para, target)
@@ -551,6 +541,22 @@ def _rewrite_labeled_underline(
     fill_to_edge: bool = False,
 ) -> None:
     """标签 + 单实线下划线 + 后缀。空栏不换行，后缀与横线同一行。"""
+    # Existing forms already define the label, underline and tab positions.
+    # Reuse those slots; the construction path below is only for a new line.
+    from api.services.tenders.pdf_format import _blank_ranges, _blank_tokens, _run_under, _fit_filled_run, _relax_signature_flow
+    tokens = list(_blank_tokens(para._p))
+    has_blank = any(re.search(r'[_＿]',span.group()) or any(_run_under(run) and a<span.end() and b>span.start()
+                    for run,_,a,b,_ in tokens) for span in _blank_ranges(para._p))
+    if has_blank:
+        _fill_blanks(para, *[value for _,value,_ in rows])
+        _relax_signature_flow(para._p)
+        return
+    if rows and all(not value.strip() or value.strip() in para.text for _,value,_ in rows) and any(run.underline for run in para.runs):
+        for run in para.runs:
+            if any(value.strip() == run.text for _,value,_ in rows if value.strip()):
+                _fit_filled_run(para._p, run._r)
+        _relax_signature_flow(para._p)
+        return
     del blank_width
     _clear_runs(para)
     _clear_tab_stops(para)
@@ -575,7 +581,7 @@ def _rewrite_labeled_underline(
             para.add_run().add_break()
         display = _align_sign_label(label, label_width) if label_width else label
         hand = _is_hand_sign_blank(label, value, suffix)
-        fill = "" if hand else value
+        fill = value
         if hand:
             fill_target = _fit_hand_sign_fill(
                 para, display, suffix, want_em=_SIGN_BLANK_MIN_EM
@@ -592,6 +598,11 @@ def _rewrite_labeled_underline(
         _underline_value(para, fill, fill_target)
         if suffix:
             _form_run(para, suffix, underline=False)
+    from api.services.tenders.pdf_format import _fit_filled_run, _relax_signature_flow
+    for run in para.runs:
+        if run.underline and (run.text or '').strip():
+            _fit_filled_run(para._p, run._r)
+    _relax_signature_flow(para._p)
 
 
 def _rewrite_date_line(
@@ -602,6 +613,16 @@ def _rewrite_date_line(
     **kw,
 ) -> None:
     """日期与上方落款同一左缘；年/月/日数字下划线，不用制表虚线。"""
+    from api.services.tenders.pdf_format import _blank_ranges, _fill_date_placeholders, _relax_signature_flow
+    if _blank_runs(para) or (all(mark in para.text for mark in ('年','月','日')) and _blank_ranges(para._p)):
+        if all(str(part or '').strip().isdigit() for part in (year,month,day)):
+            if all(mark in para.text for mark in ('年','月','日')):
+                from types import SimpleNamespace
+                _fill_date_placeholders(para._p, SimpleNamespace(bidDate=f'{year}-{month}-{day}'))
+            else:
+                _fill_blanks(para, f'{year}年{month}月{day}日')
+        _relax_signature_flow(para._p)
+        return
     align = kw.get("align", WD_ALIGN_PARAGRAPH.LEFT)
     line_spacing = kw.get("line_spacing", 1.75)
     space_before = kw.get("space_before", 6)
@@ -798,41 +819,38 @@ def _sign_spacer_cm(
     reserve_cm: float = 0.0,
     max_cm: float = 10.0,
 ) -> float:
+    """No automatic signature padding; retain explicitly configured cover spacing."""
+    if bottom_pad_cm is None:
+        return 0.0
+    # The cover renderer explicitly supplies its lower-page spacing. Ordinary
+    # signature callers use the default and must not gain elastic blank space.
     used = _estimate_cm_on_current_page(doc, stop_el=stop_el)
-    pad = _SIGN_BOTTOM_PAD_CM if bottom_pad_cm is None else bottom_pad_cm
     page = _page_body_cm(doc)
     remain = page - used
     reserve = max(0.0, float(reserve_cm or 0.0))
     cap = max(0.35, float(max_cm or 10.0))
-    # 本页已经放不下落后落款时不要再垫空白，否则整块签字会翻到下一页独页
     if remain < sign_cm + _SIGN_MIN_GAP_CM + reserve:
         return 0.0
-    budget = remain - sign_cm - pad - reserve
-    # 正文未过满页时尽量垫空白，把落款压到右下（原先 0.55 阈值太严，附录半页就贴正文）
+    budget = remain - sign_cm - bottom_pad_cm - reserve
     if used > page * 0.78 or budget < 0.35:
         return 0.0
     return min(budget, cap)
 
 
 def _glue_sign_off(doc: Document, spacer: Paragraph | None, lines: list[Paragraph]) -> None:
-    """落款跟前一段钉在一起，避免投标人/签字/日期单独成页。"""
+    """Allow natural breaks within a signature block; only glue split line hints."""
     del doc
     first = spacer or (lines[0] if lines else None)
     if first is None:
         return
-    prev = first._element.getprevious()
-    while prev is not None and prev.tag not in {qn("w:p"), qn("w:tbl")}:
-        prev = prev.getprevious()
-    if prev is not None and prev.tag == qn("w:p"):
-        Paragraph(prev, first._parent).paragraph_format.keep_with_next = True
     chain = ([spacer] if spacer is not None else []) + lines
-    for p in chain[:-1]:
+    from api.services.tenders.pdf_format import _relax_signature_flow
+    for p in chain:
         if p is None:
             continue
-        p.paragraph_format.keep_with_next = True
-        p.paragraph_format.keep_together = True
-    if chain:
-        chain[-1].paragraph_format.keep_together = True
+        p.paragraph_format.keep_with_next = False
+        p.paragraph_format.keep_together = False
+        _relax_signature_flow(p._p)
 
 
 def _apply_sign_spacer_paragraph(para: Paragraph, height_cm: float) -> None:
@@ -1055,7 +1073,7 @@ def _fill_technical_section(doc: Document, brief: BidBrief, catalog_media: dict 
     intro = _insert_paragraph_after(cursor)
     _write_plain(
         intro,
-        "本部分为技术标。评审看充电站如何建成：文字说明加本项目图纸。"
+        "本部分为技术标。按本次招标要求提供方案说明及所需图纸。"
         "不响应技术要求会大量扣分。公司资格、业绩、报价与函件见商务标及附件。",
         size=12,
         bold=False,
@@ -1963,16 +1981,6 @@ def infer_factory_role(brief: BidBrief) -> str:
     role = (brief.factoryRole or "").strip()
     if role:
         return role
-    blob = " ".join(
-        [
-            brief.bidContent or "",
-            brief.projectName or "",
-            brief.quoteTitle or "",
-            *[ln.name for ln in (brief.quoteLines or [])],
-        ]
-    )
-    if "充电" in blob:
-        return "充电设备生产厂商"
     return "投标产品生产厂商"
 
 
@@ -1984,7 +1992,7 @@ def _factory_addressee(brief: BidBrief) -> str:
 def _is_factory_body(n: str) -> bool:
     if not n:
         return False
-    if any(mark in n for mark in ("见模", "充电设备生产厂商", "投标产品生产厂商", "承担原厂责任", "联源热电")):
+    if any(mark in n for mark in ("见模", "投标产品生产厂商", "承担原厂责任")):
         return True
     if n.endswith("：") and any(k in n for k in ("公司", "局", "中心", "院")):
         return True
@@ -2034,9 +2042,9 @@ def _write_factory_commitment(para: Paragraph, brief: BidBrief) -> Paragraph:
     else:
         _add_factory_run(body, "本次", underline=False)
     _add_factory_run(body, "投标产品的质量、供货期、质保期及售后服务承担原厂责任。本项目供货期 ", underline=False)
-    _add_factory_run(body, str(brief.deliveryDays), underline=True)
+    _add_factory_run(body, str(brief.deliveryDays) if brief.deliveryDays else "", underline=True)
     _add_factory_run(body, " 日历天内，质保期 ", underline=False)
-    _add_factory_run(body, str(brief.warrantyYears), underline=True)
+    _add_factory_run(body, str(brief.warrantyYears) if brief.warrantyYears else "", underline=True)
     _add_factory_run(body, " 年。特此承诺。", underline=False)
     return body
 
@@ -2095,6 +2103,10 @@ def _fill_paragraphs(
     media: dict | None = None,
     inlined: set[str] | None = None,
 ) -> Paragraph | None:
+    from api.services.tenders.pdf_format import _self_sign_note, _compact_signature_flow
+    doc.element._fill_styles = doc.styles.element
+    note = _self_sign_note(brief)
+    if note:logger.info(note)
     price_cn = rmb_uppercase(brief.bidPriceYuan)
     price_en = rmb_figure(brief.bidPriceYuan)
     extra = (brief.extraNote or "").strip() or "无"
@@ -2183,7 +2195,7 @@ def _fill_paragraphs(
                     [("投标人：", brief.bidderName, "（盖单位公章）")],
                     **_COVER_SIGN_KW,
                 )
-                if mashed_legal:
+                if mashed_legal and "法定代表人" not in _compact(para.text):
                     legal_p = _insert_paragraph_after(para)
                     _rewrite_labeled_underline(
                         legal_p,
@@ -2209,7 +2221,7 @@ def _fill_paragraphs(
                     brief.projectName,
                     price_cn,
                     price_en,
-                    f"{brief.deliveryDays}日历天",
+                    f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
                     brief.quality,
                 )
                 _scrub_hints(para, hints_project)
@@ -2283,7 +2295,7 @@ def _fill_paragraphs(
                     [(label, brief.bidderName, seal)],
                     **_LETTER_SIGN_RIGHT_KW,
                 )
-                if mashed_legal:
+                if mashed_legal and "法定代表人" not in _compact(para.text):
                     legal_p = _insert_paragraph_after(para)
                     sign_hint = "（签字）" if "签字" in n else "（签字或盖章）"
                     _rewrite_labeled_underline(
@@ -2402,7 +2414,7 @@ def _fill_paragraphs(
                     [("投标人：", brief.bidderName, "（盖单位公章）")],
                     **_SIGN_OFF_KW,
                 )
-                if mashed_legal:
+                if mashed_legal and "法定代表人" not in _compact(para.text):
                     legal_p = _insert_paragraph_after(para)
                     _rewrite_labeled_underline(
                         legal_p,
@@ -2453,12 +2465,15 @@ def _fill_paragraphs(
                     )
                     auth_agent_line_done = True
                     if mashed_id:
-                        id_p = _insert_paragraph_after(para)
-                        _rewrite_labeled_underline(
-                            id_p,
-                            [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
-                            **{**_SIGN_OFF_KW, "line_em": 18},
-                        )
+                        if "身份证" in _compact(para.text):
+                            _fill_blanks(para, "", (brief.agentIdNo or "").strip())
+                        else:
+                            id_p = _insert_paragraph_after(para)
+                            _rewrite_labeled_underline(
+                                id_p,
+                                [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
+                                **{**_SIGN_OFF_KW, "line_em": 18},
+                            )
                         auth_agent_id_done = True
             elif n == "年月日":
                 _rewrite_date_line(para, year, month, day, **_SIGN_OFF_KW)
@@ -2478,6 +2493,7 @@ def _fill_paragraphs(
 
     for para in drop:
         _drop_para(para)
+    _compact_signature_flow(doc)
     return quote_anchor
 
 
@@ -2661,15 +2677,11 @@ def _insert_table_after(doc: Document, para: Paragraph, rows: int, cols: int) ->
 def _quote_warnings(sheet: QuoteSheet, target: Decimal, *, origin: str) -> list[str]:
     notes: list[str] = []
     n = len(sheet.lines)
-    if origin == "template" or is_template_sheet(sheet):
+    if origin == "template":
         notes.append(
             f"未解析到本次工程量清单，分项暂用内置模板《{sheet.title}》共 {n} 项。"
             "请上传招标工程量 Excel/Word，或在页面改分项后再生成"
         )
-        if target > 0 and target != SECOND_ROUND_YUAN:
-            notes.append(
-                f"二次报价函曾报 {money_text(SECOND_ROUND_YUAN)} 元，当前投标总价为 {money_text(target)} 元，请确认使用哪一档"
-            )
     else:
         source_name = origin if origin in {"file", "llm", "text", "form"} else "清单"
         label = {
@@ -2764,7 +2776,7 @@ def _fill_quote_section(
             )
     summaries = (
         ("不含税合计", money_text(filled.total_ex_tax)),
-        ("税率", f"{(filled.tax_rate * 100).quantize(Decimal('1'))}%"),
+        ("税率", f"{(filled.tax_rate * 100).normalize()}%" if filled.tax_rate > 0 else '【待核验】'),
         ("含税合计", money_text(filled.total_inc_tax)),
     )
     base = 1 + len(filled.lines)
@@ -2864,10 +2876,10 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
         "投标范围": (brief.bidContent or "").strip() or "________",
         "投标内容": (brief.bidContent or "").strip() or "________",
         "投标质量": brief.quality,
-        "交货期": f"{brief.deliveryDays}日历天",
-        "工期": f"{brief.deliveryDays}日历天",
-        "投标工期": f"{brief.deliveryDays}日历天",
-        "质保期": f"基础要求{brief.warrantyYears}年",
+        "交货期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
+        "工期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
+        "投标工期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
+        "质保期": f"基础要求{brief.warrantyYears}年" if brief.warrantyYears else "",
         "投标有效期": valid or "________",
         "安全生产措施费": rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
         "暂列金额": rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
@@ -3205,7 +3217,7 @@ def qualification_attach_notes(
             ]
         return ["资质 PDF 未能渲染为图片，Word 中未插入扫描件"]
     return [
-        "未找到资质 PDF。可将《伟泰科技资质文件最终版.pdf》复制到 "
+        "未找到资质 PDF。可将本次投标人的资质 PDF复制到 "
         "storage/tender-assets/weitai-qualifications.pdf 后重新生成"
     ]
 
@@ -3582,16 +3594,9 @@ def _sign_follows_letter_body(para: Paragraph) -> bool:
 
 
 def _pad_signature_blocks(doc: Document, *, blanks: int = 3) -> None:
-    """签字盖章行前插入空段，避免正文顶住签章区。投标函不够高时不再垫。"""
-    for para in list(doc.paragraphs):
-        if not _is_signature_block_start(para.text):
-            continue
-        if _sign_follows_letter_body(para):
-            continue
-        have = _count_blank_paras_before(para)
-        for _ in range(max(0, blanks - have)):
-            blank = OxmlElement("w:p")
-            para._p.addprevious(blank)
+    """Compatibility entry: compact existing gaps, never add signature blanks."""
+    from api.services.tenders.pdf_format import _compact_signature_flow
+    _compact_signature_flow(doc)
 
 
 def _drawing_height_cm(el) -> float:
@@ -3802,6 +3807,8 @@ def _finalize_pagination(
     doc: Document, fmt=None, brief: BidBrief | None = None
 ) -> dict[str, int]:
     """分页：分节 continuous + 章标题显式分页；目录页码按正文书签实测估算。"""
+    from api.services.tenders.material_layout import mark_repeating_headers
+    mark_repeating_headers(doc)
     _normalize_section_page_numbers(doc)
     _normalize_body_section_breaks(doc)
     _isolate_toc_section(doc, brief)
@@ -3885,11 +3892,15 @@ def build_bid_docx(
         notes = []
         if prepared.layoutMode != 'requirements' or not prepared.outlineItems:
             notes = prepare_requirements_bid(prepared)
+        render_brief = prepared.model_copy(update={'layoutMode':'requirements'})
         path, rendered_notes = assemble_bid_docx(
-            prepared.model_copy(update={'layoutMode': 'requirements'}), dest,
+            render_brief, dest,
             qualification_pdf=qualification_pdf, catalog_slots=catalog_slots,
             catalog_media=catalog_media, catalog_facts=catalog_facts, volume=volume,
         )
+        from api.services.tenders.material_intents import sync_material_outcomes
+
+        sync_material_outcomes(brief,render_brief)
         return path, list(dict.fromkeys([*notes, *rendered_notes]))
     warnings: list[str] = list(quote_notes)
     if brief.bidPriceYuan <= 0:
@@ -3981,6 +3992,10 @@ def build_bid_docx(
         warnings.extend(finalize_business_responses(
             doc, brief, **({"full_bid": True} if volume == "full" else {})
         ))
+    if brief.materialDemands:
+        from api.services.tenders.material_intents import enforce_material_outcomes
+
+        warnings.extend(enforce_material_outcomes(doc,brief,media=media,slots=slots,volume=volume or 'business'))
     _finalize_pagination(doc, brief.documentFormat, brief)
     for i, section in enumerate(doc.sections):
         _ensure_header(section, brief.projectName, cover=(i == 0))
@@ -3991,6 +4006,8 @@ def build_bid_docx(
         "toc_other": 1, "toc_other_draw": 2, "toc_other_text": 2,
         "toc_commit": 1, "toc_perf": 1,
     })
+    from api.services.tenders.section_materials import validate_material_uniqueness
+    validate_material_uniqueness(doc)
     doc.save(str(dest))
     warnings.append(
         "封面与目录不编页码，从正文首页起编。目录条目已预填页码；"

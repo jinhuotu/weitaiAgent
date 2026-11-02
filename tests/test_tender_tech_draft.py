@@ -93,6 +93,7 @@ def test_assemble_writes_draft_not_invite_body(tmp_path) -> None:
 def test_fallback_marks_missing_facts() -> None:
     item = OutlineItem(id="t1", title="培训方案", kind="tech_chapter", inviteExcerpt="需提供操作培训")
     text = fallback_draft(item, facts="", scores=["培训具有针对性"])
+    assert '培训具有针对性' not in text
     assert PENDING_FACT in text
     assert "操作培训" in text
 

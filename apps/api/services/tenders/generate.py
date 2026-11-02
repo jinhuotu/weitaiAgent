@@ -29,7 +29,7 @@ def qualification_status() -> dict[str, object]:
     path = find_qualification_pdf()
     return {
         "found": path is not None,
-        "pathHint": str(path) if path else "storage/tender-assets/weitai-qualifications.pdf",
+        "pathHint": str(path) if path else "storage/tender-assets/qualifications.pdf",
         "sizeBytes": path.stat().st_size if path else 0,
     }
 
@@ -47,13 +47,22 @@ def generate_bid(
     catalog_facts: list | None = None,
 ) -> dict[str, object]:
     from api.services.tenders.native_format import prefer_native_format
+    from api.services.tenders.material_intents import prepare_structural_demands, coverage
 
+    prepare_structural_demands(brief,catalog_slots)
     native = prefer_native_format(brief)
     vol = generate_volume(brief)
     stem = uuid4().hex[:12]
     out_dir = tenders_output_dir()
     dest = out_dir / f"{stem}.docx"
     pdf_src = find_qualification_pdf() if brief.attachQualifications and vol == "business" else None
+    attachment_notes = []
+    if pdf_src is not None:
+        from api.services.tenders.assets import qualification_matches_company
+
+        if not qualification_matches_company(pdf_src, brief.bidderName):
+            attachment_notes.append('资质附件所属公司不符或尚未核验，未采用；请在资料库按本次投标人上传并核验')
+            pdf_src = None
     try:
         from api.services.tenders.assemble import assemble_bid_docx
     except ImportError as exc:
@@ -80,6 +89,10 @@ def generate_bid(
         volume=vol,
     )
     warnings = list(warnings)
+    warnings.extend(n for n in brief.materialIntentNotes if n not in warnings)
+    warnings.extend(attachment_notes)
+    from api.services.tenders.company_identity import missing_company_notes
+    warnings.extend(n for n in missing_company_notes(brief) if n not in warnings)
     if native:
         from docx import Document
 
@@ -102,6 +115,8 @@ def generate_bid(
         "warnings": warnings,
         "defaultsUsed": brief.bidderName,
         "generateVolume": vol,
+        "materialCoverage": {vol:coverage(brief,vol)},
+        "materialIntentComplete": brief.materialIntentComplete,
     }
     if vol == "technical":
         out["techDocxFile"] = dest.name
@@ -139,6 +154,7 @@ def merge_generated(base: dict[str, object], extra: dict[str, object]) -> dict[s
         if note not in notes:
             notes.append(note)
     out["warnings"] = notes
+    out['materialCoverage'] = {**(base.get('materialCoverage') or {}), **(extra.get('materialCoverage') or {})}
     out["generateBoth"] = True
     return out
 
@@ -164,7 +180,13 @@ def generate_pair(
     tech = brief.model_copy(
         update={"generateVolume": "technical", "generateBoth": False, "splitSlice": False}
     )
-    return merge_generated(generate_bid(biz, **kw), generate_bid(tech, **kw))
+    business = generate_bid(biz, **kw)
+    technical = generate_bid(tech, **kw)
+    from api.services.tenders.material_intents import sync_material_outcomes
+
+    sync_material_outcomes(brief,biz)
+    sync_material_outcomes(brief,tech)
+    return merge_generated(business,technical)
 
 
 def volume_pair_status(vol: str, *, business_ready: bool, technical_ready: bool) -> dict[str, object]:

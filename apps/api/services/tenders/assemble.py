@@ -100,7 +100,7 @@ from api.services.tenders.slots import attachments_for_slots
 logger = logging.getLogger("api.tenders.assemble")
 
 _SONG = "宋体"
-# 函/授权/承诺书/印鉴表/邀请书清单有原文就复制，不再换成充电桩模块或自绘格子。
+# 函/授权/承诺书/印鉴表/邀请书清单有原文就复制，不替换原版结构或自绘格子。
 _FORM_LAYOUT_KINDS = frozenset({"letter", "auth", "factory", "commitment_copy"})
 _COPY_BODY_KINDS = frozenset({"letter", "auth", "factory", "commitment_copy", "company", "unknown"})
 _SIGN_LABEL = re.compile(
@@ -500,8 +500,10 @@ def assemble_bid_docx(
     named = brief
     if anon:
         brief = _blank_person_brief(brief)
+    if vol == 'technical' and brief.technicalPackage:
+        brief = brief.model_copy(update={'layoutMode':'outline','requirementsDriven':False})
 
-    if (brief.layoutMode or '').strip() != 'requirements':
+    if (brief.layoutMode or '').strip() != 'requirements' and not (vol == 'technical' and brief.technicalPackage):
         from api.services.tenders.requirement_bid import prepare_requirements_bid
 
         prepared = named.model_copy(deep=True)
@@ -514,6 +516,9 @@ def assemble_bid_docx(
                 catalog_slots=catalog_slots, catalog_media=catalog_media,
                 catalog_facts=catalog_facts, volume=vol,
             )
+            from api.services.tenders.material_intents import sync_material_outcomes
+
+            sync_material_outcomes(named,prepared)
             return path, list(dict.fromkeys([*requirement_notes, *notes]))
 
     # Native/requirements outline preparation must precede slot selection. Explicit
@@ -528,12 +533,29 @@ def assemble_bid_docx(
             catalog_media = local_media
     elif catalog_media is None:
         catalog_media = attachments_for_slots(catalog_slots)
+    if vol == 'technical':
+        from api.services.tenders.technical_package import scoped_inputs
+
+        brief, catalog_slots, catalog_media = scoped_inputs(brief, catalog_slots, catalog_media)
+        quote_notes.extend(n for n in brief.materialIntentNotes if n.startswith('技术暗标：技术扫描件'))
     material_notes = missing_library_notes(catalog_slots, catalog_media, volume=vol)
     quote_notes.extend(material_notes)
     warnings.extend(material_notes)
 
     def finish(path: Path, notes: list[str]) -> tuple[Path, list[str]]:
         out = list(dict.fromkeys([*quote_notes, *(notes or [])]))
+        if vol == 'technical' and brief.technicalPackage:
+            from api.services.tenders.technical_render import render
+
+            document = Document(path)
+            out.extend(render(document, named.model_copy(update={'technicalPackage':brief.technicalPackage})))
+            document.save(path)
+        if brief.materialDemands:
+            from api.services.tenders.material_intents import enforce_material_outcomes
+
+            document = Document(path)
+            out.extend(enforce_material_outcomes(document,brief,media=catalog_media,slots=catalog_slots,volume=vol or 'business'))
+            document.save(path)
         if getattr(brief, "autoDraftBizResp", False) and vol != "technical":
             from api.services.tenders.business_render import finalize_business_responses
 
@@ -552,6 +574,8 @@ def assemble_bid_docx(
             document = Document(path)
             ensure_toc_rows(document, brief, volume=vol)
             if vol == 'technical':
+                from api.services.tenders.technical_render import sync_toc
+                sync_toc(document, brief)
                 page_start = 'body'
                 spec = brief.documentFormat.technicalFormat
                 if spec.pageStartSet:
@@ -564,6 +588,24 @@ def assemble_bid_docx(
             from api.services.tenders.requirement_bid import complete_requirements_docx
 
             out.extend(complete_requirements_docx(path, brief, vol))
+        if vol == 'technical' and (not native or brief.requirementsDriven):
+            from api.services.tenders.technical_render import sync_toc
+            document=Document(path)
+            sync_toc(document,brief)
+            _fill_toc_pages(document,DocumentFormat(pageNumberStart='body'),subset=True)
+            document.save(path)
+        if vol == 'technical':
+            out.append('技术标目录已校验正文对应关系；当前页码为排版估算，打开后更新域以按实际排版刷新页码')
+        from api.services.tenders.section_materials import remove_repeated_child_modules, validate_material_uniqueness
+        document = Document(path)
+        removed = remove_repeated_child_modules(document)
+        validate_material_uniqueness(document)
+        from api.services.tenders.material_layout import mark_repeating_headers
+        header_rows = mark_repeating_headers(document)
+        if removed or header_rows:
+            document.save(path)
+        if removed:
+            out.append(f"Removed {removed} repeated child modules already present in the source section")
         if not anon:
             return path, out
         from api.services.tenders.classifier import ANON_DEFER_NOTE
@@ -587,7 +629,8 @@ def assemble_bid_docx(
             catalog_facts=catalog_facts,
         )
         if hit is not None:
-            if getattr(brief, "autoDraftTechPlan", False) and vol in {"technical", "full"}:
+            if (getattr(brief, "autoDraftTechPlan", False) and vol in {"technical", "full"}
+                    and not (vol == 'technical' and brief.technicalPackage)):
                 inserted, missing = _fill_drafted_format_sections(
                     hit[0], brief, **({"full_bid": True} if vol == "full" else {})
                 )
@@ -632,7 +675,13 @@ def assemble_bid_docx(
             items = [item for item in items if not item.skipped]
     if not items:
         warnings.append("组卷大纲为空或已全部跳过，未按大纲生成")
-        if (brief.layoutMode or "").strip() != "outline":
+        if brief.requirementsDriven:
+            # A selected volume can contain no source sections. Never bounce
+            # between the requirements renderer and the fixed-template builder.
+            # Give it a real body/TOC destination for review and pending inputs.
+            items = [OutlineItem(id='empty-volume-review',title='本卷待核对事项',kind='unknown',source='generate',
+                draftBody='【待补充】本卷未识别到适用正文章节，请核对本次招标要求与所选卷别后补充。',draftStatus='drafted')]
+        elif (brief.layoutMode or "").strip() != "outline":
             from api.services.tenders.document import build_bid_docx
 
             return finish(
@@ -1038,11 +1087,17 @@ def assemble_bid_docx(
         _ensure_header(section, brief.projectName, cover=(si == 0))
         apply_footer_page_number(section, fmt, numbered=numbered, restart=restart)
 
+    if brief.materialDemands:
+        from api.services.tenders.material_intents import enforce_material_outcomes
+
+        warnings.extend(enforce_material_outcomes(doc,brief,media=media,slots=slots,volume=vol or 'business'))
     _collapse_extra_page_breaks(doc)
     _set_bookmark_outline(doc, {bm: item.level for bm, item in zip(bookmarks, items, strict=True)})
     _fill_toc_pages(doc, fmt, subset=subset)
 
     dest.parent.mkdir(parents=True, exist_ok=True)
+    from api.services.tenders.section_materials import validate_material_uniqueness
+    validate_material_uniqueness(doc)
     doc.save(str(dest))
     return finish(dest, warnings)
 
@@ -2914,14 +2969,12 @@ def _pipe_kind(rows: list[list[str]]) -> str:
     blob = compact_title("".join(rows[0]))
     if "模块" in blob and "建设要求" in blob:
         return "focus"
-    if any(k in blob for k in ("数据采集", "合计")) and any(
-        k in blob for k in ("TPM", "WMS", "MES", "QMS")
-    ):
+    if "合计" in blob and sum(bool(re.search(r"数量|单价|金额|费用|报价", cell)) for cell in rows[0]) >= 2:
         return "quote_matrix"
     if "序号" in blob and any(k in blob for k in ("项目内容", "金额", "单价", "品牌")):
         return "quote"
     plats = [(r[0] if r else "").strip() for r in rows]
-    if any(p.upper() == "MOM" or p in {"MES", "WMS", "QMS", "TPM"} for p in plats):
+    if len(plats) >= 2 and len({v for v in plats if v}) == 1 and len(plats[0]) <= 12:
         return "mom"
     return "text"
 
@@ -3357,9 +3410,7 @@ def _write_simple_table(
     kind = "text"
     if "建设要求" in blob or ("模块" in blob and "实现目标" in blob):
         kind = "focus"
-    elif any(k in blob for k in ("数据采集", "合计")) and any(
-        k in blob for k in ("TPM", "WMS", "MES", "QMS")
-    ):
+    elif "合计" in blob and sum(bool(re.search(r"数量|单价|金额|费用|报价", cell)) for cell in headers) >= 2:
         kind = "quote_matrix"
     elif "序号" in blob and any(k in blob for k in ("项目内容", "金额", "单价", "品牌")):
         kind = "quote"

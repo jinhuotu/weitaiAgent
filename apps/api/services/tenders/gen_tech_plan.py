@@ -6,6 +6,9 @@ evidence; retrieved documents provide writing style only.
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+from api.services.tenders.generation_parallel import complete_json
+
 import json
 import logging
 import re
@@ -110,13 +113,13 @@ def _user_sources(ids: list[str], *, brief: BidBrief, notes: list[str]) -> str:
 
 def _facts(brief: BidBrief) -> str:
     rows = []
-    for label, value in (("项目名称", brief.projectName), ("项目内容", brief.bidContent)):
+    for label, value in (("投标人", brief.bidderName), ("项目名称", brief.projectName), ("项目内容", brief.bidContent)):
         if str(value or "").strip():
             rows.append(f"{label}：{str(value).strip()}")
     # Schema defaults are not evidence of a promised duration or quality target.
-    if brief.deliveryDays != 30:
+    if brief.deliveryDays > 0:
         rows.append(f"工期/交货期：{brief.deliveryDays} 日")
-    if brief.quality and brief.quality != "合格":
+    if brief.quality:
         rows.append(f"质量目标：{brief.quality}")
     return "\n".join(rows) or "（未提供可核实的项目事实）"
 
@@ -149,25 +152,29 @@ def _technical_requirements(brief: BidBrief, invitation: str) -> list[BidRequire
     rows.extend(extract_requirements(invitation))
     seen = set()
     out = []
-    for row in rows:
+    for row in sorted(rows, key=lambda row: not _is_scoring(row)):
         text = (row.text or "").strip()
         if not text or text in seen:
             continue
-        if row.volume == "business" or row.category in {
+        if not _is_scoring(row) and (row.volume == "business" or row.category in {
             "qualification",
             "performance",
             "financial",
-        }:
+        }):
             continue
         if (
-            row.volume != "technical"
+            not _is_scoring(row) and row.volume != "technical"
             and row.category not in {"scoring", "technical"}
             and row.targetKind not in {"tech_plan", "tech_chapter", "tech_dev"}
         ):
             continue
         seen.add(text)
         out.append(row)
-    return out[:60]
+    return out
+
+
+def _is_scoring(req: BidRequirement) -> bool:
+    return req.category.strip().lower() == 'scoring' or req.scoreWeight is not None
 
 
 def _scoring_requirements(invitation: str) -> list[BidRequirement]:
@@ -221,8 +228,8 @@ def _score_point_kind(req: BidRequirement) -> str:
 def _scorecard(
     requirements: list[BidRequirement], titles: list[str], deviations: list[DeviationLine]
 ) -> str:
-    """Put the score map in existing body text, never in the outline or TOC."""
-    lines = ["技术得分点对照表", "类型｜招标技术得分点｜响应及证明｜所在章节"]
+    """Self-check display only; never render this text as a chapter body."""
+    lines = ["评分点自查表（仅自检，不写入投标正文）", "类型｜招标评分点｜响应及证明｜所在章节"]
     if not requirements:
         lines.append("【待补充】｜未识别到技术评分项，请核对招标评分办法｜【待补充】｜【待补充】")
         return "\n".join(lines)
@@ -287,7 +294,7 @@ async def draft_technical_plan(
         if not i.skipped
         and is_tech_chapter_kind(i.kind)
         and (i.draftStatus or "").lower() not in {"edited", "manual"}
-        and (not (i.draftBody or "").strip() or i.draftStatus == "drafted")
+        and (not (i.draftBody or "").strip() or i.draftStatus == "drafted" or "未完整生成" in (i.draftBody or ""))
     ]
     invitation = load_invitation_text(brief.invitationId)
     source_notes = quote_notes + (
@@ -298,7 +305,13 @@ async def draft_technical_plan(
     user_source_text = _user_sources(
         getattr(brief, 'techPlanSourceIds', []), brief=brief, notes=source_notes,
     )
-    requirements = _technical_requirements(brief, invitation)
+    all_requirements = _technical_requirements(brief, invitation)
+    scoring = [r for r in all_requirements if _is_scoring(r)]
+    requirements = [r for r in all_requirements if not _is_scoring(r)][:60]
+    score_texts = {re.sub(r'\s+', '', r.text) for r in scoring}
+    score_responses = [d for d in brief.deviationLines if re.sub(r'\s+', '', d.requirement) in score_texts]
+    brief.deviationLines = [d for d in brief.deviationLines if re.sub(r'\s+', '', d.requirement) not in score_texts]
+    brief.techScorecard = _scorecard(scoring, [i.title for i in brief.outlineItems], score_responses)
     from api.services.tenders.classifier import classify_procurement_type
 
     route = classify_procurement_type(
@@ -326,7 +339,8 @@ async def draft_technical_plan(
             )
         return brief.model_copy(update={"deviationLines": deviations}), [
             *source_notes,
-            "技术章节均已人工编辑或无可填章节；技术得分点对照表【待补充】，未覆盖原文"
+            "技术章节均已人工编辑或无可填章节，未覆盖原文",
+            brief.techScorecard,
         ]
     knowledge = []
     if getattr(brief, "techPlanKbIds", []):
@@ -340,6 +354,7 @@ async def draft_technical_plan(
             getattr(brief, "techPlanKbIds", []),
             query=f"{_ROUTE_LABELS[route]}技术方案 {_ROUTE_TOPICS[route]}",
             quiet=True,
+            bidder_name=brief.bidderName,
         )
     from api.services.tenders.tech_draft import load_past
 
@@ -366,38 +381,26 @@ async def draft_technical_plan(
     )
     sections = [
         "【用户输入，最高优先级】\n" + (user_input or "（无）"),
-        "【招标技术要求及评分点】\n"
+        "【招标技术要求】\n"
         + ("\n".join(f"{n + 1}. {r.text}" for n, r in enumerate(requirements)) or "（未提取到）"),
         "【知识库与历史技术标写法参考，仅保留结构，不含历史数据】\n" + style,
         "【本项目事实】\n" + _facts(brief),
-        f"【采购类型】{_ROUTE_LABELS[route]}类\n【对应得分点模板】{_ROUTE_TOPICS[route]}",
-        "【得分点分类】\n" + (
-            "\n".join(f"{_score_point_kind(r)}：{r.text}" for r in requirements)
-            or "【待补充】未识别到技术评分点，请在既有技术章节中标明待核对"
-        ),
+        f"【采购类型】{_ROUTE_LABELS[route]}类\n【实质技术响应主题】{_ROUTE_TOPICS[route]}",
     ]
     pairs: list[tuple[str, str]] = []
     devs: list[dict] = []
     missing_titles: list[str] = []
     generated_count = 0
-    for start in range(0, len(titles), 2):
-        group = titles[start : start + 2]
-        raw = await client.complete(
+    pro_call_count = 0
+    async def generate_group(group):
+        nonlocal pro_call_count
+        pro_call_count += 1
+        raw = await complete_json(client,
             [
                 {
                     "role": "system",
                     "content": (
-                        "你是技术标起草员。只为给出的既有章节起草正文，不新增、合并或改名章节。"
-                        "用户输入优先，招标要求其次，项目事实用于核对，知识库只借鉴写法。"
-                        "逐条响应评分点，每章写出具体部署、措施、检查办法。"
-                        f"本标为{_ROUTE_LABELS[route]}类；按对应模板覆盖：{_ROUTE_TOPICS[route]}。"
-                        "先解构必须响应、加分项及格式要求，再将其落在允许填充的既有章节正文中；"
-                        "模板主题只能作为正文小节，不得新增目录章节。"
-                        "缺少可核实的工期、人员、设备、业绩数量等事实时写【待补充】，不得编造。"
-                        "输出 JSON 对象：chapters=[{title,body}]；"
-                        "deviations=[{requirement,response,deviation,chapter,evidence}]。"
-                        "技术需求逐条写响应或偏离，并标所在章节与证明材料；缺证据填【待补充】。"
-                        "每个偏离项只可引用给出的章节标题；未能证实满足时写待补充，不得宣称完全响应。"
+                        get_prompt("tech_plan_system", route_label=_ROUTE_LABELS[route], route_topics=_ROUTE_TOPICS[route])
                     ),
                 },
                 {
@@ -413,16 +416,30 @@ async def draft_technical_plan(
             mode="pro",
         )
         group_pairs, group_devs = _decode_payload(raw, group)
-        generated_count += len(group_pairs)
+        group_pairs = [(title, body) for title, body in group_pairs if '未完整生成' not in body]
         returned = {title for title, _ in group_pairs}
-        pairs.extend(group_pairs)
         for title in group:
-            if title not in returned:
-                missing_titles.append(title)
-                pairs.append((
-                    title,
-                    f"【待补充】「{title}」技术方案正文未完整生成，请结合本项目招标要求补充。",
-                ))
+            if title in returned:
+                continue
+            pro_call_count += 1
+            retry = await complete_json(client,
+                [{"role": "system", "content": get_prompt("tech_plan_system", route_label=_ROUTE_LABELS[route], route_topics=_ROUTE_TOPICS[route])},
+                 {"role": "user", "content": "\n\n".join([*sections, "Return chapters JSON with a complete body for this existing chapter only: " + title])}],
+                mode="pro",
+            )
+            repaired, extra_devs = _decode_payload(retry, [title])
+            if not repaired or any('未完整生成' in body for _, body in repaired):
+                raise AppError(ErrorCode.VALIDATION, f"技术章节「{title}」未返回有效正文，请重试生成", status_code=422)
+            group_pairs.extend(repaired)
+            group_devs.extend(extra_devs)
+        return group_pairs, group_devs
+    from api.services.tenders.generation_parallel import ordered_generation
+    groups = [titles[start:start+2] for start in range(0, len(titles), 2)]
+    results = await ordered_generation([lambda group=group: generate_group(group) for group in groups], stage='technical_plan', labels=[' / '.join(group) for group in groups])
+    logger.info('generation stage=technical_plan pro_calls=%s chapters=%s', pro_call_count, len(titles))
+    for group_pairs, group_devs in results:
+        generated_count += len(group_pairs)
+        pairs.extend(group_pairs)
         devs.extend(group_devs)
     drafted = dict(pairs)
     # Never overwrite manually entered deviation rows.
@@ -456,16 +473,6 @@ async def draft_technical_plan(
                 deviation=deviation,
             )
         )
-    first_title = titles[0]
-    drafted[first_title] = "\n\n".join(
-        part
-        for part in (
-            _scorecard(requirements, [i.title for i in brief.outlineItems], deviations),
-            "【待补充】邀请书正文为空，请核对技术评分项来源。" if not invitation else "",
-            drafted[first_title],
-        )
-        if part
-    )
     updated = [
         i.model_copy(update={"draftBody": drafted[i.title], "draftStatus": "drafted"})
         if i.title in drafted and i in editable
@@ -475,6 +482,7 @@ async def draft_technical_plan(
     notes = [
         *source_notes,
         f"技术方案已填充 {generated_count} 个既有章节",
+        brief.techScorecard,
     ]
     if missing_titles:
         notes.append(

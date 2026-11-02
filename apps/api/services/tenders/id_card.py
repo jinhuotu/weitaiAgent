@@ -79,6 +79,15 @@ def parse_id_card_text(text: str, *, today: date | None = None) -> dict:
     nm = _NAME_RE.search(compact)
     if nm:
         name = nm.group(1).strip("·")
+    if not name:
+        # OCR may retain the name as a standalone labelled line while splitting
+        # subsequent labels across lines. Do not guess from arbitrary names.
+        line = re.search(r'姓\s*名\s*[:：]?\s*([^\r\n]+)',text or '')
+        if line:
+            candidate=re.split(r'性\s*别|民\s*族|出\s*生|住\s*址',line.group(1))[0]
+            candidate=re.sub(r'\s+','',candidate)
+            if re.fullmatch(r'[\u4e00-\u9fff·]{2,15}',candidate):
+                name=candidate.strip('·')
     gender = ""
     gm = _GENDER_RE.search(compact)
     if gm:
@@ -101,9 +110,9 @@ def parse_id_card_text(text: str, *, today: date | None = None) -> dict:
 
 
 def assign_person(card: dict, existing: list[dict]) -> dict:
-    """反面没有证号。挂到还没有反面的最近一张正面上。"""
+    """保留已识别的反面，沿用最近一张未配对正面的归属。"""
     out = dict(card)
-    if out.get("idNo"):
+    if out.get("idNo") and out.get("side") != "back":
         out["side"] = "front"
         out["personKey"] = out["idNo"]
         if not out.get("gender"):

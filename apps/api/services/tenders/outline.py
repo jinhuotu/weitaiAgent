@@ -905,6 +905,7 @@ def _verbatim_volume_items(raw: list[OutlineItem], volume: str) -> list[OutlineI
     """按标书生成：保持抽出的顺序和标题，不补公司固定章节、不重排。"""
     from api.services.tenders.categories import is_volume_label, item_volume, title_goes_technical
 
+    raw = retain_lettered_children(raw)
     out: list[OutlineItem] = []
     for item in raw:
         if item.skipped or is_volume_label(item.title):
@@ -1273,6 +1274,47 @@ def item_level(raw: str) -> int:
 def _extracted_item_level(raw: str) -> int:
     """目录提取和正文提取共用同一套子标题规则。"""
     return 2 if lettered_heading(raw) or _SUB_MARK.match(raw.strip()) else item_level(raw)
+
+
+def retain_lettered_children(items):
+    """Restore alphabetic sibling ownership, including previously saved outlines."""
+    items = list(items)
+    out = []
+    parent = None
+    for item in items:
+        raw = item.rawTitle or item.title
+        child = re.match(r"^\s*[A-Za-z][.．、）)]", raw)
+        # Search the entire source pool: stale child modules may already have
+        # drifted after pricing chapters, far from their real parent.
+        for owner in items:
+            if owner is item or re.match(r"^\s*[A-Za-z][.．、）)]", owner.rawTitle or owner.title):
+                continue
+            candidate = re.sub(r"^\s*[A-Za-z][.．、）)]\s*", '', item.title)
+            found = re.search(r"(?m)^\s*[A-Za-z][.．、）)]\s*" + re.escape(candidate), owner.body or '')
+            if found:
+                break
+        else:
+            found = None
+        if found:
+            continue
+        # Saved outlines may have lost the letter in title/rawTitle. Recover it
+        # from the parent's source body, rather than using material vocabulary.
+        if not child and parent is not None:
+            found = re.search(r"(?m)^\s*([A-Za-z][.．、）)])\s*" + re.escape(item.title), parent.body or "")
+            if found:
+                raw = found.group(1) + item.title
+                child = True
+        if child and parent is not None:
+            item = item.model_copy(update={"level": min(4, parent.level + 1), "source": "copy"})
+            # Parent templates already contain these source paragraphs. Rendering
+            # another module would duplicate them after the original form pack.
+            label = re.sub(r"\s+", "", (lettered_heading(raw) or (raw, ''))[0])
+            if label in re.sub(r"\s+", "", parent.body or ""):
+                continue
+        elif not child:
+            parent = item
+        out.append(item)
+    return out
 
 
 def _indent_level(raw: str) -> int:
@@ -1945,7 +1987,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
                 kept = letter_body.get(item.id) or ""
                 if kept:
                     item.body = kept
-            return chapter, mark_outline_chapters(catalog_items)
+            return chapter, mark_outline_chapters(retain_lettered_children(catalog_items))
         body = _explode_enum_lines(body)
     lines = _candidate_lines(body or raw, whole_doc=not bool(body))
     items: list[OutlineItem] = []
@@ -2011,7 +2053,7 @@ def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
     for item in items:
         if item.kind == "quote" and looks_like_quote_form(item.body or ""):
             item.source = "copy"
-    return chapter, mark_outline_chapters(items)
+    return chapter, mark_outline_chapters(retain_lettered_children(items))
 
 
 _BODY_MAX = 80000

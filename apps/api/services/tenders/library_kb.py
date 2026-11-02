@@ -51,6 +51,7 @@ from api.services.tenders.slots import (
 )
 from common.errors import AppError, ErrorCode
 from db.models.knowledge import KnowledgeBase, KnowledgeDocument
+from db.models.tender_library import TenderLibraryDismissal
 
 logger = logging.getLogger("api.tenders.library")
 
@@ -107,14 +108,16 @@ def _is_material_parent(doc: KnowledgeDocument) -> bool:
 
 
 def _doc_file_path(doc: KnowledgeDocument) -> Path | None:
-    key = doc.file_key or doc.storage_path
-    if not key:
-        return None
-    try:
-        path = resolve_storage_path(key)
-    except AppError:
-        return None
-    return path if path.is_file() else None
+    for key in dict.fromkeys([doc.file_key,doc.storage_path]):
+        if not key:continue
+        try:
+            path=resolve_storage_path(key)
+            if path.is_file() and path.stat().st_size>0:
+                with path.open('rb') as stream:stream.read(1)
+                return path
+        except (AppError,OSError):
+            continue
+    return None
 
 
 async def ensure_library_base(
@@ -164,8 +167,13 @@ async def _seed_defaults_if_empty(db: AsyncSession, base: KnowledgeBase) -> None
     existing = {key_from_tags(d.tags) for d in parents}
     titles = [d.name or "" for d in parents]
     added = False
+    dismissed = await dismissed_library_keys(db)
     for item in DEFAULT_SLOTS:
-        if not item.key or item.key in existing:
+        if not item.key or item.key in existing or item.key in dismissed:
+            continue
+        # Defaults are virtual until uploaded. Only legacy files need a real
+        # parent for migration; otherwise deleting an item would recreate it.
+        if not list_slot_files(item.key):
             continue
         if any(same_library_material(item.title, t) for t in titles if t):
             continue
@@ -360,7 +368,12 @@ def _copy_file_as_child(
 ) -> KnowledgeDocument:
     public_id = short_id(12)
     ext = src.suffix.lower().lstrip(".") or "bin"
-    rel_key = f"knowledge/{base.public_id}/{public_id}.{ext}"
+    # Store scans at the same per-key location used by direct slot uploads;
+    # the DB retains the canonical path for ownership checks and deletion.
+    from api.services.tenders.slots import sanitize_slot_key
+    key = key_from_tags(parent.tags)
+    rel_key = (f"tender-assets/slots/{sanitize_slot_key(key)}/{public_id}.{ext}"
+               if key else f"knowledge/{base.public_id}/{public_id}.{ext}")
     dest = resolve_storage_path(rel_key)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(src, dest)
@@ -632,18 +645,82 @@ async def list_library_items(db: AsyncSession) -> list[dict[str, object]]:
 
 
 async def catalog_placeholders(db: AsyncSession) -> list[PlaceholderItem]:
+    from api.services.tenders.library_catalog import SlotCatalog
+    from api.services.tenders.material_identity import standard_material_key
+
     items = await list_library_items(db)
-    return [
-        PlaceholderItem(
-            key=str(it.get("key") or ""),
-            title=str(it.get("title") or ""),
-            hint=str(it.get("hint") or ""),
-        )
-        for it in items
-        if str(it.get("key") or "")
-        and str(it.get("title") or "")
-        and str(it.get("key") or "") != TECH_DRAWING_KEY
-    ]
+    # Requirements are invitation-owned. Empty DB containers are not needed
+    # to expose standard upload choices or recognize material obligations.
+    # Stable semantic vocabulary: parent creation/deletion must not change the
+    # invitation recognizer's admission rules, mapping or demand count.
+    catalog = [*DEFAULT_SLOTS,
+               PlaceholderItem(key='qualification', title='企业资质证书'),
+               PlaceholderItem(key='safety', title='安全生产许可证'),
+               PlaceholderItem(key='other_materials', title='其他资料')]
+    return SlotCatalog(catalog, dismissed_keys=await dismissed_library_keys(db),
+       real_keys=[standard_material_key(PlaceholderItem(key=str(item['key']), title=str(item['title']))) or str(item['key'])
+                  for item in items if item.get('docId') or item.get('fileCount')])
+
+
+async def dismissed_library_keys(db: AsyncSession) -> set[str]:
+    result = await db.execute(select(TenderLibraryDismissal.key).where(
+        TenderLibraryDismissal.base_public_id == TENDER_LIB_PUBLIC_ID))
+    return set(result.scalars().all())
+
+
+async def dismiss_library_item(db: AsyncSession, key: str) -> dict[str, object]:
+    """Ignore only virtual entries. Real parent/file deletion keeps its old API."""
+    from api.services.tenders.material_identity import material_key_aliases
+
+    safe = (key or '').strip()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', safe):
+        raise AppError(ErrorCode.VALIDATION, '无效的附件项 key', status_code=422)
+    base = await ensure_library_base(db)
+    rows = await list_library_items(db)
+    items = [*DEFAULT_SLOTS, *[PlaceholderItem(key=str(row['key']), title=str(row['title'])) for row in rows]]
+    aliases = material_key_aliases(items)
+    canonical = aliases.get(safe, safe)
+    if any(aliases.get(str(row['key']), str(row['key'])) == canonical
+           and (row.get('docId') or row.get('fileCount')) for row in rows):
+        raise AppError(ErrorCode.CONFLICT, '该项有真实资料记录，请使用删除项或删除文件', status_code=409)
+    if _KEY_RE.fullmatch(safe) and list_slot_files(safe):
+        raise AppError(ErrorCode.CONFLICT, '该项有扫描件，请使用删除文件', status_code=409)
+    # Serialize concurrent dismissals without changing knowledge documents.
+    await db.execute(select(KnowledgeBase).where(KnowledgeBase.id == base.id).with_for_update())
+    if canonical not in await dismissed_library_keys(db):
+        db.add(TenderLibraryDismissal(base_public_id=TENDER_LIB_PUBLIC_ID, key=canonical))
+    await db.commit()
+    return {'key': safe, 'dismissed': True}
+
+
+def _merged_library_rows(rows):
+    """A canonical display row retains real file IDs and its real delete key."""
+    from api.services.tenders.material_identity import material_key_aliases, standard_material_key
+
+    aliases = material_key_aliases([*DEFAULT_SLOTS, *[
+        PlaceholderItem(key=str(row['key']), title=str(row['title'])) for row in rows]])
+    merged = {}
+    for row in rows:
+        key = str(row['key'])
+        canonical = standard_material_key(PlaceholderItem(key=key, title=str(row['title']))) or aliases.get(key, key)
+        current = merged.get(canonical)
+        candidate = dict(row, key=canonical, parentKey=key)
+        if current is None:
+            merged[canonical] = candidate
+            continue
+        # Prefer a parent with files, but never replace real deletion IDs with
+        # a virtual standard key or remove any underlying file record.
+        if not current.get('fileCount') and candidate.get('fileCount'):
+            merged[canonical] = candidate
+            current, candidate = candidate, current
+        files = [*current.get('files', []), *candidate.get('files', [])]
+        unique = {}
+        for file in files:
+            identity = file.get('fileId') or file.get('id') or file.get('fileName')
+            unique.setdefault(identity, file)
+        current['files'] = list(unique.values())
+        current['fileCount'] = len(current['files'])
+    return merged
 
 
 async def _attach_perf_extract(
@@ -733,9 +810,35 @@ async def _attach_facts_extract(db, doc, path: Path, *, key: str, title: str, hi
         hint=hint,
         filename=path.name,
     )
-    if not bundle or not bundle.get("fields"):
+    if not bundle:
         return
     doc.summary = dump_facts(bundle)
+
+
+def library_id_meta(doc):
+    """Read card facts from structured metadata or the already parsed original."""
+    meta = load_id_meta(getattr(doc, 'summary', None))
+    if meta is not None:
+        return meta
+    from api.services.knowledge.ingest import read_extracted_text
+    raw = read_extracted_text(TENDER_LIB_PUBLIC_ID, doc.public_id) or getattr(doc, 'summary', '') or ''
+    card = parse_id_card_text(raw)
+    return card if card.get('side') in {'front','back'} else None
+
+
+def _library_card_metas(files):
+    rows = []
+    for doc, _path in sorted(files, key=lambda pair: getattr(pair[0], 'id', 0) or 0):
+        card = library_id_meta(doc)
+        if not card:continue
+        card = assign_person(card, rows)
+        orphan = claim_orphan_back(card, rows)
+        if orphan:
+            for row in rows:
+                if row.get('fileId') == orphan.get('fileId'):
+                    row.update(orphan)
+        rows.append(dict(card, fileId=doc.public_id))
+    return rows
 
 
 async def legal_persons_from_library(
@@ -753,7 +856,7 @@ async def legal_persons_from_library(
     dirty = False
     if extract_missing:
         for doc, path in files:
-            if load_id_meta(doc.summary) is not None:
+            if library_id_meta(doc) is not None:
                 continue
             raw = (doc.summary or "").strip()
             if raw.startswith("未识别"):
@@ -762,15 +865,7 @@ async def legal_persons_from_library(
             dirty = True
         if dirty:
             await db.commit()
-    rows: list[dict] = []
-    for doc, _path in files:
-        meta = load_id_meta(doc.summary)
-        if not meta:
-            continue
-        item = dict(meta)
-        item["fileId"] = doc.public_id
-        rows.append(item)
-    return persons_from_metas(rows)
+    return persons_from_metas(_library_card_metas(files))
 
 
 async def filter_legal_id_attachments(
@@ -787,7 +882,9 @@ async def filter_legal_id_attachments(
     except AppError:
         return []
     by_resolved: dict[str, KnowledgeDocument] = {}
-    for doc, path in _iter_file_docs(parent, children):
+    originals = _iter_file_docs(parent, children)
+    metas = {row['fileId']:row for row in _library_card_metas(originals)}
+    for doc, path in originals:
         try:
             by_resolved[str(path.resolve())] = doc
         except OSError:
@@ -802,7 +899,7 @@ async def filter_legal_id_attachments(
         doc = by_resolved.get(found)
         if doc is None:
             continue
-        meta = load_id_meta(doc.summary)
+        meta = metas.get(doc.public_id)
         if meta is None or str(meta.get("personKey") or "") != key:
             continue
         if meta.get("side") == "back":
@@ -821,6 +918,7 @@ async def performance_from_library(
     db: AsyncSession,
     *,
     extract_missing: bool = False,
+    bidder_name: str = "",
 ) -> list[PerformanceLine]:
     """从资料库合同/发票已缓存的 OCR 摘要抽出业绩行。
 
@@ -844,6 +942,16 @@ async def performance_from_library(
             if line is not None:
                 dirty = True
         if line is not None and not is_weak_title(line.projectName):
+            from api.services.tenders.company_identity import company_from_document, same_company
+
+            owner = company_from_document(doc)
+            if owner == '__conflicting_company__':
+                continue
+            if bidder_name:
+                if not same_company(owner, bidder_name):
+                    continue
+            if owner:
+                line.bidderName = owner
             lines.append(line)
     if dirty:
         await db.commit()
@@ -955,57 +1063,18 @@ async def persist_parsed_materials(
     *,
     created_by: int | None = None,
 ) -> list[PlaceholderItem]:
-    """邀请书多出来的资料项写入资料库空项，便于当场上传。不复制其他资料项或历史项目的扫描件。"""
-    rows = await list_library_items(db)
-    catalog = [
-        PlaceholderItem(
-            key=str(it.get("key") or ""),
-            title=str(it.get("title") or ""),
-            hint=str(it.get("hint") or ""),
-        )
-        for it in rows
-        if str(it.get("key") or "")
-    ]
-    existing = {item.key for item in catalog}
-    out: list[PlaceholderItem] = []
+    """Compatibility entry point: normalize recognition in memory, never seed parents."""
+    from api.services.tenders.material_identity import standard_material_key
+    from api.services.tenders.material_intents import material_key
+
+    del created_by
+    dismissed = await dismissed_library_keys(db)
+    normalized = []
     for item in extras:
-        key = (item.key or "").strip()
-        found = find_catalog_item(catalog, key=key, title=item.title, hint=item.hint)
-        if found is not None:
-            out.append(
-                PlaceholderItem(
-                    key=found.key,
-                    title=found.title or item.title,
-                    hint=item.hint or found.hint,
-                    attachToSection=item.attachToSection or "",
-                )
-            )
-            continue
-        if key and key in existing:
-            out.append(item)
-            continue
-        safe_key = key if key and _KEY_RE.match(key) else None
-        created = await create_library_item(
-            db,
-            title=item.title,
-            hint=item.hint or "",
-            key=safe_key,
-            created_by=created_by,
-        )
-        next_key = str(created.get("key") or "")
-        if next_key:
-            existing.add(next_key)
-            catalog.append(
-                PlaceholderItem(key=next_key, title=item.title, hint=item.hint or "")
-            )
-        out.append(
-            PlaceholderItem(
-                key=next_key or key,
-                title=item.title,
-                hint=item.hint or "",
-            )
-        )
-    return out
+        key = standard_material_key(item) or item.key or material_key(item.title)
+        if key not in dismissed:
+            normalized.append(item.model_copy(update={'key': key}))
+    return collect_slots(normalized, catalog=[], include_keys=[item.key for item in normalized])
 
 
 async def library_payload_kb(
@@ -1022,7 +1091,7 @@ async def library_payload_kb(
         await legal_persons_from_library(db, extract_missing=True)
     except Exception:
         logger.exception("id card backfill skipped")
-    slots = await list_library_items(db)
+    slots = await list_slots_status_kb(db)
     slots = [s for s in slots if str(s.get("key") or "") != TECH_DRAWING_KEY]
     filled = sum(1 for s in slots if int(s.get("fileCount") or 0) > 0)
     return {
@@ -1046,7 +1115,7 @@ async def list_slots_status_kb(
 ) -> list[dict[str, object]]:
     catalog = await catalog_placeholders(db)
     merged = collect_slots(extra, catalog=catalog, include_keys=include_keys)
-    by_key = {str(it.get("key") or ""): it for it in await list_library_items(db)}
+    by_key = _merged_library_rows(await list_library_items(db))
     out: list[dict[str, object]] = []
     for item in merged:
         current = by_key.get(item.key)
@@ -1084,17 +1153,38 @@ async def resolve_attachments(
         docs = await _list_docs(db, base.id)
     except AppError:
         docs = []
-    parents = {key_from_tags(d.tags): d for d in docs if _is_material_parent(d)}
+    parents={}
+    for document in docs:
+        if _is_material_parent(document):
+            parents.setdefault(key_from_tags(document.tags),[]).append(document)
     children = _group_children(docs)
+    from api.services.tenders.material_identity import material_key_aliases
+
+    parent_aliases = material_key_aliases([*DEFAULT_SLOTS, *slots, *[
+        PlaceholderItem(key=key, title=parent.name or key)
+        for key, group in parents.items() for parent in group]])
     out: dict[str, list[Path]] = {}
     for item in slots:
         key = (item.key or "").strip()
         if not key or key == TECH_DRAWING_KEY:
             continue
-        parent = parents.get(key)
+        canonical = parent_aliases.get(key, key)
+        groups = [parent for parent_key, group in parents.items()
+                  if parent_aliases.get(parent_key, parent_key) == canonical for parent in group]
         paths: list[Path] = []
-        if parent is not None:
-            paths = _files_of(parent, children.get(parent.public_id, []))
+        for parent in groups:
+            paths.extend(_files_of(parent,children.get(parent.public_id,[])))
+        # Unfamiliar invitation requests use one standard storage container,
+        # with explicit per-file request metadata rather than isolated parents.
+        if not paths:
+            for parent in parents.get('other_materials', []):
+                for child in children.get(parent.public_id, []):
+                    tags = child.tags or []
+                    title = next((str(tag).removeprefix('material-title:') for tag in tags
+                                  if str(tag).startswith('material-title:')), '')
+                    if ('material-key:' + key in tags or title and re.sub(r'\s+', '', title) == re.sub(r'\s+', '', item.title)):
+                        path = _doc_file_path(child)
+                        if path: paths.append(path)
         if not paths and _KEY_RE.match(key):
             paths = list_slot_files(key)
         # 缺件就空着，绝不拿身份证/信用中国等其他槽位文件顶替
@@ -1103,19 +1193,28 @@ async def resolve_attachments(
     # 同名资料若建了自定义 key（营业执照挂在 mxxxx），标准项空着时借过来
     known = {item.key for item in DEFAULT_SLOTS}
     by_title: dict[str, list[Path]] = {}
-    for key, parent in parents.items():
+    for key, group in parents.items():
         if key in known:
             continue
-        paths = _files_of(parent, children.get(parent.public_id, []))
-        title = re.sub(r"\s+", "", parent.name or "")
-        if paths and title:
-            by_title.setdefault(title, paths)
+        for parent in group:
+            paths = _files_of(parent, children.get(parent.public_id, []))
+            title = re.sub(r"\s+", "", parent.name or "")
+            if paths and title:
+                by_title.setdefault(title,[]).extend(paths)
     for item in slots:
         key = (item.key or "").strip()
         if not key or out.get(key):
             continue
         title = re.sub(r"\s+", "", item.title or "")
-        borrowed = by_title.get(title) or []
+        from api.services.tenders.match import find_catalog_item
+        from api.services.tenders.section_materials import credit_source
+        borrowed=[]
+        for candidate,files in by_title.items():
+            requested_source=credit_source(title)
+            candidate_source=credit_source(candidate)
+            if requested_source and candidate_source and requested_source!=candidate_source:continue
+            if candidate==title or find_catalog_item([item],title=candidate) is not None:
+                borrowed.extend(files)
         if borrowed:
             out[key] = borrowed
     from api.services.tenders.material_identity import material_key_aliases, unique_material_files
@@ -1149,21 +1248,27 @@ async def create_library_item(
     name = (title or "").strip()
     if not name:
         raise AppError(ErrorCode.VALIDATION, "请填写资料名称", status_code=422)
+    from api.services.tenders.material_identity import standard_material_key
+    raw_key = (key or '').strip()
+    if raw_key and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', raw_key):
+        raise AppError(ErrorCode.VALIDATION, "资料项 key 仅支持字母数字和 _-", status_code=422)
+    next_key = standard_material_key(PlaceholderItem(key=raw_key, title=name)) or 'other_materials'
     base = await ensure_library_base(db, created_by=created_by)
     items = await list_library_items(db)
-    used = {str(it.get("key") or "") for it in items}
+    existing = next((item for item in items if item.get('key') == next_key), None)
+    if existing is not None:
+        return existing
+    # Serialize the only permitted parent-creation path. JSON slot tags have
+    # no DB unique index, so a locked base row prevents concurrent duplicates.
+    await db.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == base.id).with_for_update())
+    documents = await _list_docs(db, base.id)
+    found = next((doc for doc in documents if _is_material_parent(doc)
+                  and key_from_tags(doc.tags) == next_key), None)
+    if found is not None:
+        result = item_to_slot(found, _group_children(documents).get(found.public_id, []))
+        await db.commit()
+        return result
     public_id = short_id(12)
-    raw_key = (key or "").strip()
-    if raw_key:
-        if not _KEY_RE.match(raw_key):
-            raise AppError(ErrorCode.VALIDATION, "资料项 key 仅支持字母数字和 _-", status_code=422)
-        next_key = raw_key
-    else:
-        next_key = slug_key(name, public_id)
-    if next_key in used:
-        next_key = f"m{public_id}"
-    if next_key in used:
-        raise AppError(ErrorCode.CONFLICT, "资料项已存在", status_code=409)
     parent = _new_parent(
         base_id=base.id,
         public_id=public_id,
@@ -1234,6 +1339,9 @@ async def save_library_file(
     filename: str,
     data: bytes,
     replace: bool = False,
+    bidder_name: str = "",
+    material_title: str = "",
+    material_hint: str = "",
 ) -> dict[str, object]:
     if not data:
         raise AppError(ErrorCode.VALIDATION, "上传文件为空", status_code=422)
@@ -1244,26 +1352,45 @@ async def save_library_file(
     if suffix not in _ALLOWED_EXT:
         raise AppError(ErrorCode.VALIDATION, "仅支持 PDF / PNG / JPG / WEBP / GIF / BMP", status_code=422)
 
+    from api.services.tenders.material_identity import standard_material_key
+    original_key = key
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', original_key or ''):
+        raise AppError(ErrorCode.VALIDATION, '无效的附件项 key', status_code=422)
+    standard_title = next((slot.title for slot in DEFAULT_SLOTS if slot.key == key), '')
+    if not material_title and standard_title:
+        material_title = standard_title
+    elif not material_title:
+        rows = await list_library_items(db)
+        old = next((row for row in rows if row.get('key') == key), None)
+        material_title = str(old.get('title') or '') if old else ''
+    key = standard_material_key(PlaceholderItem(key=key, title=material_title or key)) or 'other_materials'
     try:
         parent, children = await _get_parent(db, key)
     except AppError as exc:
         if exc.status_code != 404:
             raise
-        await create_library_item(db, title=key, hint="", key=key)
+        await create_library_item(db, title=material_title.strip()[:255] or key, hint=material_hint.strip()[:2000], key=key)
         parent, children = await _get_parent(db, key)
+    if material_title.strip() and parent.name==key:
+        parent.name=material_title.strip()[:255]
     base = await ensure_library_base(db)
     if replace:
-        for child in children:
+        from api.services.tenders.company_identity import company_from_document, same_company
+
+        replaced = [child for child in children if not bidder_name.strip()
+                    or same_company(company_from_document(child), bidder_name)]
+        for child in replaced:
             _purge_doc_vectors(child)
             unlink_stored_file(child.file_key or child.storage_path)
             await db.delete(child)
-        if parent.file_key or parent.storage_path:
+        if (parent.file_key or parent.storage_path) and (not bidder_name.strip()
+                or same_company(company_from_document(parent), bidder_name)):
             _purge_doc_vectors(parent)
             unlink_stored_file(parent.file_key or parent.storage_path)
             parent.file_key = None
             parent.storage_path = None
             parent.size = None
-        children = []
+        children = [child for child in children if child not in replaced]
 
     if len(_files_of(parent, children)) >= _MAX_FILES_PER_SLOT:
         raise AppError(ErrorCode.VALIDATION, f"每项最多 {_MAX_FILES_PER_SLOT} 个文件", status_code=422)
@@ -1271,7 +1398,8 @@ async def save_library_file(
     await require_embedding_ready(db)
     public_id = short_id(12)
     ext = suffix.lstrip(".")
-    rel_key = f"knowledge/{base.public_id}/{public_id}.{ext}"
+    from api.services.tenders.slots import sanitize_slot_key
+    rel_key = f"tender-assets/slots/{sanitize_slot_key(key)}/{public_id}.{ext}"
     dest = resolve_storage_path(rel_key)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
@@ -1293,6 +1421,10 @@ async def save_library_file(
         review_status="approved",
     )
     db.add(child)
+    child.tags = [*(child.tags or []), 'material-key:' + original_key,
+                  'material-title:' + (material_title.strip() or key)]
+    if bidder_name.strip():
+        child.tags = [*(child.tags or []), 'bidder:' + bidder_name.strip()[:120]]
     await db.commit()
     await db.refresh(child)
     if key == "perf":

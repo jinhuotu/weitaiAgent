@@ -12,8 +12,7 @@ from api.services.tenders.placeholders import DEFAULT_SLOTS, normalize_slot_keys
 from api.services.tenders.schema import BidBrief, COMPANY_FIELD_KEYS
 from db.models.tender import TenderRecord
 
-BIDDER_LOCK = "河南伟泰光电科技有限公司"
-FOREIGN_BIDDER_MARKS = ("郑州容新", "容新新能源")
+from api.services.tenders.company_identity import same_company, foreign_bidder
 _HISTORY_LIMIT = 5
 
 _SLOT_TITLE = {item.key: item.title for item in DEFAULT_SLOTS if item.key}
@@ -29,12 +28,11 @@ class HistoryPlaybook:
     tech_missing: tuple[str, ...] = ()
 
 
-def contains_foreign_bidder(text: str) -> bool:
-    blob = text or ""
-    return any(mark in blob for mark in FOREIGN_BIDDER_MARKS)
+def contains_foreign_bidder(text: str, bidder_name: str = "") -> bool:
+    return foreign_bidder(text, bidder_name)
 
 
-def sanitize_history_brief(raw: BidBrief | dict | None) -> HistoryPlaybook | None:
+def sanitize_history_brief(raw: BidBrief | dict | None, *, bidder_name: str = "") -> HistoryPlaybook | None:
     """丢掉项目名、招标人、报价、台数、业绩正文，只留附件 key 与技术标是否写过。"""
     if raw is None:
         return None
@@ -43,9 +41,9 @@ def sanitize_history_brief(raw: BidBrief | dict | None) -> HistoryPlaybook | Non
     except Exception:
         return None
     bidder = (brief.bidderName or "").strip()
-    if bidder and BIDDER_LOCK not in bidder:
+    if bidder_name and not same_company(bidder, bidder_name):
         return None
-    if contains_foreign_bidder(bidder) or contains_foreign_bidder(brief.factoryRole or ""):
+    if contains_foreign_bidder(brief.factoryRole or "", bidder):
         return None
 
     keys = normalize_slot_keys(
@@ -56,7 +54,7 @@ def sanitize_history_brief(raw: BidBrief | dict | None) -> HistoryPlaybook | Non
         ]
     )
     role = (brief.factoryRole or "").strip()[:80]
-    if contains_foreign_bidder(role):
+    if contains_foreign_bidder(role, bidder):
         role = ""
 
     written: list[str] = []
@@ -123,8 +121,10 @@ def playbook_note(playbooks: list[HistoryPlaybook] | None) -> str:
     return "本公司近期组卷常用附件：" + "、".join(keys) + "（仅供对照，未自动勾选，工程量仍以本邀请书表格为准）"
 
 
-async def latest_company_profile(db: AsyncSession, *, limit: int = 8) -> dict[str, str]:
+async def latest_company_profile(db: AsyncSession, *, bidder_name: str = "", limit: int = 8) -> dict[str, str]:
     """最近一次本公司投标里的公司/法人字段，供新邀请书空项回填。"""
+    if not bidder_name.strip():
+        return {}
     stmt = (
         select(TenderRecord)
         .where(TenderRecord.brief_json.is_not(None))
@@ -135,9 +135,9 @@ async def latest_company_profile(db: AsyncSession, *, limit: int = 8) -> dict[st
     for row in rows:
         raw = row.brief_json if isinstance(row.brief_json, dict) else {}
         name = str(raw.get("bidderName") or "").strip()
-        if name and BIDDER_LOCK not in name:
+        if not same_company(name, bidder_name):
             continue
-        if contains_foreign_bidder(name) or contains_foreign_bidder(str(raw.get("legalPersonName") or "")):
+        if contains_foreign_bidder(str(raw.get("legalPersonName") or ""), bidder_name):
             continue
         profile: dict[str, str] = {}
         for key in COMPANY_FIELD_KEYS:
@@ -149,13 +149,15 @@ async def latest_company_profile(db: AsyncSession, *, limit: int = 8) -> dict[st
             profile["legalPersonName"] = legal
         if not profile:
             continue
-        profile["bidderName"] = BIDDER_LOCK
+        profile["bidderName"] = name
         return profile
     return {}
 
 
-async def latest_agent_profile(db: AsyncSession, *, limit: int = 8) -> dict[str, str]:
+async def latest_agent_profile(db: AsyncSession, *, bidder_name: str = "", limit: int = 8) -> dict[str, str]:
     """最近一次启用过授权委托的姓名/证号，打开开关时回填。"""
+    if not bidder_name.strip():
+        return {}
     stmt = (
         select(TenderRecord)
         .where(TenderRecord.brief_json.is_not(None))
@@ -165,6 +167,8 @@ async def latest_agent_profile(db: AsyncSession, *, limit: int = 8) -> dict[str,
     rows = (await db.execute(stmt)).scalars().all()
     for row in rows:
         raw = row.brief_json if isinstance(row.brief_json, dict) else {}
+        if not same_company(raw.get("bidderName"), bidder_name):
+            continue
         name = str(raw.get("agentName") or "").strip()
         id_no = str(raw.get("agentIdNo") or "").strip()
         if not name and not id_no:
@@ -180,7 +184,9 @@ async def latest_agent_profile(db: AsyncSession, *, limit: int = 8) -> dict[str,
     return {}
 
 
-async def load_history_playbooks(db: AsyncSession, *, limit: int = _HISTORY_LIMIT) -> list[HistoryPlaybook]:
+async def load_history_playbooks(db: AsyncSession, *, bidder_name: str = "", limit: int = _HISTORY_LIMIT) -> list[HistoryPlaybook]:
+    if not bidder_name.strip():
+        return []
     stmt = (
         select(TenderRecord)
         .where(TenderRecord.brief_json.is_not(None))
@@ -191,7 +197,7 @@ async def load_history_playbooks(db: AsyncSession, *, limit: int = _HISTORY_LIMI
     out: list[HistoryPlaybook] = []
     fingerprints: set[tuple[str, ...]] = set()
     for row in rows:
-        book = sanitize_history_brief(row.brief_json if isinstance(row.brief_json, dict) else None)
+        book = sanitize_history_brief(row.brief_json if isinstance(row.brief_json, dict) else None, bidder_name=bidder_name)
         if book is None:
             continue
         fp = book.slot_keys

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+
 import json
 import logging
 import re
@@ -20,6 +22,11 @@ _MAX_CHARS = 6000
 
 # 填空点, 角色, 字段名, 表。表：pm 简历 / company 企业表 / work 工作经历 / any
 _FIELD_MAP = (
+    ("营业执照号", "company", "统一社会信用代码", "company"),
+    ("营业执照号码", "company", "统一社会信用代码", "company"),
+    ("注册号", "company", "统一社会信用代码", "company"),
+    ("注册资金", "company", "注册资本", "any"),
+    ("资质等级", "company", "资质等级", "company"),
     ("统一社会信用代码", "company", "统一社会信用代码", "any"),
     ("注册资本", "company", "注册资本", "any"),
     ("成立日期", "company", "成立日期", "any"),
@@ -87,7 +94,9 @@ def dump_facts(bundle: dict) -> str:
         fields.append({"name": name, "value": value, "conf": round(conf, 2)})
         if len(fields) >= 16:
             break
-    body = {"role": role, "fields": fields}
+    body = {"role": role, "fields": fields,
+            "candidates": bundle.get('candidates') or [],
+            "rawRecognition": bundle.get('rawRecognition') or {}}
     return FACTS_PREFIX + json.dumps(body, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -113,7 +122,9 @@ def load_facts(raw: str | None) -> dict | None:
         if not name or not value:
             continue
         fields.append({"name": name, "value": value, "conf": _conf(item.get("conf", 1))})
-    return {"role": role, "fields": fields}
+    return {"role": role, "fields": fields,
+            "candidates": payload.get('candidates') or [],
+            "rawRecognition": payload.get('rawRecognition') or {}}
 
 
 def view_facts(raw: str | None) -> dict | None:
@@ -138,6 +149,9 @@ def apply_correction(raw: str | None, *, role: str, fields: list) -> str:
             attr = {"姓名": "name", "性别": "gender", "身份证号": "idNo", "年龄": "age"}.get(item["name"])
             if attr:
                 card[attr] = item["value"]
+        if card.get('side') == 'front' and card.get('idNo'):
+            card['idNo']=str(card['idNo']).strip().upper()
+            card['personKey']=card['idNo']
         return dump_id_meta(card)
     line = load_perf_meta(raw)
     if line is not None:
@@ -152,11 +166,14 @@ def apply_correction(raw: str | None, *, role: str, fields: list) -> str:
                 line.summary = item["value"][:800]
             elif item["name"] == "合同金额":
                 line.amountYuan = _money(item["value"], line.amountYuan)
+            elif item["name"] in {"签约主体", "企业名称", "投标人名称"}:
+                line.bidderName = item["value"][:255]
         if not (line.projectName or "").strip():
             raise ValueError("项目名称不能为空")
         return dump_perf_meta(line)
     picked = role if role in _ROLES else "other"
-    return dump_facts({"role": picked, "fields": [{**item, "conf": 1} for item in clean]})
+    previous = load_facts(raw) or {}
+    return dump_facts({**previous,"role": picked, "fields": [{**item, "conf": 1} for item in clean]})
 
 
 def fact_fill(label: str, sheet: str, facts: list | None) -> tuple[str, str]:
@@ -182,11 +199,17 @@ def fact_fill(label: str, sheet: str, facts: list | None) -> tuple[str, str]:
         return "", ""
     role, field, lab = hit
     got: list[str] = []
+    aliases = {'统一社会信用代码': {'营业执照号','营业执照号码','注册号'},
+               '注册资本': {'注册资金'}, '资质等级': {'企业资质等级','资质级别'}}
+    canonical_available = any(
+        bundle.get('role') == role and any(item.get('name') == field and item.get('value')
+            for item in bundle.get('fields') or []) for bundle in facts)
     for bundle in facts:
         if (bundle.get("role") or "") != role:
             continue
         for item in bundle.get("fields") or []:
-            if (item.get("name") or "") != field:
+            if (item.get("name") or "") != field and (
+                    canonical_available or item.get('name') not in aliases.get(field,set())):
                 continue
             value = str(item.get("value") or "").strip()
             if not value or _conf(item.get("conf", 1)) < 0.6 or value in got:
@@ -233,14 +256,7 @@ async def extract_facts(db, path: Path, *, key: str, title: str, hint: str, file
                 {
                     "role": "system",
                     "content": (
-                        "你从投标资料扫描件的识别文本里抽字段。只保留文本里能看见的，禁止编造。"
-                        "报价、工期、质保、付款、投标总价不要抽。看不出就 fields 为空。"
-                        "role 只能是 company、person/legal、person/pm、person/pmWork、other。"
-                        "营业执照和许可证用 company；法人身份证用 person/legal；"
-                        "项目经理证件用 person/pm；工作经历用 person/pmWork。"
-                        "字段名只用：统一社会信用代码、注册资本、成立日期、经营范围、姓名、性别、年龄、"
-                        "身份证号、注册证号、级别、职称、学历、建造师专业、起止时间、担任职务、项目名称。"
-                        "只输出一个 JSON：{\"role\":\"\",\"fields\":[{\"name\":\"\",\"value\":\"\",\"conf\":0.9}]}"
+                        get_prompt("facts_system")
                     ),
                 },
                 {
@@ -267,9 +283,8 @@ async def extract_facts(db, path: Path, *, key: str, title: str, hint: str, file
         role = guess_role(key, title)
     if role not in _ROLES:
         role = "other"
-    if not fields:
-        return None
-    return {"role": role, "fields": fields}
+    return {"role": role, "fields": fields,
+            "candidates": payload.get('fields') or [], "rawRecognition": payload}
 
 
 def _from_id(card: dict) -> dict | None:
@@ -296,6 +311,7 @@ def _from_perf(line) -> dict | None:
     if amount > 0:
         amount_text = str(int(round(amount))) if abs(amount - round(amount)) < 0.001 else f"{amount:.2f}"
     pairs = (
+        ("签约主体", line.bidderName),
         ("项目名称", line.projectName),
         ("规格", line.spec),
         ("发包人", line.client),

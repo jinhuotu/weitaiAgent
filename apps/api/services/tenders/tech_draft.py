@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+
 import logging
 import re
 from typing import Any
@@ -17,15 +19,7 @@ logger = logging.getLogger("api.tenders.tech_draft")
 TECH_BID_TAG = "tech_bid"
 _PENDING_RESP = "【待响应】"
 
-_DRAFT_SYSTEM = """【四源优先级：邀请书原文 > 用户本次输入(slots) > 投标资料库最新数据 > 提示词模板结构 > 历史标书写法】
-你是投标技术标起草助理。根据给定的招标原文、评分点和本标已有事实，写一章响应草稿。
-硬性规则：
-1. 只使用用户给出的事实。数字、工期、数量、图纸、人员名单不在事实里就写【待补充】，禁止编造。
-2. 历史片段只可参考写法（不得照抄其中项目名、数量、甲方名、日期、金额）；证照号、注册证号、合同编号、合同金额必须原样引用「可引用素材」，没有就写【待补充】；slots缺失写【待确认】。
-3. 不要写投标人全称、徽标、人员真名（暗标）。
-4. 只输出本章正文，不要标题、不要 Markdown 代码块。
-5. 若给出评分点，正文逐条对应：每条先回应评分点原意，再写响应。
-6. 若给出红线，不得写出会触发红线的承诺或相反表述；做不到写【待补充】。"""
+_DRAFT_SYSTEM = get_prompt("tech_draft_system")
 
 _CITE_FIELDS = (
     "统一社会信用代码",
@@ -60,7 +54,7 @@ def scores_for(item: OutlineItem, brief: BidBrief) -> list[str]:
     title = compact(item.title)
     out: list[str] = []
     for req in brief.bidRequirements or []:
-        if (req.category or "").strip() != "scoring":
+        if (req.category or "").strip().lower() != "scoring" and req.scoreWeight is None:
             continue
         blob = compact(f"{req.text}{req.targetTitle}{req.targetKind}")
         if req.targetKind in {"tech_plan", "tech_chapter"} or _overlap(title, blob):
@@ -85,6 +79,8 @@ def _overlap(a: str, b: str) -> bool:
 def tech_red_lines(brief: BidBrief) -> list[str]:
     out: list[str] = []
     for req in brief.bidRequirements or []:
+        if (req.category or '').strip().lower() == 'scoring' or req.scoreWeight is not None:
+            continue
         if (req.volume or "").strip() != "technical":
             continue
         if (req.strength or "").strip() != "mandatory":
@@ -172,6 +168,9 @@ def rank_past_hits(hits, verdicts: dict | None = None) -> tuple[list[str], list[
 def scrub_fragment(text: str, brief: BidBrief | None) -> str:
     if not text or brief is None:
         return text or ""
+    from api.services.tenders.bid_archive import sanitize_text
+
+    text = sanitize_text(text, brief)
     needles = []
     for raw in (brief.projectName, brief.tenderNo, brief.tenderer):
         s = (raw or "").strip()
@@ -256,8 +255,6 @@ def fallback_draft(
         bits.append("红线（不得触碰）：\n" + "\n".join(f"- {s}" for s in reds[:8]))
     if excerpt:
         bits.append("对照招标要求：\n" + excerpt[:800])
-    if scores:
-        bits.append("评分点：\n" + "\n".join(f"- {s}" for s in scores[:8]))
     if refs:
         bits.append("评分点响应参考，不得照抄项目名。")
     if facts.strip():
@@ -508,7 +505,7 @@ async def write_chapter(
     return fallback_draft(item, facts=facts, scores=scores, past=past, reds=reds, refs=refs, avoid=avoid)
 
 
-async def _library_bundles(db: AsyncSession | None, catalog_facts) -> list:
+async def _library_bundles(db: AsyncSession | None, catalog_facts, brief: BidBrief) -> list:
     if catalog_facts is not None:
         return list(catalog_facts)
     if db is None:
@@ -516,7 +513,10 @@ async def _library_bundles(db: AsyncSession | None, catalog_facts) -> list:
     try:
         from api.services.tenders.library_kb import library_facts
 
-        return await library_facts(db)
+        from api.services.tenders.company_materials import scoped_library_media
+
+        _, allowed_ids, _, _ = await scoped_library_media(db, brief, {})
+        return [f for f in await library_facts(db) if f.get('fileId') in allowed_ids]
     except Exception as exc:
         logger.warning("tech library facts skipped: %s", exc)
         return []
@@ -533,15 +533,26 @@ async def draft_tech(
     catalog_facts=None,
 ) -> tuple[BidBrief, list[str]]:
     notes: list[str] = []
+    from api.services.tenders.gen_tech_plan import _is_scoring, _scorecard
+
+    scoring=[r for r in brief.bidRequirements if _is_scoring(r)]
+    scoring_text={compact(r.text) for r in scoring}
+    checks=[d for d in brief.deviationLines if compact(d.requirement) in scoring_text]
+    brief=brief.model_copy(update={
+        'techScorecard':_scorecard(scoring,[i.title for i in brief.outlineItems],checks),
+        'deviationLines':[d for d in brief.deviationLines if compact(d.requirement) not in scoring_text],
+    })
     items = hydrate_tech_excerpts(list(brief.outlineItems or []))
     if not item_id:
         items = ensure_tech_chapters(items, brief)
     brief = brief.model_copy(update={"outlineItems": items})
     quote = quote_facts(brief)
-    bundles = await _library_bundles(db, catalog_facts)
+    bundles = await _library_bundles(db, catalog_facts, brief)
     reds = tech_red_lines(brief)
     done = 0
     out: list[OutlineItem] = []
+    jobs = []
+    positions = []
     for item in brief.outlineItems:
         hit = (
             (item.id or "") == item_id
@@ -568,18 +579,19 @@ async def draft_tech(
             notes.append(f"{item.title}避开 {len(avoid)} 条负样本问题")
         if past:
             notes.append(f"{item.title}引用了 {len(past)} 段历史写法")
-        text = await write_chapter(
-            item,
-            facts=facts,
-            scores=scores,
-            past=past,
-            client=client,
-            reds=reds,
-            refs=refs,
-            avoid=avoid,
-        )
-        out.append(apply_chapter_draft(item, text))
+        # Retrieval above uses the shared DB session sequentially. Model jobs
+        # below capture independent inputs and return text without touching it.
+        positions.append(len(out))
+        out.append(item)
+        async def generate(item=item.model_copy(deep=True), facts=facts, past=list(past), refs=list(refs), avoid=list(avoid)):
+            return await write_chapter(item, facts=facts, scores=[], past=past,
+                                       client=client, reds=reds, refs=refs, avoid=avoid)
+        jobs.append(generate)
         done += 1
+    from api.services.tenders.generation_parallel import ordered_generation
+    texts = await ordered_generation(jobs, stage='technical_chapters', labels=[out[position].title for position in positions])
+    for position, text in zip(positions, texts):
+        out[position] = apply_chapter_draft(out[position], text)
     brief = brief.model_copy(update={"outlineItems": out})
     if not item_id:
         brief = draft_deviations(brief, quote)

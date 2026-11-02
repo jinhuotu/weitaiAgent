@@ -70,7 +70,8 @@ def test_kb_format_skips_when_invite_has_format_chapter() -> None:
     assert notes == []
     assert brief.outlineItems == []
     assert brief.quoteHeaders == []
-    assert brief.layoutMode == "chapter5"
+    # 原版格式章优先，知识库不得把组卷路径切回内置模板。
+    assert brief.layoutMode == "outline"
 
 
 def test_kb_format_does_not_replace_existing_outline_or_headers() -> None:

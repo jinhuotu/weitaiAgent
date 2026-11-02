@@ -494,7 +494,7 @@ def test_resume_keeps_pm_blank_and_perf_off_work_history() -> None:
     assert "待补充类似业绩1" in perf_blob
 
 
-def test_matched_text_starts_at_second_cell() -> None:
+def test_matched_text_starts_at_blank_left_edge() -> None:
     from api.services.tenders.pdf_format import _fill_word_blanks
 
     doc = Document()
@@ -510,7 +510,7 @@ def test_matched_text_starts_at_second_cell() -> None:
     brief.projectName = "郑州高新技术产业开发区新能源充电站"
     brief.bidderName = "河南伟泰光电科技有限公司"
     _fill_word_blanks(doc, brief)
-    lead = "\u3000"
+    lead = ""
     cover_text = cover.text or ""
     assert cover_text.startswith(lead + "郑州高新技术产业开发区新能源充电站")
     assert cover_text.endswith("标段施工")
@@ -704,6 +704,7 @@ def test_note_inside_row_drops_table_float() -> None:
 
 def test_exact_row_opens_after_fill() -> None:
     from api.services.tenders.pdf_format import _fill_word_blanks
+    from legacy_company import legacy_brief
 
     doc = Document()
     table = doc.add_table(rows=1, cols=2)
@@ -711,7 +712,7 @@ def test_exact_row_opens_after_fill() -> None:
     table.rows[0].cells[1].text = ""
     _set_exact(table.rows[0], 280)
     kept = _pin_tcw(table.rows[0].cells[1], 1400)
-    _fill_word_blanks(doc, default_brief())
+    _fill_word_blanks(doc, legacy_brief())
     th = table.rows[0]._tr.find(qn("w:trPr")).find(qn("w:trHeight"))
     assert th.get(qn("w:hRule")) == "atLeast"
     assert th.get(qn("w:val")) == "280"

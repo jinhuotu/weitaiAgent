@@ -14,8 +14,6 @@ from api.services.tenders.schema import BidBrief
 from api.services.tenders.tables import classify_quote_headers, group_indexes, quote_role
 
 _TWO = Decimal("0.01")
-SHEET_INC_TAX = Decimal("518800")
-SECOND_ROUND_YUAN = Decimal("439700")
 _MAX_LINES = 80
 
 _SKIP_NAME = ("不含税合计", "含税合计", "税率", "合计", "小计", "总计", "备注")
@@ -80,10 +78,6 @@ def _qty(value: object) -> Decimal:
         return Decimal(str(value))
     except Exception:
         return Decimal("0")
-
-
-def is_template_sheet(sheet: QuoteSheet) -> bool:
-    return "高途智成港" in (sheet.title or "")
 
 
 def _col_kind(cell: object) -> str | None:
@@ -181,7 +175,7 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
 
     group_cols = group_indexes(layout)
     lines: list[QuoteLine] = []
-    tax_rate = Decimal("0.13")
+    tax_rate = Decimal("0")
     total_ex = Decimal("0")
     total_inc = Decimal("0")
     note = ""
@@ -251,10 +245,12 @@ def sheet_from_rows(rows: list[list[object]], *, title_hint: str = "") -> QuoteS
                 name = _cell_text(row[col + 1])
                 if name:
                     projects.append(name)
+    if tax_rate <= 0 and total_inc > 0 and total_ex > 0 and total_inc >= total_ex:
+        tax_rate = ((total_inc / total_ex) - 1).quantize(Decimal('0.0001'))
     if total_ex <= 0:
         total_ex = sum((ln.amount for ln in lines), Decimal("0"))
     if tax_rate <= 0:
-        tax_rate = Decimal("0.13")
+        tax_rate = Decimal("0")
     if total_inc <= 0:
         total_inc = (total_ex * (1 + tax_rate)).quantize(_TWO, rounding=ROUND_HALF_UP)
     return QuoteSheet(
@@ -332,17 +328,17 @@ def sheet_from_quote_records(rows: list) -> QuoteSheet | None:
 
     lines: list[QuoteLine] = []
     titles: list[str] = []
-    tax = Decimal("0.13")
+    tax = Decimal("0")
     total_inc = Decimal("0")
     for row in rows:
         title = str(getattr(row, "project_name", "") or "").strip()
         if title:
             titles.append(title)
-        tax = _q(getattr(row, "tax_rate", 0) or 0.13)
+        tax = _q(getattr(row, "tax_rate", 0) or 0)
         if tax > 1:
             tax = tax / Decimal("100")
         if tax <= 0:
-            tax = Decimal("0.13")
+            tax = Decimal("0")
         total_inc += _q(getattr(row, "total_inc_tax", 0))
         for ln in _lines_load(getattr(row, "lines_json", None)):
             name = str(ln.name or "").strip()
@@ -421,11 +417,11 @@ def sheet_from_brief(brief: BidBrief) -> QuoteSheet | None:
         )
     if not lines:
         return None
-    rate = Decimal(str(brief.quoteTaxRate or 0.13))
+    rate = Decimal(str(brief.quoteTaxRate or 0))
     if rate > 1:
         rate = rate / Decimal("100")
     if rate <= 0:
-        rate = Decimal("0.13")
+        rate = Decimal("0")
     total_ex = sum((ln.amount for ln in lines), Decimal("0"))
     stored_inc = _q(brief.quoteSourceIncTax)
     total_inc = stored_inc if stored_inc > 0 else (total_ex * (1 + rate)).quantize(_TWO, rounding=ROUND_HALF_UP)
@@ -507,7 +503,10 @@ def resolve_quote_sheet(brief: BidBrief, template_path: Path | None = None) -> t
 def validate_quote_source(brief: BidBrief) -> list[str]:
     """Recheck mutable/legacy form data before any module or LLM can consume it."""
     resolve_quote_sheet(brief)
-    return quote_source_notes(brief)
+    notes = quote_source_notes(brief)
+    if brief.quoteLines and not brief.quoteTaxRate:
+        notes.append('报价税率未核验，未套用默认税率；保留来源金额，请在定稿前核对含税口径与税率')
+    return notes
 
 
 def attach_sheet(
@@ -603,7 +602,7 @@ def scale_quote(sheet: QuoteSheet, target_inc_tax: Decimal) -> QuoteSheet:
             unit = (line.unit_price * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
             amt = (line.amount * factor).quantize(_TWO, rounding=ROUND_HALF_UP)
         scaled.append(replace(line, unit_price=unit, amount=amt))
-    rate = sheet.tax_rate if sheet.tax_rate > 0 else Decimal("0.13")
+    rate = sheet.tax_rate if sheet.tax_rate > 0 else Decimal("0")
     target_ex = (target / (1 + rate)).quantize(_TWO, rounding=ROUND_HALF_UP)
     drift = target_ex - sum((ln.amount for ln in scaled), Decimal("0"))
     if scaled and drift != 0:
@@ -616,12 +615,9 @@ def scale_quote(sheet: QuoteSheet, target_inc_tax: Decimal) -> QuoteSheet:
 
 def apply_traffic_note(spec: str, note: str) -> str:
     text = (note or "").strip()
-    if not text or "流量" not in (spec or ""):
+    if not text:
         return spec
-    return (
-        spec.replace("（备注质保期外的流量年收费标准？）", text)
-        .replace("（备注质保期外的流量年收费标准?）", text)
-    )
+    return re.sub(r'[（(]备注[^（）()]*流量[^（）()]*[？?][）)]', lambda _: text, spec or '')
 
 
 def money_text(value: Decimal) -> str:
@@ -725,11 +721,8 @@ def _parse_docx(path: Path) -> QuoteSheet | None:
 __all__ = [
     "QuoteLine",
     "QuoteSheet",
-    "SECOND_ROUND_YUAN",
-    "SHEET_INC_TAX",
     "apply_traffic_note",
     "attach_sheet",
-    "is_template_sheet",
     "load_quote_sheet",
     "money_text",
     "parse_quote_from_text",

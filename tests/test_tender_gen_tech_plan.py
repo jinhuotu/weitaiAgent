@@ -78,12 +78,12 @@ def test_draft_only_existing_empty_chapters_and_deviations(tmp_path):
     assert [(x.id, x.title, x.level) for x in result.outlineItems] == [
         (x.id, x.title, x.level) for x in brief.outlineItems
     ]
-    assert result.outlineItems[0].draftBody.startswith("技术得分点对照表")
-    assert "【待补充】邀请书正文为空" in result.outlineItems[0].draftBody
+    assert result.outlineItems[0].draftBody == client.payload['chapters'][1]['body']
+    assert "说明现场安全措施" in result.techScorecard
     assert any("邀请书正文为空" in note for note in notes)
     assert "本项目名称" in result.outlineItems[0].draftBody
     assert result.outlineItems[1].draftBody == "人工写的质量体系"
-    assert result.deviationLines[0].response.endswith("见「项目概况与施工部署」）")
+    assert not result.deviationLines
     prompt = client.messages[1]["content"]
     assert (
         prompt.index("【用户输入")
@@ -98,8 +98,8 @@ def test_draft_only_existing_empty_chapters_and_deviations(tmp_path):
     tables = "\n".join(
         cell.text for table in Document(dest).tables for row in table.rows for cell in row.cells
     )
-    assert "说明现场安全措施" in tables
-    assert "见「项目概况与施工部署」" in tables
+    assert "说明现场安全措施" not in tables
+    assert "评分点自查表" not in tables
 
 
 def test_four_inputs_keep_user_source_first(monkeypatch):
@@ -134,7 +134,7 @@ def test_four_inputs_keep_user_source_first(monkeypatch):
         ("engineering", "施工组织设计与施工部署", "文明施工与环保"),
     ],
 )
-def test_procurement_routes_scorecard_into_existing_body(kind, cue, topic):
+def test_procurement_routes_scorecard_to_self_check_only(kind, cue, topic):
     assert classify_procurement_type(cue) == kind
     brief = BidBrief(
         bidContent=cue,
@@ -159,9 +159,10 @@ def test_procurement_routes_scorecard_into_existing_body(kind, cue, topic):
     assert [(i.id, i.title, i.level) for i in drafted.outlineItems] == [
         (i.id, i.title, i.level) for i in brief.outlineItems
     ]
-    assert drafted.outlineItems[0].draftBody.startswith("技术得分点对照表")
-    assert "技术评分项要求逐项说明" in drafted.outlineItems[0].draftBody
-    assert "证明材料：【待补充】" in drafted.deviationLines[0].response
+    assert drafted.outlineItems[0].draftBody == client.payload['chapters'][0]['body']
+    assert "技术评分项要求逐项说明" in drafted.techScorecard
+    assert not drafted.deviationLines
+    assert "技术评分项要求逐项说明" not in client.messages[1]['content']
     assert topic in client.messages[0]["content"]
 
 
@@ -169,8 +170,8 @@ def test_no_scoring_points_are_marked_for_completion():
     brief = BidBrief(outlineItems=[OutlineItem(title="技术方案", kind="tech_plan")])
     client = FakeClient({"chapters": [{"title": "技术方案", "body": "方案正文。"}]})
     drafted, _ = asyncio.run(draft_technical_plan(None, brief, client=client))
-    assert "未识别到技术评分项" in drafted.outlineItems[0].draftBody
-    assert "【待补充】" in drafted.outlineItems[0].draftBody
+    assert drafted.outlineItems[0].draftBody == "方案正文。"
+    assert "未识别到技术评分项" in drafted.techScorecard
 
 
 def test_scoring_rows_only_come_from_technical_section():
@@ -179,6 +180,46 @@ def test_scoring_rows_only_come_from_technical_section():
     assert any("技术参数" in row.text for row in rows)
     assert any("服务应急" in row.text for row in rows)
     assert all("报价" not in row.text for row in rows)
+
+
+def test_manual_draft_route_keeps_weighted_rules_in_self_check_even_without_model():
+    from api.services.tenders.tech_draft import draft_tech
+    scoring='响应措施按完整性给予评分'
+    b=BidBrief(outlineItems=[OutlineItem(id='one',title='响应方案',kind='tech_plan',body='需说明实施步骤')],
+        bidRequirements=[BidRequirement(text=scoring,category='technical',scoreWeight=0,volume='technical')],
+        deviationLines=[{'requirement':scoring,'response':'旧评分点响应'}])
+    out,_=asyncio.run(draft_tech(b,catalog_facts=[]))
+    assert scoring in out.techScorecard and '旧评分点响应' in out.techScorecard
+    assert not out.deviationLines
+    assert all(scoring not in i.draftBody for i in out.outlineItems)
+
+
+@pytest.mark.parametrize('company,content', [
+    ('初禾建设有限公司','工程施工'),('远岚设备有限公司','设备采购'),
+    ('澄序服务有限公司','运营服务'),('陌生主体有限公司','全新接口协作采购'),
+])
+@pytest.mark.parametrize('volume',['technical','full'])
+def test_score_weight_is_self_check_only_and_substantive_response_survives(tmp_path,company,content,volume):
+    scoring='评分：协同方案完整得零至六分'
+    requirement='提供协同实施方案和检查措施'
+    body='采用需求确认、实施验证、交付复核三个阶段，按检查记录闭环处理问题。'
+    brief=BidBrief(bidderName=company,bidContent=content,generateVolume=volume,layoutMode='outline',
+        outlineItems=[OutlineItem(id='one',title='响应方案',kind='tech_plan')],
+        bidRequirements=[BidRequirement(text=scoring,category='technical',scoreWeight=0,volume='technical'),
+                         BidRequirement(text=requirement,category='technical',volume='technical')],
+        deviationLines=[{'requirement':scoring,'response':'旧评分响应，迁移至自查'}])
+    client=FakeClient({'chapters':[{'title':'响应方案','body':body}],
+        'deviations':[{'requirement':requirement,'response':'按三个阶段实施','chapter':'响应方案'}]})
+    result,notes=asyncio.run(draft_technical_plan(None,brief,client=client))
+    assert result.outlineItems[0].draftBody==body
+    assert scoring in result.techScorecard and '旧评分响应' in result.techScorecard
+    assert [d.requirement for d in result.deviationLines]==[requirement]
+    assert scoring not in client.messages[1]['content']
+    assert any('评分点自查表' in n for n in notes)
+    path,_=assemble_bid_docx(result,tmp_path/(volume+'.docx'),catalog_slots=[],catalog_media={},volume=volume)
+    doc=Document(path)
+    text='\n'.join(p.text for p in doc.paragraphs)+'\n'+'\n'.join(c.text for t in doc.tables for r in t.rows for c in r.cells)
+    assert body in text and scoring not in text and '评分点自查表' not in text
 
 
 def test_score_points_separate_mandatory_bonus_and_format():
@@ -193,8 +234,8 @@ def test_manual_chapters_remain_and_deviation_is_flagged_for_review():
     brief.outlineItems[0].draftStatus = "edited"
     result, _ = asyncio.run(draft_technical_plan(None, brief))
     assert [i.draftBody for i in result.outlineItems] == [i.draftBody for i in brief.outlineItems]
-    assert result.deviationLines[0].requirement == "说明现场安全措施"
-    assert "【待补充】" in result.deviationLines[0].response
+    assert not result.deviationLines
+    assert "说明现场安全措施" in result.techScorecard
 
 
 def test_incomplete_llm_output_keeps_returned_body_and_marks_missing_section():
@@ -401,6 +442,7 @@ def test_missing_chapters_retains_deviations_and_preserves_manual_rows():
     from api.services.tenders.schema import DeviationLine
 
     brief = _brief()
+    brief.bidRequirements[0].category = 'technical'
     manual = DeviationLine(requirement='用户确认的技术参数', response='人工响应', deviation='待确认')
     brief.deviationLines = [manual]
     client = FakeClient({'deviations': [{

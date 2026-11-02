@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 from collections.abc import AsyncIterator
@@ -79,9 +80,32 @@ def _choice_piece_text(choice: dict[str, Any]) -> tuple[str, str]:
     return content, reason
 
 
+class _ConnectRetryTransport(httpx.AsyncHTTPTransport):
+    """Retry only connection setup, before an HTTP response can be received."""
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        for attempt in range(3):
+            try:
+                return await super().handle_async_request(request)
+            except (httpx.ConnectTimeout, httpx.ConnectError):
+                if attempt == 2:
+                    raise
+                delay = 0.5 * (2 ** attempt)
+                logger.warning(
+                    'llm connection setup failed host=%s retry=%s/2 delay_seconds=%.1f',
+                    request.url.host, attempt + 1, delay,
+                )
+                await asyncio.sleep(delay)
+        raise AssertionError('unreachable')
+
+
 def _http_client(**kwargs: Any) -> httpx.AsyncClient:
     """不走系统代理。Windows 上 Clash 等会把局域网 IP 拐走，报 All connection attempts failed。"""
     kwargs.setdefault("trust_env", False)
+    # Keep the retry below the SSE consumer: a read failure or a partially
+    # emitted answer must never replay the generation request.
+    if 'transport' not in kwargs:
+        kwargs['transport'] = _ConnectRetryTransport(trust_env=kwargs['trust_env'])
     return httpx.AsyncClient(**kwargs)
 
 
@@ -210,6 +234,7 @@ class LLMClient:
         messages: list[dict[str, Any]],
         *,
         mode: str = "fast",
+        response_format: dict | None = None,
     ) -> AsyncIterator[str]:
         """SSE 流式输出纯文本 delta；内联 DSML 工具标记会被剥离。"""
         model = self._model(mode)
@@ -221,6 +246,13 @@ class LLMClient:
             "temperature": temperature,
             "stream": True,
         }
+        if response_format is not None:
+            payload["response_format"] = response_format
+            # Structured extraction must reserve output tokens for the JSON.
+            # Newer DeepSeek chat models can enable thinking even when their
+            # model name does not contain "reasoner" or "r1".
+            if 'deepseek' in model.lower():
+                payload['thinking'] = {'type': 'disabled'}
         payload = self._apply_generation_options(payload)
         n_mm = sum(1 for m in messages if isinstance(m.get("content"), list))
         n_img = sum(
@@ -302,7 +334,7 @@ class LLMClient:
                             if cleaned:
                                 yield cleaned
                         joined_reason = "".join(reason_buf).strip()
-                        if joined_reason:
+                        if joined_reason and not had_content:
                             logger.info(
                                 "llm stream appended reasoning_content chars=%s had_content=%s model=%s",
                                 len(joined_reason),
@@ -313,6 +345,11 @@ class LLMClient:
                         return
         except AppError:
             raise
+        except httpx.ConnectTimeout as exc:
+            logger.warning('llm connection timeout model=%s phase=connect limit_seconds=20 retries_exhausted=2',model)
+            raise AppError(ErrorCode.INTERNAL, '连接模型服务超时（单次建立连接超过20秒，已自动重试2次）；尚未收到模型响应，请检查模型服务连接后重试', status_code=503) from exc
+        except httpx.PoolTimeout as exc:
+            raise AppError(ErrorCode.INTERNAL, '等待模型连接超时，请稍后重试', status_code=503) from exc
         except httpx.TimeoutException as exc:
             raise AppError(
                 ErrorCode.INTERNAL,
@@ -332,10 +369,11 @@ class LLMClient:
         messages: list[dict[str, Any]],
         *,
         mode: str = "fast",
+        response_format: dict | None = None,
     ) -> str:
         """工作流读图/出 JSON 走流式，避免思考模型长时间零输出触发整段超时。"""
         parts: list[str] = []
-        async for text in self.stream_chat(messages, mode=mode):
+        async for text in self.stream_chat(messages, mode=mode, **({"response_format": response_format} if response_format is not None else {})):
             if text:
                 parts.append(text)
         text = "".join(parts)

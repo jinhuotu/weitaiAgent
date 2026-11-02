@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from legacy_company import legacy_brief
+
 import hashlib
 from decimal import Decimal
 
@@ -54,7 +56,7 @@ def test_default_brief_project_fields_empty() -> None:
     assert brief.projectName == ""
     assert brief.tenderer == ""
     assert brief.bidContent == ""
-    assert brief.bidderName == "河南伟泰光电科技有限公司"
+    assert brief.bidderName == ""
 
 
 def test_chapter5_template_exists() -> None:
@@ -116,7 +118,7 @@ def test_apply_invite_letter_fields_generic() -> None:
 招标控制价：5870581.86元；安全生产措施费：37023.13元；暂列金额：75000.00元；专业工程暂估价：0元。
 投标保证金：人民币伍万元整。
 """
-    brief = apply_invite_letter_fields(BidBrief(deliveryDays=30, bidValidityDays=60), text)
+    brief = apply_invite_letter_fields(legacy_brief(deliveryDays=30, bidValidityDays=60), text)
     assert brief.deliveryDays == 90
     assert brief.bidValidityDays == 90
     assert brief.quality == "合格"
@@ -139,22 +141,22 @@ def test_apply_invite_letter_fields_project_facts() -> None:
 本项目招标编号为26-GCZN-0150；
 """
     assert extract_tender_no(text) == "26-GCZN-0150"
-    brief = apply_invite_letter_fields(BidBrief(), text)
+    brief = apply_invite_letter_fields(legacy_brief(), text)
     assert "新能源充" in brief.projectName
     assert brief.tenderer == "郑州天健智慧园区运营管理有限公司"
     assert brief.tenderNo == "26-GCZN-0150"
     assert "充电桩系统采购" in brief.bidContent
-    kept = apply_invite_letter_fields(BidBrief(projectName="手工项目", tenderer="手工招标人"), text)
+    kept = apply_invite_letter_fields(legacy_brief(projectName="手工项目", tenderer="手工招标人"), text)
     assert kept.projectName == "手工项目"
     assert kept.tenderer == "手工招标人"
 
 
 
 def test_build_bid_docx_fills_company(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="高途智成港（一期）汽车充电桩采购安装项目",
         tenderer="郑州有爱文化科技有限公司",
-        bidContent="地下车库汽车充电桩供货、安装调试及技术服务",
+        bidContent="地下车库汽车充电桩及立柱供货、安装调试及技术服务",
         bidPriceYuan=518800,
         legalPersonName="测试",
         attachQualifications=False,
@@ -376,7 +378,7 @@ def test_build_bid_docx_fills_company(tmp_path) -> None:
 
 
 def test_quote_table_fits_page_width(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="宽表测试",
         tenderer="招标人",
         bidPriceYuan=518800,
@@ -422,7 +424,8 @@ def test_quote_table_fits_page_width(tmp_path) -> None:
 
 def test_quote_sheet_scales_to_second_round() -> None:
     from api.services.tenders.assets import find_quote_xlsx
-    from api.services.tenders.quote import SECOND_ROUND_YUAN, load_quote_sheet, scale_quote
+    from api.services.tenders.quote import load_quote_sheet, scale_quote
+    SECOND_ROUND_YUAN = Decimal("439700")
 
     path = find_quote_xlsx()
     assert path is not None
@@ -435,7 +438,7 @@ def test_quote_sheet_scales_to_second_round() -> None:
 
 
 def test_build_bid_docx_quote_scaled(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         bidPriceYuan=8000,
         legalPersonName="测试",
         attachQualifications=False,
@@ -479,7 +482,7 @@ def test_build_bid_docx_quote_scaled(tmp_path) -> None:
 
 
 def test_placeholders_can_be_skipped(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         bidPriceYuan=518800,
         attachQualifications=False,
         includePlaceholders=False,
@@ -496,7 +499,7 @@ def test_placeholders_can_be_skipped(tmp_path) -> None:
 
 
 def test_factory_commitment_follows_tender_name(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="厂内新能源充电桩采购项目",
         tenderer="测试招标人新能源有限公司",
         bidPriceYuan=100000,
@@ -513,7 +516,7 @@ def test_factory_commitment_follows_tender_name(tmp_path) -> None:
     doc = Document(str(path))
     addr = next(p for p in doc.paragraphs if (p.text or "").startswith("测试招标人新能源有限公司"))
     assert "：" in addr.text
-    factory = next(p for p in doc.paragraphs if "作为充电设备生产厂商" in (p.text or ""))
+    factory = next(p for p in doc.paragraphs if "作为投标产品生产厂商" in (p.text or ""))
     assert "我单位" in factory.text
     assert "厂内新能源充电桩采购项目" in factory.text
     assert "联源热电" not in factory.text
@@ -525,7 +528,7 @@ def test_factory_commitment_follows_tender_name(tmp_path) -> None:
 
 
 def test_factory_commitment_falls_back_to_project_name(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="备件采购投标项目",
         tenderer="",
         bidPriceYuan=100000,
@@ -538,7 +541,8 @@ def test_factory_commitment_falls_back_to_project_name(tmp_path) -> None:
     from docx import Document
 
     doc = Document(str(path))
-    addr = next(p for p in doc.paragraphs if (p.text or "").startswith("备件采购投标项目"))
+    factory_i = next(i for i,p in enumerate(doc.paragraphs) if p.text.strip() == "原厂生产承诺")
+    addr = next(p for p in doc.paragraphs[factory_i+1:] if (p.text or "").startswith(brief.projectName))
     assert "：" in addr.text
     factory = next(p for p in doc.paragraphs if "作为投标产品生产厂商" in (p.text or ""))
     assert "充电设备生产厂商" not in factory.text
@@ -547,7 +551,7 @@ def test_factory_commitment_falls_back_to_project_name(tmp_path) -> None:
 def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     from docx.enum.text import WD_ALIGN_PARAGRAPH
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="厂内新能源充电桩采购项目",
         tenderer="测试招标人新能源有限公司",
         bidPriceYuan=518800,
@@ -633,7 +637,7 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     pay_bidder = next(
         p for p in doc.paragraphs if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
     )
-    assert "法定代表人" not in (pay_bidder.text or "")
+    assert pay_bidder.text.count("法定代表人") == 1  # Original combined signature line stays combined.
     assert "盖单位" in (pay_bidder.text or "") and "章）" in (pay_bidder.text or "")
     until = next(p for p in doc.paragraphs if "委托期限" in (p.text or ""))
     assert "至本项目投标有效期届满" in (until.text or "")
@@ -662,27 +666,28 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     ) < 50000
     auth_heads = [i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "授权委托书"]
     auth_i = auth_heads[-1]
+    auth_end = next(
+        i for i,p in enumerate(doc.paragraphs[auth_i:],start=auth_i)
+        if p.text.strip() in {"技术偏差表","原厂生产承诺"}
+    )
     auth_bidder_i = next(
         i
         for i, p in enumerate(doc.paragraphs[auth_i:], start=auth_i)
         if "".join((p.text or "").split()).startswith("投标人") and "盖单位公章" in (p.text or "")
     )
     auth_bidder = doc.paragraphs[auth_bidder_i]
-    assert "法定代表人" not in (auth_bidder.text or "")
+    assert auth_bidder.text.count("法定代表人") == 1
     auth_date = next(
         p
-        for p in doc.paragraphs[auth_bidder_i:]
-        if "".join((p.text or "").split()).startswith("日期：") and "2026" in (p.text or "")
+        for p in doc.paragraphs[auth_bidder_i:auth_end]
+        if "2026" in p.text and all(mark in p.text for mark in ('年','月','日'))
     )
-    assert abs(
-        float(auth_bidder.paragraph_format.left_indent or 0)
-        - float(auth_date.paragraph_format.left_indent or 0)
-    ) < 50000
-    auth_end = next(
-        i
-        for i, p in enumerate(doc.paragraphs[auth_i:], start=auth_i)
-        if (p.text or "").strip() in {"技术偏差表", "原厂生产承诺"}
-    )
+    template = Document(str(find_chapter5_template()))
+    source_auth_i = [i for i,p in enumerate(template.paragraphs) if p.text.strip() == "授权委托书"][-1]
+    source_signature = next(p for p in template.paragraphs[source_auth_i:] if p.text.startswith("投标人："))
+    source_date = next(p for p in template.paragraphs[source_auth_i:] if ''.join(p.text.split()).endswith('年月日'))
+    assert auth_bidder.paragraph_format.left_indent == source_signature.paragraph_format.left_indent
+    assert auth_date.paragraph_format.left_indent == source_date.paragraph_format.left_indent
     agent_lines = [
         i
         for i, p in enumerate(doc.paragraphs[auth_i:auth_end], start=auth_i)
@@ -691,13 +696,13 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
     agent_id_lines = [
         i
         for i, p in enumerate(doc.paragraphs[auth_i:auth_end], start=auth_i)
-        if "".join((p.text or "").split()).startswith("身份证号码")
+        if "身份证号码" in "".join((p.text or "").split())
     ]
     assert len(agent_lines) == 1
     assert agent_lines[0] > auth_bidder_i
     assert len(agent_id_lines) == 2
-    assert auth_bidder_i < agent_id_lines[0] < agent_lines[0] < agent_id_lines[1]
-    factory_body = next(p for p in doc.paragraphs if "作为充电设备生产厂商" in (p.text or ""))
+    assert auth_bidder_i < agent_id_lines[0] < agent_lines[0] == agent_id_lines[1]
+    factory_body = next(p for p in doc.paragraphs if "作为投标产品生产厂商" in (p.text or ""))
     assert factory_body.paragraph_format.first_line_indent
     assert any("承诺单位" in (p.text or "") for p in doc.paragraphs)
     commit_title = next(i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "投标承诺书")
@@ -712,7 +717,7 @@ def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -> None:
 
 
 def test_commitment_letter_fills_tenderer(tmp_path) -> None:
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="厂内新能源充电桩采购项目",
         tenderer="二连浩特市联源热电有限公司",
         bidPriceYuan=100000,
@@ -761,7 +766,7 @@ def test_commitment_letter_fills_tenderer(tmp_path) -> None:
 def test_extra_placeholder_box(tmp_path) -> None:
     from api.services.tenders.schema import PlaceholderItem
 
-    brief = BidBrief(
+    brief = legacy_brief(
         bidPriceYuan=518800,
         attachQualifications=False,
         extraPlaceholders=[PlaceholderItem(key="iso", title="ISO体系证书", hint="按邀请书第3.8条")],
@@ -773,7 +778,9 @@ def test_extra_placeholder_box(tmp_path) -> None:
 
     doc = Document(str(path))
     text = "\n".join(p.text for p in doc.paragraphs)
-    assert "ISO体系证书" not in text
+    assert "ISO体系证书" in text
+    assert any('ISO体系证书' in p.text and p._p.find('w:pPr/w:pBdr',p._p.nsmap) is not None for p in doc.paragraphs)
+    assert '其他资料（资料需求补充）' in text
     assert "附件：资料库扫描件" not in text
     assert "（一）法定代表人身份证正反面" not in text
 
@@ -794,7 +801,7 @@ def test_slot_image_fills_placeholder(tmp_path, monkeypatch) -> None:
     img.save(buf, format="PNG")
     save_slot_file("id_legal", filename="id.png", data=buf.read_bytes(), replace=True)
 
-    brief = BidBrief(
+    brief = legacy_brief(
         bidPriceYuan=100000,
         attachQualifications=False,
         includePlaceholders=True,
@@ -1006,7 +1013,7 @@ def test_extract_patch_keeps_bidder_and_legal() -> None:
     from api.services.tenders.placeholders import collect_slots
     from api.services.tenders.schema import PlaceholderItem
 
-    base = BidBrief(
+    base = legacy_brief(
         projectName="旧项目",
         tenderer="旧招标人",
         legalPersonName="张三",
@@ -1047,7 +1054,7 @@ def test_extract_patch_keeps_bidder_and_legal() -> None:
 def test_fill_empty_company_from_defaults_and_profile() -> None:
     from api.services.tenders.extract import apply_extract_patch, fill_empty_company_fields
 
-    empty = BidBrief(
+    empty = legacy_brief(
         bidderName="",
         bidderAddress="",
         bidderEmail="",
@@ -1064,26 +1071,26 @@ def test_fill_empty_company_from_defaults_and_profile() -> None:
     )
     assert patched.projectName == "某充电站"
     assert patched.tenderer == "某招标人"
-    assert patched.bidderName == "河南伟泰光电科技有限公司"
+    assert patched.bidderName == ""
     assert patched.bidderAddress == ""
     assert patched.legalPersonName == ""
 
     brief, company_filled = fill_empty_company_fields(
         patched,
         empty,
-        {"legalPersonName": "王五", "foundedDate": "2016年3月", "bidderPhone": "0371-0000000"},
+        {"bidderName": "河南伟泰光电科技有限公司", "legalPersonName": "王五", "foundedDate": "2016年3月", "bidderPhone": "0371-0000000"},
     )
     assert brief.bidderName == "河南伟泰光电科技有限公司"
-    assert "梧桐街" in brief.bidderAddress
-    assert brief.bidderEmail == "gzwceo@163.com"
+    assert brief.bidderAddress == ""
+    assert brief.bidderEmail == ""
     assert brief.legalPersonName == "王五"
     assert brief.foundedDate == "2016年3月"
     assert brief.bidderPhone == "0371-0000000"
-    assert "bidderAddress" in company_filled
+    assert "bidderAddress" not in company_filled
     assert "legalPersonName" in company_filled
 
     kept, _ = fill_empty_company_fields(
-        BidBrief(bidderAddress="用户手填地址", legalPersonName="张三"),
+        legacy_brief(bidderAddress="用户手填地址", legalPersonName="张三"),
         {"bidderAddress": "历史地址", "legalPersonName": "历史法人"},
     )
     assert kept.bidderAddress == "用户手填地址"
@@ -1178,8 +1185,9 @@ def test_parse_quote_from_pipe_text() -> None:
 def test_build_uses_brief_quote_lines(tmp_path) -> None:
     from api.services.tenders.schema import QuoteLineIn
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="南京广场光伏充电板安装项目",
+        bidContent="7kW交流桩、立柱与机柜",
         bidPriceYuan=22600,
         legalPersonName="测试",
         attachQualifications=False,
@@ -1301,21 +1309,21 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
     assert "id_agent" not in required_no
     assert "id_agent" not in include_no
 
-    issues = _brief_generate_issues(BidBrief(projectName="x"))
+    issues = _brief_generate_issues(legacy_brief(projectName="x"))
     assert "招标人" in issues
-    assert "投标总价" in issues
+    assert "投标人全称" not in issues
     assert "报价清单" not in issues
     assert "委托代理人（招标书要求授权委托）" not in issues
     assert "委托代理人" not in _brief_generate_issues(
-        BidBrief(projectName="x", authNeed="required")
+        legacy_brief(projectName="x", authNeed="required")
     )
-    assert "代理人身份证号" not in _brief_generate_issues(BidBrief(projectName="x", authNeed="required"))
-    assert "委托代理人" in _brief_generate_issues(BidBrief(projectName="x", authEnabled=True))
-    assert "代理人身份证号" in _brief_generate_issues(BidBrief(projectName="x", authEnabled=True))
+    assert "代理人身份证号" not in _brief_generate_issues(legacy_brief(projectName="x", authNeed="required"))
+    assert "委托代理人" in _brief_generate_issues(legacy_brief(projectName="x", authEnabled=True))
+    assert "代理人身份证号" in _brief_generate_issues(legacy_brief(projectName="x", authEnabled=True))
     from api.services.tenders.schema import PerformanceRequirement
 
     perf_issues = _brief_generate_issues(
-        BidBrief(
+        legacy_brief(
             projectName="x",
             performanceRequirement=PerformanceRequirement(keywords=["MES"], minCount=3),
         )
@@ -1331,12 +1339,12 @@ def test_this_bid_keys_does_not_dump_catalog() -> None:
 def test_resolve_quote_sheet_skips_builtin_template() -> None:
     from api.services.tenders.quote import resolve_quote_sheet
 
-    sheet, origin = resolve_quote_sheet(BidBrief(projectName="备件采购", bidPriceYuan=1000))
+    sheet, origin = resolve_quote_sheet(legacy_brief(projectName="备件采购", bidPriceYuan=1000))
     assert sheet is None
     assert origin == "none"
 
     filled, form_origin = resolve_quote_sheet(
-        BidBrief(quoteLines=_sample_quote_lines(), quoteSource="form")
+        legacy_brief(quoteLines=_sample_quote_lines(), quoteSource="form")
     )
     assert filled is not None
     assert form_origin == "form"
@@ -1422,7 +1430,7 @@ def test_invitation_materials_intersect_catalog_by_title() -> None:
     assert "bond" in keys
     assert "invented_other_project" not in keys
     assert all(item.key != "perf" for item in mapped)
-    assert any(item.title == "安全生产许可证" and not item.key for item in missing)
+    assert any(item.title == "安全生产许可证" and item.key.startswith('material_') for item in missing)
 
     report = build_attachment_match(
         [
@@ -1670,15 +1678,15 @@ def test_legacy_migrate_marker_skips_when_present(tmp_path, monkeypatch) -> None
 def test_infer_factory_role() -> None:
     from api.services.tenders.document import infer_factory_role
 
-    assert infer_factory_role(BidBrief(factoryRole="供货单位")) == "供货单位"
-    assert infer_factory_role(BidBrief(projectName="充电桩采购")) == "充电设备生产厂商"
-    assert infer_factory_role(BidBrief(projectName="备件采购")) == "投标产品生产厂商"
+    assert infer_factory_role(legacy_brief(factoryRole="供货单位")) == "供货单位"
+    assert infer_factory_role(legacy_brief(projectName="充电桩采购")) == "投标产品生产厂商"
+    assert infer_factory_role(legacy_brief(projectName="备件采购")) == "投标产品生产厂商"
 
 
 def test_deviation_follows_custom_quote_not_charger_template(tmp_path) -> None:
     from api.services.tenders.schema import QuoteLineIn
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="备件采购",
         tenderer="某电厂",
         bidPriceYuan=80000,
@@ -1727,7 +1735,7 @@ def test_deviation_follows_custom_quote_not_charger_template(tmp_path) -> None:
 def test_perf_table_writes_project_name(tmp_path) -> None:
     from api.services.tenders.schema import PerformanceLine
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="备件采购投标项目",
         tenderer="招标人",
         bidPriceYuan=100000,
@@ -1874,7 +1882,7 @@ def test_fallback_performance_from_contract_text() -> None:
     assert line.client == "某供电公司"
     assert line.amountYuan == 800000.0
     assert line.ongoing is False
-    assert line.chargerRelated
+    assert not line.chargerRelated
     assert line.spec.lower() == "120kw"
     restored = load_perf_meta(dump_perf_meta(line))
     assert restored is not None
@@ -1885,7 +1893,7 @@ def test_ordered_perf_lines_completed_first() -> None:
     from api.services.tenders.document import _ordered_perf_lines
     from api.services.tenders.schema import BidBrief, PerformanceLine
 
-    brief = BidBrief(
+    brief = legacy_brief(
         performanceLines=[
             PerformanceLine(projectName="在建充电桩A", ongoing=True, chargerRelated=True, amountYuan=100),
             PerformanceLine(projectName="已完成充电桩B", ongoing=False, chargerRelated=True, amountYuan=50),
@@ -1900,7 +1908,7 @@ def test_ordered_perf_lines_skips_unchecked() -> None:
     from api.services.tenders.document import _ordered_perf_lines
     from api.services.tenders.schema import BidBrief, PerformanceLine
 
-    brief = BidBrief(
+    brief = legacy_brief(
         performanceLines=[
             PerformanceLine(projectName="写入充电桩", chargerRelated=True, includeInBid=True),
             PerformanceLine(projectName="不写充电桩", chargerRelated=True, includeInBid=False),
@@ -1914,7 +1922,7 @@ def test_technical_soft_issues_do_not_block() -> None:
     from api.services.tenders.categories import technical_soft_issues
     from api.services.tenders.schema import BidBrief
 
-    notes = technical_soft_issues(BidBrief(deliveryDays=30), media={})
+    notes = technical_soft_issues(legacy_brief(deliveryDays=30), media={})
     assert any("技术偏差表" in item for item in notes)
     assert any("起草" in item or "技术方案" in item for item in notes)
     assert any("图纸" in item for item in notes)
@@ -1922,7 +1930,7 @@ def test_technical_soft_issues_do_not_block() -> None:
     from api.services.tenders.schema import PerformanceRequirement
 
     held = technical_soft_issues(
-        BidBrief(
+        legacy_brief(
             performanceRequirement=PerformanceRequirement(keywords=["MES"], minCount=2),
         ),
         media={},
@@ -1933,7 +1941,7 @@ def test_technical_soft_issues_do_not_block() -> None:
 def test_technical_section_writes_construction_plan(tmp_path) -> None:
     from api.services.tenders.placeholders import TECH_DRAWING_KEY
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="充电站采购安装",
         tenderer="招标人",
         bidPriceYuan=100000,
@@ -1983,7 +1991,7 @@ def test_technical_section_embeds_uploaded_drawings(tmp_path) -> None:
 
     png = tmp_path / "site.png"
     Image.new("RGB", (160, 90), (40, 120, 200)).save(png, "PNG")
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="充电站采购安装",
         tenderer="招标人",
         bidPriceYuan=100000,
@@ -2022,7 +2030,7 @@ def test_toc_owns_own_page_and_pageref_matches_chapters(tmp_path) -> None:
         _sect_starts_new_page,
     )
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="分页一致性项目",
         tenderer="测试招标人",
         bidPriceYuan=200000,
@@ -2118,7 +2126,7 @@ def test_sanitize_history_brief_strips_project_and_qty() -> None:
     from api.services.tenders.schema import PerformanceLine
 
     book = sanitize_history_brief(
-        BidBrief(
+        legacy_brief(
             projectName="高途智成港",
             tenderer="郑州有爱文化科技有限公司",
             bidderName="河南伟泰光电科技有限公司",
@@ -2141,10 +2149,10 @@ def test_sanitize_history_brief_strips_project_and_qty() -> None:
     assert "旧合同" not in text
     assert "quoteLines 必须为 []" in text
     assert "id_legal" in text
-    assert contains_foreign_bidder("摘录：容新新能源投标文件")
+    assert contains_foreign_bidder("投标人：郑州容新新能源有限公司", "河南伟泰光电科技有限公司")
     assert (
         sanitize_history_brief(
-            BidBrief(bidderName="郑州容新新能源有限公司", requiredSlotKeys=["bond"])
+            legacy_brief(bidderName="郑州容新新能源有限公司", requiredSlotKeys=["bond"]), bidder_name="河南伟泰光电科技有限公司"
         )
         is None
     )
@@ -2155,7 +2163,7 @@ def test_user_prompt_drops_foreign_kb_and_history_qty() -> None:
     from api.services.tenders.history import sanitize_history_brief
 
     book = sanitize_history_brief(
-        BidBrief(
+        legacy_brief(
             bidderName="河南伟泰光电科技有限公司",
             requiredSlotKeys=["perf"],
             quoteLines=[QuoteLineIn(name="桩", qty=133, unit="台")],
@@ -2187,7 +2195,7 @@ def test_merge_quote_ignores_llm_patch_and_clears_old_qty(tmp_path) -> None:
 
     invite = tmp_path / "invite.txt"
     invite.write_text("某充电站设备采购，正文没有工程量表格。", encoding="utf-8")
-    current = BidBrief(
+    current = legacy_brief(
         projectName="新项目",
         quoteLines=[QuoteLineIn(name="交流桩", qty=133, unit="台")],
     )

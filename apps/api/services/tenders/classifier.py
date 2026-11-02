@@ -668,6 +668,48 @@ def bind_requirements(
     return out
 
 
+def material_output_coverage(doc, demand_owners):
+    """Count actual rendered outcomes, never catalog availability as output."""
+    import hashlib
+    from docx.oxml.ns import qn
+    from collections import Counter
+    names=Counter(mark.get(qn('w:name'),'') for mark in doc.element.body.iter(qn('w:bookmarkStart')))
+    from api.services.tenders.section_materials import sections,_heading_text,_key
+    from api.services.tenders.pdf_format import toc_block_ids
+    physical=Counter()
+    planned=next((p for p in demand_owners.values() if isinstance(p,dict)),None)
+    if planned is not None:
+        heads=planned['section_heads']
+        chapter=''
+        for block in doc.element.body:
+            if block in heads:
+                chapter=_key(heads[block])
+            for mark in block.iter(qn('w:bookmarkStart')):
+                physical[(mark.get(qn('w:name'),''),chapter)]+=1
+    else:
+        for head,body,_ in sections(doc,set(toc_block_ids(doc))):
+            for block in body:
+                for mark in block.iter(qn('w:bookmarkStart')):
+                    physical[(mark.get(qn('w:name'),''),_key(_heading_text(head)))]+=1
+    rows=[]
+    for key,chapter in demand_owners.items():
+        chapter=chapter['chapter'] if isinstance(chapter,dict) else chapter
+        prefix='result_'+hashlib.sha256(key.encode()).hexdigest()[:20]
+        output_names=[prefix+'_img',prefix+'_box']
+        count=sum(physical[(name,_key(chapter))] for name in output_names)
+        occurrences=sum(names[name] for name in output_names)
+        rows.append({'key':key,'chapter':chapter,'count':count,'occurrences':occurrences,
+                     'img':names[prefix+'_img'],'box':names[prefix+'_box'],
+                     'wrong_chapter':occurrences-count})
+    chapters={}
+    for row in rows:
+        chapter=chapters.setdefault(row['chapter'],{'expected':0,'outputs':0})
+        chapter['expected']+=1;chapter['outputs']+=row['count']
+    return {'expected':len(rows),'outputs':sum(row['count'] for row in rows),
+            'unmet':sum(row['count']==0 for row in rows),'duplicates':sum(row['occurrences']>1 for row in rows),
+            'wrong_chapter':sum(row['wrong_chapter'] for row in rows),'chapters':chapters,'rows':rows}
+
+
 def evidence_coverage(
     brief: BidBrief,
     *,
@@ -728,7 +770,16 @@ def evidence_coverage(
 def extract_requirements(text: str) -> list[BidRequirement]:
     out: list[BidRequirement] = []
     seen: set[str] = set()
+    excluded_source = False
     for raw in (text or "").splitlines():
+        heading = strip_item_prefix(raw.strip()) or raw.strip()
+        if len(heading) < 45 and not re.search(r'[。；;]',heading):
+            if re.search(r'资格.*(?:审查|条件)|评审办法|评分.*(?:标准|办法)|投标文件格式|附件清单',heading):
+                excluded_source = False
+            elif re.search(r'合同.*条款|法律法规|名词解释|术语定义|流程说明',heading):
+                excluded_source = True
+        if excluded_source:
+            continue
         for piece in raw.split("|"):
             s = piece.strip()
             if len(s) < 8:
@@ -937,10 +988,8 @@ def _merge_perf(brief: BidBrief, texts: list[str]) -> None:
         note = f"{note} {extra}".strip() if note else extra
     scope = (req.similarScope or "").strip() or _scope_from_defs(texts)
     keywords = list(req.keywords or [])
-    for word in ("充电站", "充电桩", "供配电"):
-        blob = "".join(texts)
-        if word in blob and word not in keywords:
-            keywords.append(word)
+    if scope and scope not in keywords:
+        keywords.append(scope)
     brief.performanceRequirement = PerformanceRequirement(
         similarScope=(scope or req.similarScope or "")[:80],
         keywords=keywords[:8],

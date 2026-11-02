@@ -374,14 +374,19 @@ async def delete_document_record(
         )
     )
     children = list(children_result.scalars().all())
-    store = get_qdrant_store()
+    try:
+        store = get_qdrant_store()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("get vector store for deletion failed id=%s: %s", doc.public_id, exc)
+        store = None
     setattr(doc, "_base_public_id", base.public_id)
     deleted = to_kb_item(doc)
     for item in [*children, doc]:
-        try:
-            store.delete_by_doc_id(item.public_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("delete vectors failed id=%s: %s", item.public_id, exc)
+        if store is not None:
+            try:
+                store.delete_by_doc_id(item.public_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("delete vectors failed id=%s: %s", item.public_id, exc)
         unlink_stored_file(item.file_key or item.storage_path)
         unlink_stored_file(_extracted_text_key(base.public_id, item.public_id))
         unlink_asr_cues(base.public_id, item.public_id)
@@ -1009,13 +1014,25 @@ def _apply_skip_rag(doc: KnowledgeDocument, reason: str) -> None:
         doc.summary = (reason or "未向量化，检索将跳过")[:200]
 
 
+def _defer_vectorization(doc: KnowledgeDocument, text: str, base_public_id: str, exc: Exception) -> None:
+    """Keep parsed content usable and eligible for the existing reindex paths."""
+    write_extracted_text(base_public_id, doc.public_id, text)
+    doc.char_count = len(text.strip())
+    doc.chunk_count = 0
+    doc.status = "ready"
+    doc.error_msg = ("待向量化：向量库暂不可用，原文件和解析正文已保留，恢复后请重新索引。"
+                     + _error_msg(exc))[:500]
+    logger.warning("vectorization deferred id=%s: %s", doc.public_id, exc)
+
+
 async def _vectorize_document(
     db: AsyncSession,
     doc: KnowledgeDocument,
     text: str,
     *,
     timed_chunks: list | None = None,
-) -> None:
+) -> bool | None:
+    """Return False only when vector storage is deferred; caller owns commit."""
     from db.models.knowledge import KnowledgeBase
 
     cleaned = text.strip()
@@ -1078,20 +1095,28 @@ async def _vectorize_document(
     if not chunks:
         raise AppError(ErrorCode.VALIDATION, "content too short after chunk", status_code=422)
 
+    try:
+        store = get_qdrant_store()
+    except Exception as exc:  # noqa: BLE001
+        _defer_vectorization(doc, text, base.public_id, exc)
+        return False
     embedder = await get_embedding_client(db)
     vectors = await embedder.embed_documents(chunks)
-    store = get_qdrant_store()
-    store.delete_by_doc_id(doc.public_id)
-    store.upsert_chunks(
-        public_id=doc.public_id,
-        kb_id=base.public_id,
-        name=doc.name,
-        source=doc.source,
-        tags=doc.tags if isinstance(doc.tags, list) else [],
-        chunks=chunks,
-        vectors=vectors,
-        chunk_meta=meta,
-    )
+    try:
+        store.delete_by_doc_id(doc.public_id)
+        store.upsert_chunks(
+            public_id=doc.public_id,
+            kb_id=base.public_id,
+            name=doc.name,
+            source=doc.source,
+            tags=doc.tags if isinstance(doc.tags, list) else [],
+            chunks=chunks,
+            vectors=vectors,
+            chunk_meta=meta,
+        )
+    except Exception as exc:  # noqa: BLE001
+        _defer_vectorization(doc, text, base.public_id, exc)
+        return False
     doc.char_count = len(cleaned)
     doc.chunk_count = len(chunks)
     # 业绩合同的 PERFJSON 摘要供标书生成用，不能被 OCR 正文覆盖

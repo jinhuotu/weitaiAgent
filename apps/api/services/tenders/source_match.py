@@ -7,16 +7,8 @@ from dataclasses import dataclass
 
 from api.services.tenders.schema import BidBrief
 
-_DOMAINS = {
-    '医疗': ('医疗', '医用', '救护车', '急救', '监护仪', '呼吸机', '病床', '手术器械'),
-    '充电设施': ('充电桩', '充电站', '充电枪', '充电板', '直流桩', '交流桩', '充电设施'),
-    '土建道路': ('土方', '路基', '路面', '道路施工', '建筑施工', '土建', '市政工程',
-             '桥梁', '公路工程', '公路施工', '施工组织设计', '工程里程', '施工里程',
-             '道路里程', '施工年份', '里程桩号', '钢筋工程'),
-    '信息系统': ('软件开发', '信息系统', '服务器采购', '网络设备采购'),
-}
 _GENERIC = re.compile(
-    r'项目名称|车辆采购|采购项目|投标文件|响应文件|招标文件|技术资料|技术方案|报价清单|'
+    r'项目名称|采购项目|投标文件|响应文件|招标文件|技术资料|技术方案|报价清单|'
     r'分项报价|工程量清单|报价表|清单|报价|采购|项目|文件|方案|定稿|正本|二次|'
     r'xlsx|xlsm|csv|docx|pdf', re.I,
 )
@@ -43,16 +35,31 @@ def _related(left: str, right: str) -> bool:
     return bool(left and right and (left in right or right in left))
 
 
-def _domains(text: str) -> set[str]:
-    found = set()
-    for label, words in _DOMAINS.items():
-        for word in words:
-            # Negative scope statements are not evidence of a foreign product.
-            cleaned = re.sub(rf'(?:不含|不涉及|无需|不包含|非){re.escape(word)}', '', text or '')
-            if word in cleaned:
-                found.add(label)
-                break
-    return found
+def _subject_terms(text: str) -> set[str]:
+    # Subject phrases come from this bid. Keep full noun phrases: a shared
+    # two-character prefix is not proof that two different products are the same.
+    text = _ORG.sub(' ', text or '')
+    text = _GENERIC.sub(' ', text)
+    text = re.sub(r'设备|系统|服务|工程|要求|名称|资料|证明|本次|提供|符合|包括|以及|相关|技术|采购|数量|单位|配套|附属|及其|[与及和]', ' ', text)
+    tokens = {w.casefold() for w in re.findall(r'[A-Za-z][A-Za-z0-9-]{1,}', text)}
+    tokens.update(re.findall(r'[\u4e00-\u9fff]{2,}', text))
+    return tokens
+
+
+def _term_overlap(left, right):
+    for a in left:
+        for b in right:
+            if min(len(a), len(b)) < 2:
+                continue
+            if _related(a, b):
+                return True
+            # Different modifiers may describe the same noun (e.g. a product's
+            # type versus its intended use). Require a substantial shared noun
+            # suffix; a two-character/common prefix is insufficient evidence.
+            for width in range(min(len(a), len(b)), 2, -1):
+                if a[-width:] == b[-width:] and width * 2 >= max(len(a), len(b)):
+                    return True
+    return False
 
 
 def match_source(
@@ -62,32 +69,37 @@ def match_source(
 ) -> SourceMatch:
     """Compare only against project facts, never against already attached source data."""
     context = '\n'.join((brief.projectName or '', brief.bidContent or ''))
-    expected = _domains(context)
+    expected = _subject_terms(context + '\n' + '\n'.join(r.text for r in brief.bidRequirements))
+    if _PLACEHOLDER.search(brief.projectName or ''):
+        expected = _subject_terms((brief.bidContent or '') + '\n' + '\n'.join(r.text for r in brief.bidRequirements))
     expected_name = _identity(brief.projectName)
     if _PLACEHOLDER.search(brief.projectName or ''):
         expected_name = ''
     header = ' '.join(headers)
     row_list = list(rows)
     positive = False
-    # Check all rows, including a single foreign line hidden in a matching sheet.
+    # A matching project title cannot legitimize a foreign line. Generic totals,
+    # tax/transport/installation fees are structural rows, not product evidence.
     for index, (name, spec) in enumerate(row_list, 1):
-        foreign = _domains(name + '\n' + spec) - expected
-        if expected and foreign:
-            reason = '、'.join(sorted(foreign))
-            return SourceMatch('unmatched', f'第 {index} 行品名/规格含无关类别：{reason}')
-        if expected == {'医疗'}:
-            if (re.search(r'施工|工程里程|桩号', name)
-                    or (re.fullmatch(r'(?:19|20)\d{2}年(?:度)?', name.strip())
-                        and re.search(r'公里|里程|\bkm\b', spec + header, re.I))):
-                if not _domains(name) & expected:
-                    return SourceMatch('unmatched', f'第 {index} 行是施工/里程条目，非本次医疗品目')
-        positive = positive or bool(expected & _domains(name + '\n' + spec))
-    source_domains = _domains(title + '\n' + header + '\n' + text + '\n' + source_name)
-    foreign = source_domains - expected
-    if expected and foreign:
-        reason = '、'.join(sorted(foreign))
-        return SourceMatch('unmatched', '清单标题/表头或资料正文含无关类别：' + reason)
-    positive = positive or bool(expected & source_domains)
+        if re.fullmatch(r'.{0,8}(?:合计|小计|税额|税金|运费|运输费|安装费|调试费|管理费)', name.strip()):
+            continue
+        terms = _subject_terms(name + '\n' + spec)
+        overlap = _term_overlap(expected, terms)
+        # Explicitly listed additional entities need their own tender evidence;
+        # a matching main item cannot hide unrelated appended equipment.
+        for extra in re.findall(r'(?:包含|包括|配置|配备|含)([^\d，。；;]{2,30}?)\s*\d+\s*(?:台|套|组|辆|件)', spec):
+            if not re.search(r'(?:不含|无需|不包含)' + re.escape(extra), spec):
+                extra_terms = _subject_terms(extra)
+                if expected and extra_terms and not _term_overlap(expected, extra_terms):
+                    return SourceMatch('unmatched', f'第 {index} 行附带数量的额外品目无招标依据')
+        if (re.search(r'(?:19|20)\d{2}年.*?\d+\s*(?:公里|km)', spec, re.I)
+                and not re.search(r'生产|出厂|制造|续航|额定|性能', spec)):
+            return SourceMatch('unmatched', f'第 {index} 行混入年度与累计工程量，需核对来源')
+        if expected and terms and not overlap:
+            return SourceMatch('unmatched', f'第 {index} 行品名/规格在本次采购要求中无关联依据')
+        positive = positive or bool(overlap)
+    source_terms = _subject_terms(title + '\n' + header + '\n' + text + '\n' + source_name)
+    positive = positive or _term_overlap(expected, source_terms)
     identities = list(projects)
     identities.extend(re.findall(r'(?:项目名称|工程名称)\s*[:：]\s*([^\n|；;]{2,120})',
                                  title + '\n' + text))
@@ -106,6 +118,9 @@ def match_source(
         own_orgs = [_compact(word) for word in _ORG.findall(brief.projectName)]
         if orgs and own_orgs and not any(_related(a, b) for a in orgs for b in own_orgs):
             return SourceMatch('unmatched', '来源项目/单位名称与本次项目不同')
+        if orgs and own_orgs and _term_overlap(expected, _subject_terms(candidate)):
+            positive = True
+            continue
         return SourceMatch('unmatched', '来源项目名称与本次项目不同或无法确认属于同一项目')
     # Shared specific subject words also support non-domain projects and generic attachments.
     source_words = _identity(title + '\n' + text + '\n' + '\n'.join(n + s for n, s in row_list))

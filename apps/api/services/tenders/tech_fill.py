@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+
 import logging
 import tempfile
 from pathlib import Path
@@ -13,18 +15,9 @@ logger = logging.getLogger("api.tenders.tech_fill")
 _BOQ_EXT = {".xlsx", ".xlsm", ".docx", ".csv", ".pdf"}
 _MAX_BYTES = 40 * 1024 * 1024
 
-_BOQ_SYSTEM = """你是技术标施工组织起草。根据给出的工程量清单项目写一章正文。
-硬性规则：
-1. 项目名称、单位、数量只可照录清单。清单里没有的数字写【待补充】，禁止编造。
-2. 不要写单价、合价、投标报价、税率。
-3. 不要写招标人、项目名称、公司全称。
-4. 只输出正文，不要标题，不要 Markdown。"""
+_BOQ_SYSTEM = get_prompt("boq_system")
 
-_DRAW_SYSTEM = """你是技术标图纸说明起草。根据图纸 PDF 抽出的文字写一段说明。
-硬性规则：
-1. 只写文字里有的图名、系统、尺寸、材料。没有的写【待补充】，禁止编造工程量。
-2. 不要写单价和投标报价。
-3. 只输出正文，不要标题，不要 Markdown。"""
+_DRAW_SYSTEM = get_prompt("draw_system")
 
 
 def _clip(text: str, n: int = 6000) -> str:

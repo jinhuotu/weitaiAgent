@@ -15,7 +15,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.services.tenders.history import BIDDER_LOCK, contains_foreign_bidder
+from api.services.tenders.history import contains_foreign_bidder
 from api.services.tenders.schema import BidBrief
 from common.errors import AppError, ErrorCode
 from db.models.knowledge import KnowledgeBase, KnowledgeDocument
@@ -104,11 +104,10 @@ def sanitize_text(text: str, brief: BidBrief | None = None) -> str:
     raw = (text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not raw.strip():
         return ""
-    raw = raw.replace(BIDDER_LOCK, "投标人")
     bidder = ""
     if brief is not None:
         bidder = (brief.bidderName or "").strip()
-    if bidder and bidder not in {"投标人", BIDDER_LOCK} and len(bidder) >= 4:
+    if bidder and bidder != "投标人" and len(bidder) >= 4:
         raw = raw.replace(bidder, "投标人")
     for needle in _needles(brief):
         raw = raw.replace(needle, "")
@@ -712,7 +711,7 @@ def _drop_foreign_sentences(line: str) -> str:
 def _other_company(text: str) -> bool:
     for match in _COMPANY_RE.finditer(text or ""):
         name = match.group(0)
-        if "投标人" in name or name in BIDDER_LOCK:
+        if "投标人" in name:
             continue
         return True
     return False

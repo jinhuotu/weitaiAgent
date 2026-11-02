@@ -6,6 +6,7 @@ import logging
 import re
 import shutil
 from copy import deepcopy
+from math import ceil
 from pathlib import Path
 
 from docx import Document
@@ -755,31 +756,13 @@ def _cap_sign_gap(para) -> None:
         spacing.set(qn("w:before"), "160")
 
 
-def _embed_in_place(doc: Document, host, files: list[Path], *, pair: bool) -> bool:
-    from api.services.tenders.placeholders import _insert_slot_media
-
-    prior = set(doc.element.body)
-    n_img = _insert_slot_media(doc, files, compact_pair=pair)
-    fresh = [el for el in doc.element.body if el not in prior and el.tag != qn("w:sectPr")]
-    if not n_img:
-        for el in fresh:
-            parent = el.getparent()
-            if parent is not None:
-                parent.remove(el)
-        return False
-    runs = []
-    for el in fresh:
-        for node in list(el.iter(qn("w:drawing"))) + list(el.iter(qn("w:pict"))):
-            run = node.getparent()
-            if run is not None and run.tag == qn("w:r") and run not in runs:
-                runs.append(run)
-    for run in runs:
-        host.append(run)
-    for el in fresh:
-        parent = el.getparent()
-        if parent is not None:
-            parent.remove(el)
-    return bool(runs)
+def _embed_in_place(doc: Document, host, files: list[Path], *, pair: bool, key: str = '') -> bool:
+    """Legacy adapter: insert after the complete body block, never into runs."""
+    from api.services.tenders.placeholders import _drop_after
+    from api.services.tenders.schema import PlaceholderItem
+    if not key:
+        raise ValueError('A material key is required for block insertion')
+    return _drop_after(doc,host,PlaceholderItem(key=key,title='身份证扫描件' if pair else key),files,complete=True,at_marker=True)
 
 
 def _paste_id_pages(doc: Document, brief, media: dict | None, *, global_pasted: set[str] | None = None) -> list[str]:
@@ -823,7 +806,7 @@ def _paste_id_pages(doc: Document, brief, media: dict | None, *, global_pasted: 
             _dash_after(doc, para, key, title or n)
             notes.append(f"截件有{title or n}，未贴上{who}的扫描件")
             return
-        if not _embed_in_place(doc, para._p, files, pair=True):
+        if not _embed_in_place(doc, para._p, files, pair=True, key=key):
             if "此处粘贴" in n or "在此粘贴" in n:
                 notes.append(f"缺{who}身份证，已保留原占位")
             else:
@@ -1118,7 +1101,7 @@ def assemble_from_word_format(
     elif vol == "business" and (native or bool(getattr(brief, "splitSlice", False))):
         slice_notes.append(_drop_technical(doc, brief=brief if native else None))
     if native:
-        slice_notes.extend(supplement_sections(doc, brief, vol, media=catalog_media))
+        # Preserve the source chapter set: never append absent catalog modules.
         normalize_bookmarks(doc)
         if not tech_front:
             ensure_toc_rows(doc, brief, volume=vol)
@@ -1131,7 +1114,7 @@ def assemble_from_word_format(
     global_pasted: set[str] = set()
     pasted_ids = set()
     lib_notes = _attach_library(
-        doc, brief, catalog_media, slots=catalog_slots, handled=pasted_ids, global_pasted=global_pasted
+        doc, brief, catalog_media, slots=catalog_slots, handled=pasted_ids, global_pasted=global_pasted, volume=vol
     )
     if not native:
         # Native TOC fields were just bound to real body bookmarks. The legacy
@@ -1161,6 +1144,10 @@ def assemble_from_word_format(
     )
     from api.services.tenders.document import _ensure_header
 
+    if brief.materialDemands:
+        from api.services.tenders.material_intents import enforce_material_outcomes
+
+        slice_notes.extend(enforce_material_outcomes(doc,brief,media=catalog_media,slots=catalog_slots,volume=vol or 'business'))
     anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
     if tech_front:
         _install_tech_front(doc, brief, anon=anon, cover_nodes=cover_nodes)
@@ -1189,6 +1176,8 @@ def assemble_from_word_format(
         slice_notes.append("技术标已另写封面和目录，页码从正文起编")
     if native:
         normalize_bookmarks(doc)
+    from api.services.tenders.section_materials import validate_material_uniqueness
+    validate_material_uniqueness(doc)
     doc.save(str(dest))
     if kind == "pdf":
         lead = "已按 PDF 转出的格式章组卷，预填横线收回同一行，正文表格未重排"
@@ -1573,9 +1562,8 @@ def _tech_cover_nodes(brief, *, anon: bool) -> list:
         lot = (getattr(brief, 'lotName', '') or '').strip()
         if lot:
             nodes.append(_styled_p(lot, size_pt=14, center=True))
-        # 暗标提示：封面及全文不得出现投标人名称/标识/人员信息
-        nodes.append(OxmlElement("w:p"))
-        nodes.append(_styled_p("（本标为暗标，全文不得出现投标人名称、标识及人员信息）", size_pt=12, center=True))
+        # The cover contains only the project, volume and lot. Guidance belongs
+        # in generation notes, not inside the submitted document.
         return nodes
     # 非暗标模式：显示完整投标信息
     nodes.append(_styled_p(f"项目编号：{brief.tenderNo.strip() or '【待补充】'}", size_pt=14, center=True))
@@ -1768,7 +1756,8 @@ def scrub_anonymous_docx(path: Path, brief) -> None:
 
     doc = Document(str(path))
     names: list[str] = []
-    for attr in ("bidderName", "legalPersonName", "agentName", "pmName"):
+    for attr in ("bidderName", "legalPersonName", "agentName", "pmName", "bidderCreditCode",
+                 "legalPersonIdNo", "agentIdNo", "bidderPhone", "bidderEmail", "bankAccount"):
         text = str(getattr(brief, attr, "") or "").strip()
         if len(text) >= 2 and text not in names:
             names.append(text)
@@ -1779,10 +1768,23 @@ def scrub_anonymous_docx(path: Path, brief) -> None:
             for part in _header_footer_parts(section):
                 for node in part._element.iter(qn("w:p")):
                     _wash_para(Paragraph(node, part), names)
+    # XML text in comments, footnotes and drawing labels is not necessarily
+    # exposed as paragraph.runs. Scrub all Word XML parts before serialization.
+    from api.services.tenders.technical_render import anonymous_text
+    for part in doc.part.package.parts:
+        element=getattr(part,'_element',None)
+        if element is None:continue
+        for paragraph in element.iter(qn('w:p')):
+            _wash_para(Paragraph(paragraph,doc),names)
+        for node in element.iter():
+            if node.tag in {qn('w:t'),qn('a:t')} and node.text:
+                node.text=anonymous_text(node.text,brief)
     for section in doc.sections:
         for part in _header_footer_parts(section):
             _strip_drawings(part._element)
     _clear_doc_meta(doc)
+    from api.services.tenders.technical_render import prune_unreferenced_images
+    prune_unreferenced_images(doc)
     doc.save(str(path))
 
 
@@ -3388,6 +3390,13 @@ def _cell_need(tc, width: int) -> int:
         if vis <= 0:
             continue
         font = _para_font_twips(p)
+        for run in p.iter(qn("w:r")):
+            fit = run.find("w:rPr/w:fitText", run.nsmap)
+            raw = "" if fit is None else fit.get(qn("w:val"), "")
+            if raw.isdigit() and int(raw) > 0:
+                original = _vis_width(_run_text(run))
+                fitted = int((int(raw) + font / 2 - 1) // (font / 2))
+                vis -= max(0, original - fitted)
         line = _para_line_twips(p, font)
         if inner > 0:
             per = max(2, int(inner / (font / 2)))
@@ -3438,8 +3447,11 @@ def _para_line_twips(p, font: float) -> int:
 
 def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
     notes: list[str] = []
-    for tbl in list(doc.element.body.iter(qn("w:tbl"))):
-        _settle_table_note(tbl)
+    doc.element._fill_styles = doc.styles.element
+    note = _self_sign_note(brief)
+    if note:
+        logger.info(note)
+        notes.append(note)
     for el in doc.element.body.iter(qn("w:p")):
         _fill_date_placeholders(el, brief)
         _fill_mixed_hints(el, brief)
@@ -3447,6 +3459,7 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
         _swap_tokens(el, brief)
         _fill_para_blanks(el, brief)
         _fill_label_gap(el, brief)
+        _relax_signature_flow(el, doc)
     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
         _swap_tokens(tbl, brief)
         _fill_amount_pairs(tbl, brief)
@@ -3454,15 +3467,25 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
             if note not in notes:
                 notes.append(note)
         # 空格填完才知道字有没有超出空白稿的固定行高
-        _relax_exact_rows(tbl)
+        # Preserve source row heights while filling only existing blanks.
+    from api.services.tenders.section_materials import fill_form_gaps
+    fill_form_gaps(doc, brief)
+    _compact_signature_flow(doc)
     return notes
+
+
+def _self_sign_note(brief):
+    """Rendering diagnostics only; never change the supplied names or roles."""
+    if not (getattr(brief,'agentName','') or '').strip() and (getattr(brief,'legalPersonName','') or '').strip():
+        return '当前为法人亲自签署、未另设代理人；代理人姓名按现有规则沿用法人姓名'
+    return ''
 
 
 def _date_value(brief) -> str:
     from api.services.tenders.document import _ymd
 
     year, month, day = _ymd(getattr(brief, "bidDate", "") or "")
-    if not (year or month or day):
+    if not all(part.strip().isdigit() for part in (year, month, day)):
         return ""
     return f"{year}年{month}月{day}日"
 
@@ -3515,7 +3538,9 @@ def _hint_value(hint: str, brief, *, before: str = "", after: str = "") -> str:
 
 def _fill_hints(el, brief) -> None:
     for hint in _HINTS:
-        blob = _el_text(el)
+        if all(mark in hint for mark in ("年", "月", "日")):
+            continue  # Dates require a real blank, not bare year/month/day labels.
+        blob = _blank_text(el)
         positions: list[int] = []
         start = 0
         while True:
@@ -3526,9 +3551,8 @@ def _fill_hints(el, brief) -> None:
             start = pos + len(hint)
         if not positions:
             continue
-        runs = [r for r in el.iter(qn("w:r"))]
         for pos in reversed(positions):
-            blob = _el_text(el)
+            blob = _blank_text(el)
             # 重新定位该提示语在当前文本中的位置（前序替换可能改变长度）。
             # 从后往前处理，位置保持稳定。
             value = _hint_value(
@@ -3539,32 +3563,11 @@ def _fill_hints(el, brief) -> None:
             )
             if not value:
                 continue
-            walked = 0
-            start_run = 0
-            for i, run in enumerate(runs):
-                n = len(_run_text(run))
-                if walked + n > pos:
-                    start_run = i
-                    break
-                walked += n
-            placed = False
-            for prev in reversed(runs[:start_run]):
-                if _run_under(prev) and not re.sub(r"[\s_＿　]", "", _run_text(prev)):
-                    _seat_run(prev, value)
-                    placed = True
-                    break
-            if placed:
-                _replace_span(el, hint, "")
-                if placed:
-                    _drop_blank_tab(prev)
-            else:
-                _replace_span_at(el, pos, pos + len(hint), value)
+            _write_blank_span(el, pos, pos + len(hint), value)
 
 
 _DATE_PLACEHOLDER = re.compile(
-    r"[_＿]{2,}\s*年\s*[_＿]{2,}\s*月\s*[_＿]{2,}\s*日"
-    r"|[_＿\s　]*年[　 \t]*月[　 \t]*日"
-    r"|[　 \t]*年[　 \t]*月[　 \t]*日"
+    r"[_＿　 \t]*年[_＿　 \t]*月[_＿　 \t]*日[_＿　 \t]*"
 )
 
 _MIXED_HINTS = (
@@ -3579,24 +3582,30 @@ def _mixed_hint_re():
 
 
 def _fill_date_placeholders(el, brief) -> None:
+    """Resolve a labelled year/month/day group across all runs and tabs."""
     value = _date_value(brief)
-    if not value:
+    parts = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日", value or '')
+    if parts is None:
         return
-    blob = _el_text(el)
-    for match in reversed(list(_DATE_PLACEHOLDER.finditer(blob))):
-        raw = match.group(0)
-        if not re.search(r"[_＿]{2,}|年\s*月\s*日", raw):
+    blob = _blank_text(el)
+    pattern = re.compile(r"(?<![0-9])(?P<year>[_＿ \t\u3000]*)年(?P<month>[_＿ \t\u3000]*)月(?P<day>[_＿ \t\u3000]*)日(?P<tail>[_＿]*)")
+    edits = []
+    for match in pattern.finditer(blob):
+        gaps = [match.group(name) for name in ('year','month','day')]
+        if not any(gaps) and not re.fullmatch(r'(?:日期[:：]?)?年月日', re.sub(r'\s+','',blob)):
             continue
-        # 「自投标截止之日起 N 日历天」这类不是日期占位。
-        if "日起" in raw or "之日起" in blob[max(0, match.start() - 6) : match.start()]:
-            continue
-        _replace_span_at(el, match.start(), match.end(), value)
+        for name, number in zip(('year','month','day'), parts.groups()):
+            edits.append((*match.span(name), number))
+        if match.group('tail'):
+            edits.append((*match.span('tail'), ''))
+    for start, end, number in reversed(edits):
+        _write_blank_span(el, start, end, number)
 
 
 def _fill_mixed_hints(el, brief) -> None:
     """下划线+括号混排占位（____（姓名）____）整体替换成实际值。"""
     pattern = _mixed_hint_re()
-    blob = _el_text(el)
+    blob = _blank_text(el)
     matches = list(pattern.finditer(blob))
     if not matches:
         return
@@ -3615,7 +3624,530 @@ def _fill_mixed_hints(el, brief) -> None:
         )
         if not value:
             continue
-        _replace_span_at(el, match.start(), match.end(), value)
+        _write_blank_span(el, match.start(), match.end(), value)
+
+
+_BLANK_CHARS = " _＿\u3000\t"
+
+
+def _blank_tokens(el):
+    """Use one coordinate system for text and tabs; breaks/objects are barriers."""
+    walked = 0
+    for run in el.iter(qn("w:r")):
+        for node in run:
+            if node.tag == qn("w:rPr"):
+                continue
+            text = (node.text or "") if node.tag == qn("w:t") else (
+                "\t" if node.tag == qn("w:tab") else "\n"
+            )
+            if text:
+                yield run, node, walked, walked + len(text), text
+                walked += len(text)
+
+
+def _blank_text(el) -> str:
+    return "".join(token[4] for token in _blank_tokens(el))
+
+
+def _tab_role(token, blob, tokens):
+    """Classify tabs by their position inside a label, slot or field boundary."""
+    run,node,start,end,_ = token
+    if node.tag != qn('w:tab'):
+        return None
+    if _run_under(run):
+        return 'slot'
+    previous = next((t for t in reversed(tokens) if t[3] <= start and t[4].strip()), None)
+    # A label's literal prefix and suffix may have an alignment tab between
+    # them. Unlike a field separator, neither side is an underline slot/value.
+    if previous and previous[1].tag == qn('w:t') and not _run_under(previous[0]):
+        prefix = previous[4].strip()
+        suffix = ''
+        for following in tokens:
+            if following[2] < end:
+                continue
+            if following[1].tag != qn('w:t') or _run_under(following[0]):
+                break
+            suffix += following[4]
+            if re.search(r'[:：]', suffix):
+                if prefix and not re.search(r'[:：。；;!?！？]', prefix):
+                    return 'label'
+                break
+    tail = blob[end:].split('\n',1)[0].lstrip(' \t\u3000')
+    # Tabs embedded in one blank span (or before date-unit glyphs) are slot
+    # padding, not a boundary between two labelled columns.
+    padding = tail.startswith(('_','＿')) or bool(re.match(r'^[年月日](?:[\d年月日 _＿\t\u3000]|$)',tail))
+    return 'boundary' if tail and not padding else 'slot'
+
+
+def _layout_tab(token, blob):
+    return _tab_role(token, blob, list(_blank_tokens(token[0].getparent()))) in {'label','boundary'}
+
+
+def _write_blank_span(el, start: int, end: int, value: str) -> None:
+    """Write in the original underline run; retain layout tabs and fixed labels."""
+    if value is None:
+        return
+    tokens = list(_blank_tokens(el))
+    blob = "".join(t[4] for t in tokens)
+    def blank_at(index):
+        if blob[index] not in _BLANK_CHARS:
+            return False
+        return blob[index] != '\t' or any(t[2] <= index < t[3] and not _layout_tab(t,blob)
+                                          for t in tokens)
+    while start > 0 and blank_at(start - 1):
+        start -= 1
+    while end < len(blob) and blank_at(end):
+        end += 1
+    while start < end and blob[start] == '\t' and not blank_at(start):
+        start += 1
+    while end > start and blob[end-1] == '\t' and not blank_at(end-1):
+        end -= 1
+    # A plain tab separates fields/columns. An underlined tab is the blank
+    # itself, and is replaced with the value rather than retained beside it.
+    selected = [t for t in tokens if t[2] < end and t[3] > start
+                and not _layout_tab(t,blob)]
+    if start == end:
+        selected = [t for t in tokens if t[2] <= start < t[3]][:1]
+    if any(t[1].tag not in {qn("w:t"), qn("w:tab")} for t in selected):
+        return
+    raw_blank = blob[start:end]
+    after = blob[end:]
+    # An underline tab can also advance the following label to its original
+    # column. Retain that existing tab as non-underlined layout, not a new tab
+    # or an empty underline beside the value. Hint text is not layout padding.
+    # A fixed label may be split across several runs. Inspect its original blob
+    # coordinates, before mutation (the next value may already be filled).
+    fixed_parts = []
+    filled_sizes = getattr(el.getroottree().getroot(), '_original_fill_sizes', {})
+    for run, node, a, b, text in tokens:
+        if b <= end:
+            continue
+        if node.tag == qn('w:tab') and _tab_role((run,node,a,b,text),blob,tokens) == 'label':
+            fixed_parts.append(' ')
+            continue
+        if node.tag != qn('w:t'):
+            break
+        part = text[max(0, end-a):]
+        if run in filled_sizes:
+            break
+        fixed_parts.append(part)
+        if re.search(r'[:：]', part):
+            break
+    fixed_label = ''.join(fixed_parts).strip()
+    tab_defs = el.findall('w:pPr/w:tabs/w:tab', el.nsmap)
+    column_boundary = (any(tab.get(qn('w:val'),'left') != 'clear' for tab in tab_defs)
+                       and bool(fixed_label)
+                       and not fixed_label.startswith(('(', '（', '[', '【', '{'))
+                       and bool(re.search(r'[:：]', fixed_label)))
+    alignment = after.startswith('\t') or column_boundary
+    saved_tabs = [t[1] for t in selected if t[1].tag == qn('w:tab') and _run_under(t[0])]
+    if not raw_blank or re.sub(r'[ _＿\u3000\t]', '', raw_blank) or not alignment:
+        saved_tabs = []
+    elif column_boundary:
+        # One dual-purpose tab restores the next column. Other blank tabs are
+        # underline padding, not additional column jumps.
+        saved_tabs = saved_tabs[-1:]
+    boundary_wrap = False
+    if saved_tabs and column_boundary:
+        x, advance, line_edge = _fill_line_cursor(el, [t for t in tokens if t[3] <= start])
+        label_half = _fill_font_half(saved_tabs[-1].getparent(), el)
+        label_width = _vis_width(fixed_label) * label_half * 5
+        boundary_wrap = advance(x) + label_width > line_edge
+    host = next((t[0] for t in selected if _run_under(t[0])),
+                selected[0][0] if selected else None)
+    if host is None:
+        last = next(reversed(list(el.iter(qn('w:r')))), None)
+        if last is not None and value:
+            host = OxmlElement('w:r')
+            rpr = last.find(qn('w:rPr'))
+            if rpr is not None:
+                host.append(deepcopy(rpr))
+            _set_run_text(host, value.strip())
+            last.addnext(host)
+            _fit_filled_run(el, host)
+        return
+    # Split only substantive prefix/suffix content that shares the host run.
+    # The original run remains the value's physical anchor and keeps its rPr.
+    owned = [t for t in tokens if t[0] is host]
+    for left in (True, False):
+        piece = OxmlElement('w:r')
+        rpr = host.find(qn('w:rPr'))
+        if rpr is not None:
+            piece.append(deepcopy(rpr))
+        for _, node, a, b, text in owned:
+            part = text[:max(0, start - a)] if left else text[max(0, end - a):]
+            # Full tabs/breaks outside the blank retain their original OOXML.
+            if part:
+                clone = deepcopy(node)
+                if clone.tag == qn('w:t'):
+                    clone.text = part
+                    clone.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
+                piece.append(clone)
+        if len(piece) > (1 if piece.find(qn('w:rPr')) is not None else 0):
+            if left:
+                host.addprevious(piece)
+            else:
+                host.addnext(piece)
+    for run, node, a, _, text in selected:
+        if run is host:
+            continue
+        if node.tag == qn('w:tab'):
+            run.remove(node)
+        else:
+            node.text = text[:max(0, start - a)] + text[max(0, end - a):]
+    for child in list(host):
+        if child.tag != qn('w:rPr'):
+            host.remove(child)
+    blank = "".join(c for c in blob[start:end] if c in _BLANK_CHARS)
+    if blank:
+        rpr = host.find(qn("w:rPr"))
+        if rpr is None:
+            rpr = OxmlElement("w:rPr")
+            host.insert(0, rpr)
+        if not _run_under(host):
+            underline = rpr.find(qn("w:u"))
+            if underline is None:
+                underline = OxmlElement("w:u")
+                rpr.append(underline)
+            underline.set(qn("w:val"), "single")
+        for fit in list(rpr.findall(qn("w:fitText"))):
+            rpr.remove(fit)
+    _set_run_text(host, value.strip())
+    for run in {t[0] for t in selected} - {host}:
+        if all(child.tag == qn('w:rPr') or (child.tag == qn('w:t') and not child.text) for child in run):
+            run.getparent().remove(run)
+    # Repair the legacy shape: empty underlined run + separately appended value.
+    following = host.getnext()
+    if blank and value and following is not None and following.tag == qn('w:r'):
+        existing = _run_text(following).strip()
+        suffix = existing[len(value.strip()):].strip() if existing.startswith(value.strip()) else ''
+        if (suffix and re.fullmatch(r'[（(](?:盖单位(?:公)?章|盖章|签字(?:或盖章)?|签章)[）)]',suffix)
+                and all(child.tag in {qn('w:rPr'),qn('w:t')} for child in following)):
+            _set_run_text(following, suffix)
+        if _run_text(following).strip() == value.strip() and all(child.tag in {qn('w:rPr'),qn('w:t')} for child in following):
+            following.getparent().remove(following)
+            following = host.getnext()
+            while following is not None and following.tag == qn('w:r') and _run_under(following):
+                if any(child.tag not in {qn('w:rPr'),qn('w:t'),qn('w:tab')} for child in following):
+                    break
+                if re.sub(r'[\s_＿]', '', _run_text(following)):
+                    break
+                extra = following
+                following = following.getnext()
+                extra.getparent().remove(extra)
+    if not value:
+        host.getparent().remove(host)
+    else:
+        if saved_tabs:
+            carrier = OxmlElement('w:r')
+            rpr = deepcopy(host.find(qn('w:rPr')))
+            if rpr is None:
+                rpr = OxmlElement('w:rPr')
+            underline = rpr.find(qn('w:u'))
+            if underline is None:
+                underline = OxmlElement('w:u')
+                rpr.append(underline)
+            underline.set(qn('w:val'),'none')
+            carrier.append(rpr)
+            carrier._fill_alignment_carrier = True
+            carrier._fill_layout_boundary = bool(column_boundary)
+            if boundary_wrap:
+                # The source tab leaves no room for the complete next label.
+                # Restore its natural next-line position, rather than letting
+                # Word wrap the tab itself and advance a second time there.
+                carrier.append(OxmlElement('w:br'))
+            else:
+                for tab in saved_tabs:
+                    carrier.append(tab)
+            host.addnext(carrier)
+        _fit_filled_run(el, host)
+
+
+def _fill_font_half(run, para):
+    for source in [run, para.find(qn('w:pPr'))]:
+        size = source.find('w:rPr/w:sz', source.nsmap) if source is not None else None
+        if size is not None and size.get(qn('w:val'), '').isdigit():
+            return int(size.get(qn('w:val')))
+    styles = getattr(para.getroottree().getroot(),'_fill_styles',None)
+    if styles is not None:
+        references = [ref for ref in (run.find('w:rPr/w:rStyle',run.nsmap),para.find('w:pPr/w:pStyle',para.nsmap)) if ref is not None]
+        for reference in references + [None]:
+            key = reference.get(qn('w:val')) if reference is not None else 'Normal'
+            visited = set()
+            while key and key not in visited:
+                visited.add(key)
+                style = next((s for s in styles.findall(qn('w:style')) if s.get(qn('w:styleId'))==key),None)
+                if style is None:break
+                size = style.find('w:rPr/w:sz',style.nsmap)
+                if size is not None and size.get(qn('w:val'),'').isdigit():
+                    return int(size.get(qn('w:val')))
+                parent = style.find(qn('w:basedOn'))
+                key = parent.get(qn('w:val')) if parent is not None else ''
+        size = styles.find('w:docDefaults/w:rPrDefault/w:rPr/w:sz',styles.nsmap)
+        if size is not None and size.get(qn('w:val'),'').isdigit():
+            return int(size.get(qn('w:val')))
+    for source in para.findall(qn('w:r')):
+        size = source.find('w:rPr/w:sz',source.nsmap)
+        if size is not None and size.get(qn('w:val'),'').isdigit():
+            return int(size.get(qn('w:val')))
+    return 24
+
+
+def _fill_line_width(el):
+    body = next(el.iterancestors(qn('w:body')), None)
+    section = body.find(qn('w:sectPr')) if body is not None else None
+    block = el
+    while block.getparent() is not None and block.getparent() is not body:
+        block = block.getparent()
+    if body is not None:
+        for sibling in list(body)[list(body).index(block):]:
+            boundary = sibling.find('w:pPr/w:sectPr', sibling.nsmap)
+            if boundary is not None:
+                section = boundary
+                break
+    width = 9000
+    if section is not None:
+        size, margin = section.find(qn('w:pgSz')), section.find(qn('w:pgMar'))
+        if size is not None and margin is not None:
+            width = int(size.get(qn('w:w'),'11906')) - sum(int(margin.get(qn('w:'+name),'0')) for name in ('left','right'))
+    cell = next(el.iterancestors(qn('w:tc')), None)
+    if cell is not None:
+        size = cell.find('w:tcPr/w:tcW', cell.nsmap)
+        if size is not None and size.get(qn('w:type'),'dxa') == 'dxa':
+            width = min(width, int(size.get(qn('w:w'),'9000'))) - 216
+    indent = el.find('w:pPr/w:ind', el.nsmap)
+    if indent is not None:
+        width -= sum(int(indent.get(qn('w:'+name),'0')) for name in ('left','right'))
+    return max(20, width)
+
+
+def _fill_line_cursor(el, tokens, *, wrap=True):
+    """Shared tab stops and natural-wrap budget in paragraph coordinates."""
+    indent = el.find('w:pPr/w:ind', el.nsmap)
+    left = int(indent.get(qn('w:left'),'0')) if indent is not None else 0
+    first = (int(indent.get(qn('w:firstLine'),'0')) - int(indent.get(qn('w:hanging'),'0'))) if indent is not None else 0
+    tabs = sorted(int(tab.get(qn('w:pos'),'0')) - left for tab in el.findall('w:pPr/w:tabs/w:tab', el.nsmap)
+                  if tab.get(qn('w:val'),'left') != 'clear')
+    def advance(x):
+        return next((stop for stop in tabs if stop > x + 1), (int(x+left)//720 + 1)*720-left)
+    line_edge = _fill_line_width(el)
+    x = float(first)
+    for run, node, _, _, text in tokens:
+        if node.tag == qn('w:tab'):
+            x = advance(x)
+            if wrap and x > line_edge:
+                x = 0.0
+        elif node.tag == qn('w:t'):
+            width = _vis_width(text) * _fill_font_half(run, el) * 5
+            if wrap and x + width > line_edge:
+                x = 0.0
+            x += width
+            if wrap and x > line_edge:
+                x = (x-1) % line_edge + 1
+        else:
+            x = 0.0
+    return x, advance, line_edge
+
+
+def _protect_following_form_label(el, filled):
+    """Keep a fixed field label after a parenthetical suffix on one line."""
+    tokens = list(_blank_tokens(el))
+    following = []
+    passed = False
+    for token in tokens:
+        run,node,_,_,text = token
+        if run is filled:
+            passed = True
+            continue
+        if not passed:
+            continue
+        if node.tag != qn('w:t') or _run_under(run):
+            break
+        following.append(token)
+    if not following:
+        return False
+    text = ''.join(t[4] for t in following)
+    match = re.fullmatch(r'\s*[（(][^（）()\n]*[）)]\s*(?P<label>[^:：\n\t]+[:：])', text)
+    if not match:
+        return False
+    start = following[0][2] + match.start('label')
+    prefix = [(r,n,a,min(b,start),s[:max(0,start-a)]) for r,n,a,b,s in tokens if a < start]
+    x,_,edge = _fill_line_cursor(el,prefix,wrap=False)
+    width = sum(_vis_width(s[max(0,start-a):]) * _fill_font_half(r,el) * 5
+                for r,_,a,b,s in following if b > start)
+    if x + width <= edge:
+        return False
+    run,node,a,_,part = next(t for t in following if t[2] <= start < t[3])
+    cut = start-a
+    # A stamp and the next label may share a single source run. Split only at
+    # their structural boundary, keeping every fixed glyph and its rPr.
+    if cut or any(c.tag != qn('w:rPr') for c in list(run)[:list(run).index(node)]):
+        tail = OxmlElement('w:r')
+        if run.find(qn('w:rPr')) is not None:
+            tail.append(deepcopy(run.find(qn('w:rPr'))))
+        remainder = deepcopy(node);remainder.text = part[cut:]
+        remainder.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
+        tail.append(remainder)
+        for child in list(run)[list(run).index(node)+1:]:
+            tail.append(child)
+        node.text = part[:cut]
+        node.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
+        run.addnext(tail)
+        run = tail
+    separator = OxmlElement('w:r')
+    if run.find(qn('w:rPr')) is not None:
+        separator.append(deepcopy(run.find(qn('w:rPr'))))
+    separator.append(OxmlElement('w:br'))
+    run.addprevious(separator)
+    return True
+
+
+def _fit_filled_run(el, filled):
+    """Use readable type, then remaining line width and natural wrapping."""
+    tokens = list(_blank_tokens(el))
+    index = next((i for i,t in enumerate(tokens) if t[0] is filled), None)
+    if index is None:
+        return
+    root = el.getroottree().getroot()
+    original_sizes = getattr(root,'_original_fill_sizes',None)
+    if original_sizes is None:
+        original_sizes = {};root._original_fill_sizes = original_sizes
+    half = max(2,original_sizes.setdefault(filled,_fill_font_half(filled,el)))
+    lower = max(18,ceil(half*.75))
+    x, advance, line_edge = _fill_line_cursor(el, tokens[:index])
+    suffix = 0.0
+    edge = line_edge
+    for run,node,_,_,text in tokens[index+1:]:
+        if run is filled:
+            continue
+        if node.tag == qn('w:tab'):
+            edge = min(edge, advance(x))
+            break
+        if node.tag != qn('w:t'):
+            break
+        suffix += _vis_width(text) * _fill_font_half(run, el) * 5
+    needed = _vis_width(_run_text(filled)) * half * 5
+    room = max(10, edge - x - suffix - 40)
+    if needed <= 0:
+        return
+    size = max(lower,min(max(half,lower),int(half*room/needed)))
+    if needed*size/half > room:
+        # Recycled underline tabs are padding, not another labelled column.
+        # Remove only this renderer's adjacent carrier; original layout tabs
+        # and their tab-stop definitions stay intact.
+        following = filled.getnext()
+        if (following is not None and getattr(following,'_fill_alignment_carrier',False)
+                and not getattr(following,'_fill_layout_boundary',False)):
+            following.getparent().remove(following)
+            _fit_filled_run(el,filled)
+            return
+        wide_room = max(10,line_edge-x-suffix-40)
+        size = max(lower,min(max(half,lower),int(half*wide_room/needed)))
+        # OOXML has paragraph-level word wrapping, not a per-run wrap flag.
+        # Enable it only for an overflowing value, without inserting text,
+        # line breaks, page breaks or changing the labels' font sizes.
+        if needed*size/half > room:
+            props = el.get_or_add_pPr()
+            wrap = props.find(qn('w:wordWrap'))
+            if wrap is None:
+                wrap = OxmlElement('w:wordWrap');props.append(wrap)
+            wrap.set(qn('w:val'),'1')
+    rpr = filled.get_or_add_rPr()
+    for fit in list(rpr.findall(qn('w:fitText'))):rpr.remove(fit)
+    for name in ('sz','szCs'):
+        node = rpr.find(qn('w:' + name))
+        if node is None:
+            node = OxmlElement('w:' + name)
+            rpr.append(node)
+        node.set(qn('w:val'), str(size))
+    if _protect_following_form_label(el, filled):
+        _fit_filled_run(el, filled)
+
+
+def _signature_flow_field(el):
+    """Recognize signature/contact fields consistently for spacing and flow."""
+    if el.tag != qn('w:p'):
+        return False
+    text = re.sub(r'\s+', '', _el_text(el))
+    labelled = re.match(
+        r'^(?:投标人(?:名称|或联合体牵头人)?|法定代表人(?:或其?委托代理人)?|委托代理人|地址|网址|电话|传真|邮政编码|邮编|电子邮箱|邮箱|日期|身份证号码)'
+        r'(?:[（(](?:盖单位(?:公)?章|盖章|签字(?:或盖章)?)[）)])?[:：]', text)
+    dated = re.fullmatch(r'(?:日期[:：]?)?\d{4}年\d{1,2}月\d{1,2}日', text)
+    return bool(dated or (labelled and '。' not in text))
+
+
+def _relax_signature_flow(el, doc=None):
+    """A signature/contact line may flow naturally; never glue the whole block."""
+    if not _signature_flow_field(el):
+        return
+    props = el.find(qn('w:pPr'))
+    direct = props is not None and any(props.find(qn('w:'+name)) is not None for name in ('keepLines','keepNext'))
+    inherited = False
+    if doc is not None:
+        from docx.text.paragraph import Paragraph
+        style = Paragraph(el,doc._body).style
+        while style is not None:
+            inherited |= bool(style.paragraph_format.keep_together or style.paragraph_format.keep_with_next)
+            style = style.base_style
+    if not direct and not inherited:return
+    props = el.get_or_add_pPr()
+    following = el.getnext()
+    suffix = (following is not None and following.tag == qn('w:p')
+              and re.fullmatch(r'[（(](?:盖单位(?:公)?章|签字(?:或盖章)?)[）)]', re.sub(r'\s+','',_el_text(following))))
+    for name, flag in [('keepLines',False),('keepNext',bool(suffix))]:
+        node = props.find(qn('w:' + name))
+        if node is None:
+            node = OxmlElement('w:' + name)
+            props.append(node)
+        node.set(qn('w:val'),'1' if flag else '0')
+    if suffix:
+        for name in ('keepLines','keepNext'):
+            node = following.get_or_add_pPr().find(qn('w:' + name))
+            if node is None:
+                node = OxmlElement('w:' + name)
+                following.get_or_add_pPr().append(node)
+            node.set(qn('w:val'),'0')
+
+
+def _compact_signature_flow(doc):
+    """Remove only safe whitespace between signature/contact fields."""
+    from docx.text.paragraph import Paragraph
+    from docx.shared import Pt
+    def blank(node):
+        if node.tag!=qn('w:p') or _el_text(node).replace('\u200b','').replace('\ufeff','').strip():return False
+        protected=('drawing','pict','object','tbl','sectPr','br','lastRenderedPageBreak','bookmarkStart','bookmarkEnd','fldChar','instrText','pBdr','numPr','framePr')
+        if any(next(node.iter(qn('w:'+name)),None) is not None for name in protected):return False
+        if any(child.tag not in {qn('w:pPr'),qn('w:r')} for child in node):return False
+        if any(child.tag not in {qn('w:rPr'),qn('w:t'),qn('w:tab')} for run in node.findall(qn('w:r')) for child in run):return False
+        para=Paragraph(node,doc._body)
+        if para.paragraph_format.page_break_before:return False
+        style=para.style
+        while style is not None:
+            if style.paragraph_format.page_break_before or style.element.find('w:pPr/w:outlineLvl',style.element.nsmap) is not None:return False
+            style=style.base_style
+        return True
+    def generated(node):
+        return '\u200b' in _el_text(node) and node.find('w:pPr/w:spacing',node.nsmap) is not None
+    previous_field=False;previous_text='';pending=[]
+    for node in list(doc.element.body):
+        if blank(node):pending.append(node);continue
+        current=_signature_flow_field(node)
+        if current and pending:
+            # Consecutive empty paragraphs after completed prose are spare
+            # signature space. Compact that space rather than letting the last
+            # contact line spill in front of an original next-page section.
+            signature_gap = previous_field or (len(pending)>1 and bool(re.search(r'[。；;!?！？][\s）)]*$',previous_text)))
+            keep=next((p for p in pending if signature_gap and not generated(p)),None)
+            for gap in pending:
+                if (signature_gap or generated(gap)) and gap is not keep:
+                    gap.getparent().remove(gap)
+            if keep is not None:
+                para=Paragraph(keep,doc._body);pf=para.paragraph_format
+                pf.space_before=pf.space_after=Pt(0);pf.line_spacing=Pt(12)
+                pf.keep_together=pf.keep_with_next=False
+        previous_field=current;previous_text=_el_text(node);pending=[]
+    for node in doc.element.body.iter(qn('w:p')):
+        _relax_signature_flow(node,doc)
 
 
 def _replace_span_at(el, start: int, end: int, value: str) -> None:
@@ -3679,12 +4211,11 @@ def _run_under(run) -> bool:
 
 
 def _seat_run(run, text: str) -> None:
-    """字从横线起点的第 2 格写。下划线制表符会把字顶到线尾。"""
+    """Write from the blank's left edge, without implicit indentation."""
     for tab in list(run.findall(qn("w:tab"))):
         run.remove(tab)
     body = (text or "").strip()
-    _set_run_text(run, "\u3000" + body)
-    _drop_blank_tab(run)
+    _set_run_text(run, body)
 
 
 def _drop_blank_tab(run) -> None:
@@ -3766,28 +4297,42 @@ def _blank_value(label: str, brief) -> str:
 
 
 def _fill_para_blanks(el, brief) -> None:
-    runs = [r for r in el.iter(qn("w:r"))]
-    compact = re.sub(r"\s+", "", "".join(_run_text(r) for r in runs))
-    # 年月日留原样，避免把邮箱填进「年 月 日」
-    if "年" in compact and "月" in compact and "日" in compact:
-        return
-    if len(compact) > 48:
-        return
-    acc = ""
-    for run in runs:
-        if _run_under(run) and not re.sub(r"[\s_＿　]", "", _run_text(run)):
-            value = _blank_value(re.sub(r"\s+", "", acc)[-16:], brief)
-            if value:
-                _seat_run(run, value)
-            acc = ""
+    blob = _blank_text(el)
+    for match in reversed(_blank_ranges(el)):
+        raw = match.group()
+        under = any(_run_under(r) for r, _, a, b, _ in _blank_tokens(el)
+                    if a < match.end() and b > match.start())
+        if not (under or re.search(r"[_＿\t]| {2,}|\u3000", raw)):
             continue
-        acc += _run_text(run)
+        label = re.sub(r"\s+", "", blob[:match.start()])[-16:]
+        value = _blank_value(label, brief)
+        if value:
+            _write_blank_span(el, match.start(), match.end(), value)
+
+
+def _blank_ranges(el):
+    """Separate underline fields at plain layout tabs and paragraph breaks."""
+    tokens = list(_blank_tokens(el))
+    original = ''.join(t[4] for t in tokens)
+    blob = ''.join('\n' if _layout_tab(token,original) else token[4] for token in tokens)
+    return list(re.finditer(r'[ _＿\u3000\t]+', blob))
 
 
 def _fill_label_gap(el, brief) -> None:
     """整段只有标签时，把值接在标签后面，不改别的行。"""
-    blob = re.sub(r"\s+", "", _el_text(el))
+    text = _blank_text(el)
+    blob = re.sub(r"[\s_＿]+", "", text)
     if "年" in blob and "月" in blob and "日" in blob:
+        return
+    # Stamp instructions are not filled values. Accept common label structures,
+    # including labels without an underline and stamps before/after the colon.
+    identity = re.fullmatch(
+        r'(?:投标人(?:或联合体牵头人)?|响应人|供应商|单位名称|企业名称)(?:名称|全称)?'
+        r'(?:[（(](?:加盖公章|盖单位章|盖章)[)）])?\s*[:：]'
+        r'(?P<blank>[\s_＿]*)(?:[（(](?:加盖公章|盖单位章|盖章)[)）])?[\s_＿]*', text)
+    bidder = (brief.bidderName or '').strip()
+    if identity and bidder:
+        _write_blank_span(el, identity.start('blank'), identity.end('blank'), bidder)
         return
     pairs = [
         ("招标编号：", (getattr(brief, "tenderNo", "") or "").strip()),
@@ -3815,10 +4360,8 @@ def _fill_label_gap(el, brief) -> None:
     for label, value in pairs:
         if not value or value in blob or blob != label:
             continue
-        nodes = [t for t in el.iter(qn("w:t")) if t.text]
-        if not nodes:
-            continue
-        nodes[-1].text = (nodes[-1].text or "") + value
+        at = next((i for i, c in enumerate(text) if c in "：:"), len(text) - 1) + 1
+        _write_blank_span(el, at, at, value)
         return
 
 
@@ -4040,7 +4583,7 @@ def _paste_scan_boxes(doc: Document, media: dict | None) -> list[str]:
             if not files:
                 notes.append(f"缺{label}，已保留原占位")
                 continue
-            if not _embed_in_place(doc, el, files, pair=False):
+            if not _embed_in_place(doc, el, files, pair=False, key=key):
                 notes.append(f"缺{label}，已保留原占位")
                 continue
             pasted = True
@@ -4051,7 +4594,7 @@ def _paste_scan_boxes(doc: Document, media: dict | None) -> list[str]:
 
 
 def _attach_library(
-    doc: Document, brief, media: dict | None, *, slots=None, handled=None, global_pasted: set[str] | None = None
+    doc: Document, brief, media: dict | None, *, slots=None, handled=None, global_pasted: set[str] | None = None, volume=''
 ) -> list[str]:
     """附加资料库扫描件，支持全局去重。
 
@@ -4065,7 +4608,7 @@ def _attach_library(
     """
     from api.services.tenders.scan_placement import place_library_scans
 
-    notes, placed = place_library_scans(doc, brief, media, slots, global_pasted=global_pasted)
+    notes, placed = place_library_scans(doc, brief, media, slots, global_pasted=global_pasted, volume=volume)
     if handled is not None:
         handled.update(placed)
     if global_pasted is not None:

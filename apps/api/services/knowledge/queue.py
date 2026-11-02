@@ -365,17 +365,24 @@ async def _ingest_timeout_watchdog() -> None:
 async def run_ingest_worker() -> None:
     logger.info("kb ingest worker started")
     ev = _event()
+    idle_delays=(2.0,5.0,15.0)
+    idle_index=0
     while True:
         try:
+            # Clear before querying: an enqueue notification during the query
+            # must survive until wait(), including the empty-query race.
+            ev.clear()
             async with AsyncSessionLocal() as db:
                 claimed = await _claim_next(db)
             if claimed is None:
-                ev.clear()
                 try:
-                    await asyncio.wait_for(ev.wait(), timeout=2.0)
+                    await asyncio.wait_for(ev.wait(), timeout=idle_delays[idle_index])
                 except TimeoutError:
+                    idle_index=min(idle_index+1,len(idle_delays)-1)
                     continue
+                idle_index=0
                 continue
+            idle_index=0
             await _run_claimed(claimed)
         except asyncio.CancelledError:
             logger.info("kb ingest worker cancelled")

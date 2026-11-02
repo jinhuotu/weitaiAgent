@@ -228,11 +228,12 @@ def test_technical_slice_rebuilds_cover_toc_and_page(tmp_path, monkeypatch) -> N
     assert "投标函" not in blob
     assert "商务说明" not in blob
     assert "施工组织设计" in blob
-    cover = next(t for t in texts if "技术标" in t)
-    assert cover.strip() == "技术标"
+    # 明标封面同商务卷，保留通用「投标文件」名称。
+    cover = next(t for t in texts if t.strip() == "投标文件")
+    assert cover.strip() == "投标文件"
     assert "河南伟泰光电科技有限公司" in blob
     toc_at = next(i for i, t in enumerate(texts) if t.strip() == "目录")
-    assert any("技术标" in t for t in texts[:toc_at])
+    assert any("投标文件" in t for t in texts[:toc_at])
     assert "TOC" in doc.element.xml
     assert "PAGEREF" in doc.element.xml
     assert any("已另写封面和目录" in n for n in notes)
@@ -285,7 +286,8 @@ def test_anonymous_tech_cover_omits_bidder(tmp_path, monkeypatch) -> None:
     assert "技术标" in front
     assert "河南伟泰" not in front
     assert "郭志伟" not in front
-    assert "郑州充电站" not in front
+    # 暗标保留项目名称，仅隐藏公司、标识与人员信息。
+    assert "郑州充电站" in front
     assert "投标人" not in front
     assert "河南伟泰" not in doc.sections[0].header.paragraphs[0].text
 

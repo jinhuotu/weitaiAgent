@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from legacy_company import legacy_brief
+
 import re
 
 from docx.oxml.ns import qn
@@ -355,7 +357,7 @@ def test_letter_module_appendix_fields() -> None:
     from api.services.tenders.modules import render_module
     from api.services.tenders.schema import BidBrief, OutlineItem
 
-    brief = BidBrief(
+    brief = legacy_brief(
         projectName="郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）",
         tenderer="郑州天健智慧园区运营管理有限公司",
         bidderName="河南伟泰光电科技有限公司",
@@ -590,7 +592,7 @@ def test_assemble_follows_outline_item_order(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -615,7 +617,7 @@ def test_assemble_keeps_one_biz_dev_table(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -658,7 +660,7 @@ def test_assemble_letter_keeps_invitation_form_layout(tmp_path) -> None:
         "联系人：________    联系电话：________\n"
         "年  月  日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.projectName = "厂内新能源充电桩采购项目"
     brief.tenderer = "某热电有限公司"
@@ -743,7 +745,7 @@ def test_assemble_letter_without_body_still_writes_module(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.tenderer = "某热电有限公司"
     brief.bidPriceYuan = 518800
@@ -775,7 +777,7 @@ def test_assemble_mashed_invitation_letter_not_dropped(tmp_path) -> None:
         "投标人（章）：          法定代表人或授权代表（签字）："
         "年  月  日"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.projectName = "厂内新能源充电桩采购项目"
     brief.tenderer = "某热电有限公司"
@@ -808,7 +810,7 @@ def test_assemble_copies_commitment_not_charger_clauses(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
     from api.services.tenders.commitment import _CLAUSES
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.projectName = "数智制造管理系统"
     brief.tenderer = "某市分公司"
@@ -860,9 +862,10 @@ def test_assemble_modules_fill_brief_not_invitation_body(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
     from api.services.tenders.commitment import _CLAUSES
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.projectName = "数智制造管理系统"
+    brief.bidContent = "新系统模块A"
     brief.tenderer = "某市分公司"
     brief.bidDate = "2026-09-08"
     brief.bidPriceYuan = 113000
@@ -942,7 +945,7 @@ def test_assemble_letter_copy_override_keeps_invitation_body(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.projectName = "数智制造管理系统"
     brief.tenderer = "某市分公司"
@@ -971,7 +974,7 @@ def test_render_factory_and_tech_plan_modules() -> None:
 
     from api.services.tenders.modules import render_module
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.projectName = "数智制造管理系统"
     brief.tenderer = "某市分公司"
     brief.deliveryDays = 30
@@ -1001,7 +1004,7 @@ def test_tech_plan_embeds_uploaded_drawings(tmp_path) -> None:
     Image.new("RGB", (140, 80), (80, 40, 20)).save(extra, "PNG")
     third = tmp_path / "layout3.png"
     Image.new("RGB", (100, 70), (20, 80, 40)).save(third, "PNG")
-    brief = default_brief()
+    brief = legacy_brief()
     brief.techPlanNote = "按采购需求实施，不编造桩数。"
     doc = Document()
     notes = render_module(
@@ -1021,7 +1024,7 @@ def test_assemble_quote_and_dev_follow_invitation_headers(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.projectName = "数智制造管理系统"
     brief.tenderer = "某市分公司"
@@ -1098,7 +1101,7 @@ def test_generate_bid_respects_layout_mode(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(generate_mod, "tenders_output_dir", lambda: tmp_path)
     monkeypatch.setattr("api.services.tenders.assemble.assemble_bid_docx", fake_assemble)
 
-    outline_brief = BidBrief(
+    outline_brief = legacy_brief(
         layoutMode="outline",
         generateVolume="business",
         outlineItems=[OutlineItem(id="o01", title="响应函", kind="letter", body="致：甲方")],
@@ -1120,7 +1123,7 @@ def test_generate_bid_respects_layout_mode(tmp_path, monkeypatch) -> None:
     assert not tech_out.get("docxFile")
     assert "技术标.docx" in (tech_out.get("techDownloadName") or "")
 
-    classic = BidBrief(
+    classic = legacy_brief(
         layoutMode="chapter5",
         generateVolume="business",
         includePlaceholders=False,
@@ -1160,7 +1163,7 @@ def test_assemble_outline_toc_and_signoff_match_fixed(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "某热电有限公司"
     brief.bidPriceYuan = 518800
@@ -1209,7 +1212,7 @@ def test_assemble_auth_sign_single_line_aligned(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
     from api.services.tenders.document import _em_len
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1288,7 +1291,7 @@ def test_assemble_commitment_copy_keeps_form_layout(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "二连浩特市联源热电有限公司"
     brief.bidDate = "2026-09-15"
@@ -1356,7 +1359,7 @@ def test_assemble_legal_id_copy_stays_on_form(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1409,7 +1412,7 @@ def test_assemble_inlines_id_cards_not_in_appendix(tmp_path) -> None:
     Image.new("RGB", (220, 350), (120, 160, 140)).save(agent_f)
     Image.new("RGB", (220, 350), (140, 120, 160)).save(agent_b)
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includePlaceholders = True
     brief.includeCommitment = False
@@ -1498,7 +1501,7 @@ def test_assemble_seal_register_fills_company_table(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1540,7 +1543,7 @@ def test_assemble_drops_duplicate_seal_register_page(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1599,7 +1602,7 @@ def test_assemble_does_not_leave_empty_page_break_paras(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
     from api.services.tenders.document import _paragraph_has_page_break
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1629,7 +1632,7 @@ def test_quote_summary_rows_stay_compact(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1677,7 +1680,7 @@ def test_assemble_commitment_without_body_does_not_write_stock_clauses(tmp_path)
     from api.services.tenders.assemble import assemble_bid_docx
     from api.services.tenders.commitment import _CLAUSES
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "二连浩特市联源热电有限公司"
     brief.includePlaceholders = False
@@ -1706,7 +1709,7 @@ def _qual_pdf(path):
 def test_assemble_warns_when_qual_pdf_missing(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1725,7 +1728,7 @@ def test_assemble_inserts_qual_pdf_into_outline_chapter(tmp_path) -> None:
     from api.services.tenders.assemble import assemble_bid_docx
 
     pdf = _qual_pdf(tmp_path / "企业资质.pdf")
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1766,7 +1769,7 @@ def test_find_qualification_pdf_looks_in_slots(tmp_path, monkeypatch) -> None:
 
 
 def _volume_brief() -> BidBrief:
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1802,7 +1805,7 @@ def test_assemble_skips_invite_format_pack_pages(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -1878,7 +1881,7 @@ def test_assemble_technical_omits_library_scan_heading(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = True
     brief.includeCommitment = False
@@ -1917,7 +1920,7 @@ def test_assemble_copies_invitation_commitment_not_stock_clauses(tmp_path) -> No
         "投标人(盖公章)：\n"
         "日期： 年 月 日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "河南鑫宇光科技股份有限公司"
     brief.includePlaceholders = False
@@ -1957,7 +1960,7 @@ def test_assemble_splits_zhi_company_from_body(tmp_path) -> None:
         "授权代表(签名)：\n"
         "日期： 年 月 日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "河南鑫宇光科技股份有限公司"
     brief.bidDate = "2026-09-23"
@@ -2003,7 +2006,7 @@ def test_assemble_copied_sign_lines_have_underline(tmp_path) -> None:
         "日期：\n"
         "年 月 日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "河南鑫宇光科技股份有限公司"
     brief.bidDate = "2026-09-23"
@@ -2046,7 +2049,7 @@ def test_assemble_keeps_multiline_commitment_paragraphs(tmp_path) -> None:
         "1、甲方已研究招标文件。乙方不得以含糊为由抗辩。丙方继续履行。\n"
         "2、资料真实。"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2080,7 +2083,7 @@ def test_assemble_seal_register_uses_one_page_grid(tmp_path) -> None:
         "公章    财务章    合同章\n"
         "备注：本表中三处备案印鉴为红色章。"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2142,7 +2145,7 @@ def test_assemble_follows_invitation_templates_not_fixed_seal_or_quote(tmp_path)
         "投标人(盖公章)：\n"
         "日期： 年 月 日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "河南鑫宇光科技股份有限公司"
     brief.includePlaceholders = False
@@ -2212,7 +2215,7 @@ def test_assemble_outline_empty_volume_not_charger_pack(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2239,7 +2242,7 @@ def test_assemble_skips_duplicate_license_scan_and_quote_debris(tmp_path) -> Non
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = True
     brief.includeCommitment = False
@@ -2299,7 +2302,7 @@ def test_assemble_pipe_requirement_and_focus_tables(tmp_path) -> None:
         "录入核心信息：供应商、校准周期、安全库存。\n"
         "传感器信号弱、网关离线），及时发现潜在问题。\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2372,7 +2375,7 @@ def test_assemble_keeps_single_filled_quote_sheet(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2438,7 +2441,7 @@ def test_assemble_quote_matrix_keeps_sites_and_hardware_apart(tmp_path) -> None:
         "2 |  |  |  |\n"
         "3 |  |  |  |\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2551,7 +2554,7 @@ def test_assemble_biz_essentials_use_title_and_box(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2592,7 +2595,7 @@ def test_assemble_embeds_library_license_by_title(tmp_path) -> None:
     Image.new("RGB", (400, 280), (240, 240, 250)).save(png)
     iso_png = tmp_path / "iso.png"
     Image.new("RGB", (320, 240), (250, 240, 230)).save(iso_png)
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2661,7 +2664,7 @@ def test_assemble_messy_letter_uses_module_not_ocr(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False
@@ -2752,7 +2755,7 @@ def test_assemble_copied_letter_title_salute_and_fields(tmp_path) -> None:
         "（元）大写：\n"
         "小写：\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "郑州天健智慧园区运营管理有限公司"
     brief.projectName = "郑州高新技术产业开发区新能源充(换)电站基础设施群项目（一期）"
@@ -2858,7 +2861,7 @@ def test_assemble_letter_recovers_signoff_when_ocr_stuck_after_appendix(tmp_path
         "法定代表人或其委托代理人：（签字或盖章）\n"
         "日期：2026年09月29日\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.tenderer = "郑州天健智慧园区运营管理有限公司"
     brief.projectName = "某某项目"
@@ -2932,7 +2935,7 @@ def test_assemble_response_letter_layout_right_sign_centered_title(tmp_path) -> 
         "供应商已全面理解第三章《合同条款》所有合同条款及第四章《技术要求》的所有要求，无任何偏离。\n"
         "若存在部分响应，须将偏差部分详细注明并填写《商务和技术偏差表》。\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.bidDate = "2026-09-29"
     brief.tenderer = "河南华慧有色工程设计有限公司"
@@ -3056,7 +3059,7 @@ def test_assemble_response_letter_one_date_notice_no_underline(tmp_path) -> None
         "四、响应方案\n"
         "（格式自拟）\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.bidDate = "2026-09-29"
     brief.includePlaceholders = False
@@ -3101,7 +3104,7 @@ def test_assemble_tech_dev_ignores_dirty_ocr_body(tmp_path) -> None:
         "供应商：（盖章）\n"
         "四、响应方案\n"
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.bidDate = "2026-09-29"
     brief.includePlaceholders = False
@@ -3139,7 +3142,7 @@ def test_outline_letter_keeps_tender_close_and_appendix_table(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = BidBrief(
+    brief = legacy_brief(
         layoutMode="outline",
         projectName="郑州高新技术产业开发区新能源充（换）电站基础设施集群项目",
         tenderer="郑州天健智慧园区运营管理有限公司",
@@ -3240,7 +3243,7 @@ def test_outline_uses_invite_cover_and_skips_blank_pages(tmp_path, monkeypatch) 
         "api.services.tenders.pdf_format._ready_format_docx",
         lambda invitation_id: src if invitation_id else None,
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.invitationId = "abc123abc123"
     brief.includePlaceholders = False
@@ -3321,7 +3324,7 @@ def test_outline_splits_pdf_section_pages(tmp_path, monkeypatch) -> None:
         "api.services.tenders.pdf_format._ready_format_docx",
         lambda invitation_id: src if invitation_id else None,
     )
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.invitationId = "abc123abc123"
     brief.includePlaceholders = False
@@ -3371,7 +3374,7 @@ def test_pasted_auth_underline_and_id_scan(tmp_path) -> None:
     doc.add_paragraph("年    月    日")
     img = tmp_path / "id.png"
     Image.new("RGB", (80, 48), "white").save(img)
-    brief = default_brief()
+    brief = legacy_brief()
     brief.projectName = "郑州项目"
     brief.bidDate = "2026-10-21"
     fill_pasted_format(doc, brief, media={"id_legal": [img]})
@@ -3425,7 +3428,7 @@ def test_full_slice_keeps_works_plan(tmp_path, monkeypatch) -> None:
     invite = "abc123abc201"
     src = _format_slice(tmp_path, invite)
     _patch_format(monkeypatch, invite, src)
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.invitationId = invite
     brief.generateVolume = "full"
@@ -3445,7 +3448,7 @@ def test_split_drops_tech_from_business_and_letter_from_technical(tmp_path, monk
     invite = "abc123abc202"
     src = _format_slice(tmp_path, invite)
     _patch_format(monkeypatch, invite, src)
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.invitationId = invite
     brief.splitSlice = True
@@ -3472,7 +3475,7 @@ def test_plain_business_slice_still_keeps_works_plan(tmp_path, monkeypatch) -> N
     invite = "abc123abc203"
     src = _format_slice(tmp_path, invite)
     _patch_format(monkeypatch, invite, src)
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.invitationId = invite
     path, _ = assemble_bid_docx(brief, tmp_path / "biz.docx", volume="business")
@@ -3486,7 +3489,7 @@ def test_anonymous_tech_hides_names_business_keeps_company(tmp_path) -> None:
 
     from api.services.tenders.assemble import assemble_bid_docx
 
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "chapter5"
     brief.includeCommitment = False
     brief.includePlaceholders = False
@@ -3582,7 +3585,7 @@ def test_generate_pair_slices_only_for_split_advice(tmp_path, monkeypatch) -> No
 
     monkeypatch.setattr("api.services.tenders.assemble.assemble_bid_docx", fake_assemble)
     monkeypatch.setattr("api.services.tenders.generate.tenders_output_dir", lambda: tmp_path)
-    split = BidBrief(volumeAdvice="split", layoutMode="chapter5", includePlaceholders=False, attachQualifications=False)
+    split = legacy_brief(volumeAdvice="split", layoutMode="chapter5", includePlaceholders=False, attachQualifications=False)
     generate_pair(split)
     assert seen[-2:] == [("business", True, False), ("technical", False, False)]
     seen.clear()
@@ -3651,7 +3654,7 @@ def test_verbatim_toc_keeps_body_numbers_and_table_pages(tmp_path) -> None:
     assert shows[2].startswith("（一）")
 
     table = "| 序号 | 项目名称 | 备注 |\n| 1 | 塔吊 | 一台 |"
-    brief = default_brief()
+    brief = legacy_brief()
     brief.layoutMode = "outline"
     brief.includePlaceholders = False
     brief.includeCommitment = False

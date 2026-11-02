@@ -24,6 +24,7 @@ from api.services.tenders.library_kb import (
     create_library_item,
     delete_library_file,
     delete_library_item,
+    dismiss_library_item,
     save_library_file_facts,
     enqueue_library_rag_backfill,
     library_payload_kb,
@@ -79,6 +80,9 @@ from common.errors import AppError, ErrorCode
 from common.response import ok
 
 router = APIRouter(prefix="/tenders", tags=["tenders"])
+from api.routers.tender_materials import router as materials_router
+
+router.include_router(materials_router)
 
 logger = logging.getLogger("api.tenders")
 
@@ -319,6 +323,16 @@ async def tenders_delete_library_item(key: str, db: DbSession, user: CurrentUser
     return ok(await delete_library_item(db, key))
 
 
+class LibraryDismissIn(BaseModel):
+    key: str = Field(min_length=1, max_length=96)
+
+
+@router.post("/library/dismissed")
+async def tenders_dismiss_library_item(body: LibraryDismissIn, db: DbSession, user: CurrentUser):
+    await kb_access.require_tender_lib_manage(db, user)
+    return ok(await dismiss_library_item(db, body.key))
+
+
 @router.get("/slots")
 async def tenders_list_slots(
     db: DbSession,
@@ -347,6 +361,9 @@ async def tenders_upload_slot(
     file: UploadFile = File(..., description="扫描件：pdf / png / jpg / webp / gif / bmp"),
     replace: str | None = Form("true", description="true=替换该项全部文件；false=追加"),
     invitationId: str | None = Form(None),
+    bidderName: str = Form(''),
+    materialTitle: str = Form(''),
+    materialHint: str = Form(''),
 ):
     safe = sanitize_slot_key(key)
     raw = await file.read()
@@ -367,6 +384,8 @@ async def tenders_upload_slot(
         filename=file.filename or "upload.bin",
         data=raw,
         replace=do_replace,
+        bidder_name=bidderName,
+        **({'material_title':materialTitle,'material_hint':materialHint} if materialTitle else {}),
     )
     return ok(payload)
 

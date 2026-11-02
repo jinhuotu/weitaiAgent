@@ -131,8 +131,10 @@ async def reindex_approved_documents(db: AsyncSession) -> dict[str, Any]:
         base = bases[doc.base_id]
         text = read_extracted_text(base.public_id, doc.public_id) or (doc.summary or "")
         try:
-            await _vectorize_document(db, doc, text)
-            ok += 1
+            if await _vectorize_document(db, doc, text) is False:
+                failed += 1
+            else:
+                ok += 1
         except Exception:  # noqa: BLE001
             failed += 1
     await db.commit()

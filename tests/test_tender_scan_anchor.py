@@ -154,10 +154,13 @@ def test_untyped_frame_does_not_get_arbitrary_library_file(tmp_path):
     doc = Document()
     holder = doc.add_paragraph()
     holder._p.get_or_add_pPr().append(OxmlElement("w:pBdr"))
-    before = doc.element.xml
+    before = holder._p.xml
     notes, _ = place_library_scans(doc, media={"license": images(tmp_path, "license")})
-    assert doc.element.xml == before
-    assert any("未找到明确占位" in n for n in notes)
+    assert not drawings(holder._p)
+    assert holder._p.xml == before
+    assert len(drawings(doc.element.body)) == 3
+    assert any("其他资料" in p.text for p in doc.paragraphs)
+    assert any("文末其他资料" in n for n in notes)
 
 
 def test_scan_stays_before_original_section_boundary(tmp_path):
@@ -228,7 +231,8 @@ def test_untyped_identity_holder_in_authorization_uses_agent_not_legal_person(tm
     rid = next(holder._p.getnext().iter(qn("a:blip"))).get(qn("r:embed"))
     with Image.open(BytesIO(doc.part.related_parts[rid].blob)) as image:
         assert image.getpixel((10, 10))[2] > 240
-    assert len(drawings(doc.element.body)) == 1
+    assert len(drawings(doc.element.body)) == 2
+    assert any("其他资料" in p.text for p in doc.paragraphs)
 
 
 @pytest.mark.parametrize("volume", ["business", "technical", "full"])

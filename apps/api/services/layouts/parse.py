@@ -28,15 +28,32 @@ def _strip_model_wrappers(text: str) -> str:
     raw = (text or "").replace("\ufeff", "")
     raw = _THINK_RE.sub("", raw)
     raw = _THINK_OPEN_RE.sub("", raw)
-    raw = (
-        raw.replace("“", '"')
-        .replace("”", '"')
-        .replace("‘", "'")
-        .replace("’", "'")
-        .replace("＇", "'")
-        .replace("＂", '"')
-    )
     return raw.strip()
+
+
+def _normalize_quote_delimiters(text: str) -> str:
+    """Normalize nonstandard JSON delimiters only, never quotes inside values."""
+    output=[]
+    closing=None
+    escaped=False
+    for char in text:
+        if closing is not None:
+            if escaped:
+                output.append(char);escaped=False
+            elif char == '\\':
+                output.append(char);escaped=True
+            elif char == closing:
+                output.append('"');closing=None
+            elif closing != '"' and char == '"':
+                output.append('\\"')
+            else:
+                output.append(char)
+        elif char in {'"','“','＂'}:
+            closing={'"':'"','“':'”','＂':'＂'}[char]
+            output.append('"')
+        else:
+            output.append(char)
+    return ''.join(output)
 
 
 def _sanitize_json_text(snippet: str) -> str:
@@ -80,7 +97,7 @@ def _slice_balanced(snippet: str) -> str:
 
 def _loads_object(snippet: str) -> Any:
     last_err: Exception | None = None
-    for blob in (snippet, _sanitize_json_text(snippet)):
+    for blob in (snippet, _normalize_quote_delimiters(snippet), _sanitize_json_text(_normalize_quote_delimiters(snippet))):
         try:
             return json.loads(blob)
         except json.JSONDecodeError as exc:

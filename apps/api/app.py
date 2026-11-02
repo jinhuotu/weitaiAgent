@@ -141,6 +141,19 @@ def create_app() -> FastAPI:
             content=fail(ErrorCode.VALIDATION, text),
         )
 
+    @app.exception_handler(Exception)
+    async def unexpected_error_handler(request: Request, exc: Exception) -> JSONResponse:
+        from uuid import uuid4
+        error_id = uuid4().hex[:12]
+        logging.getLogger('api.app').error(
+            'Unhandled request error id=%s method=%s path=%s',
+            error_id, request.method, request.url.path,
+            exc_info=(type(exc), exc, exc.__traceback__),
+        )
+        return JSONResponse(status_code=500, content=fail(
+            ErrorCode.INTERNAL, f'服务处理失败，错误编号：{error_id}，请联系管理员核查日志',
+        ))
+
     app.include_router(health.router)
     app.include_router(health.router, prefix=settings.api_prefix)
     app.include_router(auth.router, prefix=settings.api_prefix)

@@ -28,6 +28,7 @@ async def _user_info(db, user: User) -> UserInfo:
         username=user.username,
         display_name=user.display_name,
         email=user.email,
+        phone=user.phone,
         is_superuser=user.is_superuser,
         roles=[r.code for r in user.roles],
         menus=await menus_svc.resolve_menus_with_acl(db, user),

@@ -136,6 +136,16 @@ def _record_to_dict(
         v = str(row.brief_json.get("generateVolume") or "")
         if v in {"business", "technical", "full"}:
             stored = v
+        demands = row.brief_json.get('materialDemands') or []
+        data['materialIntentComplete'] = bool(row.brief_json.get('materialIntentComplete'))
+        data['materialCoverage'] = {
+            volume:[{key:d.get(key) for key in ('id','title','text','section','level','slotKey','reviewRequired')}
+                    | {'status':d['outcomes'][volume],
+                       'placement':(d.get('placements') or {}).get(volume,'') if isinstance(d.get('placements'),dict) else ''}
+                    for d in demands if isinstance(d,dict)
+                    and isinstance(d.get('outcomes'),dict) and d['outcomes'].get(volume) in {'filled','pasted','placeholder'}]
+            for volume in ('business','technical','full')
+        }
     data.update(volume_pair_status(stored, business_ready=docx_ok, technical_ready=tech_ok))
     from api.services.tenders.qa import qa_summary
 
@@ -167,22 +177,8 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
         issues.append("项目名称")
     if not (brief.tenderer or "").strip():
         issues.append("招标人")
-    if not (float(brief.bidPriceYuan or 0) > 0):
-        issues.append("投标总价")
     if not (brief.bidderName or "").strip():
         issues.append("投标人全称")
-    if not (brief.bidderAddress or "").strip():
-        issues.append("地址")
-    if not (brief.foundedDate or "").strip():
-        issues.append("成立日期")
-    if not (brief.bidderPhone or "").strip():
-        issues.append("电话")
-    if not (brief.legalPersonName or "").strip():
-        issues.append("法人姓名")
-    if not (brief.legalPersonAge or "").strip():
-        issues.append("年龄")
-    if not (brief.legalPersonIdNo or "").strip():
-        issues.append("法人身份证号")
     if bool(brief.authEnabled) and not (brief.agentName or "").strip():
         issues.append("委托代理人")
     if bool(brief.authEnabled) and not (brief.agentIdNo or "").strip():
@@ -218,6 +214,7 @@ async def _generate_for_record(
     brief: BidBrief,
     *,
     peer_ready: bool = False,
+    material_owner_id: int | None = None,
 ) -> tuple[dict[str, object], dict[str, object]]:
     from api.services.tenders.demo import build_demo_output, demo_enabled
 
@@ -225,7 +222,8 @@ async def _generate_for_record(
         generated = await build_demo_output(brief)
         empty = {"matched": [], "missingFiles": [], "createdItems": []}
         return generated, empty
-    return await _prepare_and_generate(db, brief, peer_ready=peer_ready)
+    extra = {'material_owner_id': material_owner_id} if material_owner_id is not None else {}
+    return await _prepare_and_generate(db, brief, peer_ready=peer_ready, **extra)
 
 
 async def _prepare_and_generate(
@@ -233,6 +231,7 @@ async def _prepare_and_generate(
     brief: BidBrief,
     *,
     peer_ready: bool = False,
+    material_owner_id: int | None = None,
 ) -> tuple[dict[str, object], dict[str, object]]:
     """跑生成管道，返回 (generated, attachment_match)。会就地补全 brief 的槽位字段。"""
     import time
@@ -253,17 +252,25 @@ async def _prepare_and_generate(
     from api.services.tenders.placeholders import CRITICAL_SLOT_KEYS, collect_slots, this_bid_keys
 
     t0 = time.perf_counter()
+    source_tech_ids = {item.id for item in brief.outlineItems if item.kind in {'tech_plan', 'tech_chapter'} and not item.skipped}
     from api.services.tenders.quote import validate_quote_source
     from api.services.tenders.requirement_bid import prepare_requirements_bid
 
+    from api.services.tenders.company_materials import library_bidder_name
+    if not brief.bidderName.strip():
+        brief.bidderName = await library_bidder_name(db)
     quote_notes = validate_quote_source(brief)
+    from api.services.tenders.company_materials import scope_performance_lines
+
+    brief.performanceLines, perf_notes = scope_performance_lines(brief)
+    quote_notes.extend(perf_notes)
     requirement_notes = prepare_requirements_bid(brief)
     if not (brief.bidDate or "").strip():
         brief.bidDate = date.today().isoformat()
     if brief.authEnabled:
         from api.services.tenders.history import latest_agent_profile
 
-        hint = await latest_agent_profile(db)
+        hint = await latest_agent_profile(db, bidder_name=brief.bidderName)
         if not (brief.agentName or "").strip() and hint.get("agentName"):
             brief.agentName = hint["agentName"]
         if not (brief.agentIdNo or "").strip() and hint.get("agentIdNo"):
@@ -279,8 +286,11 @@ async def _prepare_and_generate(
     require_format_confirm(brief)
 
     catalog = await catalog_placeholders(db)
+    from api.services.tenders.material_intents import recognize_material_demands
+
+    material_intent_notes = await recognize_material_demands(brief,catalog=catalog,db=db)
     t_catalog = time.perf_counter()
-    lib_perf = await performance_from_library(db, extract_missing=False)
+    lib_perf = await performance_from_library(db, extract_missing=False, bidder_name=brief.bidderName)
     pending_perf = await count_uncached_performance_files(db)
     if lib_perf:
         brief.performanceLines = merge_performance_lines(
@@ -308,6 +318,7 @@ async def _prepare_and_generate(
         requirements=brief.bidRequirements,
         source_text=invitation_text(brief),
         invitation_id=brief.invitationId,
+        material_demands=brief.materialDemands,
     )
     brief.requiredSlotKeys = required_keys
     brief.includeSlotKeys = include_keys
@@ -317,6 +328,16 @@ async def _prepare_and_generate(
     from api.services.tenders.slots import attach_invitation_drawings
 
     media = attach_invitation_drawings(media, brief.invitationId)
+    from api.services.tenders.company_materials import scoped_library_media
+    media, company_file_ids, company_person_keys, company_notes = await scoped_library_media(db, brief, media)
+    material_notes, reference_ids = [], []
+    if any(c.enabled for c in brief.materialSelections.values()):
+        from api.services.tenders.material_store import generation_inputs
+
+        if material_owner_id is None:
+            raise AppError(ErrorCode.VALIDATION, '新资料缺少所属用户，无法参与生成', status_code=422)
+        slots, media, material_notes, reference_ids = generation_inputs(
+            material_owner_id, brief, slots, media)
     from api.services.tenders.performance import bid_performance_lines
 
     if "perf" in media:
@@ -329,24 +350,44 @@ async def _prepare_and_generate(
             if files:
                 media[f"perf:{name_key}"] = files
     persons = await legal_persons_from_library(db, extract_missing=False)
+    all_persons = persons
+    # These IDs describe company-scoped documents, not the stale person choice.
+    persons = [p for p in all_persons if set(p.get('fileIds') or ()) & company_file_ids
+               or p.get('key') in company_person_keys]
+    logging.getLogger(__name__).info('legal rebind candidates before=%s after=%s company_person_keys=%s picked=%s',
+        [{'key':p.get('key'),'name':p.get('name')} for p in all_persons],
+        [{'key':p.get('key'),'name':p.get('name')} for p in persons],sorted(str(k) for k in company_person_keys),brief.legalPersonKey)
     picked = (brief.legalPersonKey or "").strip()
-    if len(persons) > 1 and not picked:
-        raise AppError(
-            ErrorCode.VALIDATION,
-            "资料库有多位法定代表人，请先选择本标使用的人",
-            status_code=422,
-        )
-    if len(persons) == 1 and not picked:
-        picked = str(persons[0].get("key") or "")
-        brief.legalPersonKey = picked
-        if persons[0].get("name"):
-            brief.legalPersonName = str(persons[0]["name"])
-        if persons[0].get("gender"):
-            brief.legalPersonGender = str(persons[0]["gender"])
-        if persons[0].get("age"):
-            brief.legalPersonAge = str(persons[0]["age"])
-        if persons[0].get("idNo"):
-            brief.legalPersonIdNo = str(persons[0]["idNo"])
+    known = {str(p.get('key') or '').strip() for p in persons}
+    number = (brief.legalPersonIdNo or '').strip().upper()
+    selected = None
+    if picked not in known:
+        if not number:
+            logging.getLogger(__name__).warning(
+                'legal selection missing idNo picked=%s persons=%s reason=%s',
+                picked, [{'key':p.get('key'), 'name':p.get('name'),
+                          'hasIdNo':bool(p.get('idNo'))} for p in persons],
+                'stale_key' if persons else 'no_company_persons')
+        candidates = []
+        if number:
+            candidates = [p for p in persons if str(p.get('idNo') or '').strip().upper()==number]
+        if not candidates:
+            name = ''.join((brief.legalPersonName or '').split())
+            if name:
+                candidates = [p for p in persons if ''.join(str(p.get('name') or '').split())==name]
+        if len(candidates)==1:
+            selected=candidates[0]
+        elif len(persons)==1:
+            selected=persons[0]
+        if selected is not None:
+            picked=str(selected.get('key') or '').strip()
+            brief.legalPersonKey=picked
+            for field, attr in [('name','legalPersonName'), ('gender','legalPersonGender'),
+                                ('age','legalPersonAge'), ('idNo','legalPersonIdNo')]:
+                setattr(brief,attr,str(selected.get(field) or ''))
+    if len(persons)>1 and not picked:
+        raise AppError(ErrorCode.VALIDATION,
+                       '资料库有多位法定代表人，请先选择本标使用的人',status_code=422)
     if picked:
         known = {str(item.get("key") or "") for item in persons}
         if picked not in known:
@@ -376,20 +417,42 @@ async def _prepare_and_generate(
                 keep.append(title)
         missing = keep
     t_prep = time.perf_counter()
-    facts = await library_facts(db)
+    facts = [f for f in await library_facts(db) if f.get("fileId") in company_file_ids]
     draft_notes: list[str] = []
-    if brief.techPlanSourceIds and not (brief.autoDraftTechPlan
+    technical_package_active = False
+    if both or vol == 'technical':
+        from api.services.tenders.technical_package import draft_package
+
+        package_brief=brief.model_copy(deep=True) if reference_ids else brief
+        if reference_ids:
+            package_brief.techPlanSourceIds=[*brief.techPlanSourceIds,*reference_ids]
+        package, package_notes = await draft_package(db, package_brief)
+        if package:
+            brief.technicalPackage = package
+            draft_notes.extend(package_notes)
+            technical_package_active = True
+    needs_tech_body = any(
+        not item.skipped and item.id in source_tech_ids and item.kind in {'tech_plan', 'tech_chapter'}
+        and (item.draftStatus or '').lower() not in {'manual', 'edited'}
+        and (not (item.draftBody or '').strip() or '未完整生成' in (item.draftBody or ''))
+        for item in brief.outlineItems
+    )
+    if brief.techPlanSourceIds and not technical_package_active and not (brief.autoDraftTechPlan
                                         and (both or vol in {'technical', 'full'})):
         from api.services.tenders.gen_tech_plan import _user_sources
 
         _user_sources(brief.techPlanSourceIds, brief=brief, notes=draft_notes)
         draft_notes.append('本次未启用技术方案自动起草，上传技术资料未送入模型')
-    if getattr(brief, "autoDraftTechPlan", False) and (both or vol in {"technical", "full"}):
+    if not technical_package_active and (needs_tech_body or (getattr(brief, "autoDraftTechPlan", False) and (both or vol in {"technical", "full"}))):
         from api.services.tenders.gen_tech_plan import draft_technical_plan
 
-        prepared, draft_notes = await draft_technical_plan(db, brief)
+        draft_brief = brief.model_copy(deep=True) if reference_ids else brief
+        if reference_ids:
+            draft_brief.techPlanSourceIds = [*brief.techPlanSourceIds, *reference_ids]
+        prepared, draft_notes = await draft_technical_plan(db, draft_brief)
         brief.outlineItems = prepared.outlineItems
         brief.deviationLines = prepared.deviationLines
+        brief.techScorecard = prepared.techScorecard
     if getattr(brief, "autoDraftBizResp", False) and (both or vol in {"business", "full"}):
         from api.services.tenders.gen_biz_resp import draft_business_response
 
@@ -412,7 +475,7 @@ async def _prepare_and_generate(
     from api.services.tenders.categories import business_soft_issues, technical_soft_issues
 
     warnings = list(dict.fromkeys([
-        *quote_notes, *requirement_notes, *draft_notes, *(generated.get("warnings") or []),
+        *quote_notes, *requirement_notes, *company_notes, *material_notes, *material_intent_notes, *draft_notes, *(generated.get("warnings") or []),
     ]))
     if pending_perf and vol != "technical":
         warnings.append(
@@ -530,7 +593,8 @@ async def create_record_from_generate(
     username: str,
 ) -> dict[str, object]:
     """生成 Word。未到下载定稿前记为草稿，不出现在生成记录里。"""
-    generated, attachment_match = await _generate_for_record(db, brief)
+    extra = {'material_owner_id': user_id} if any(c.enabled for c in brief.materialSelections.values()) else {}
+    generated, attachment_match = await _generate_for_record(db, brief, **extra)
     # 没走到下载定稿前只留草稿，列表里看不到；换一份时清掉本人旧草稿
     await _drop_user_drafts(db, user_id)
     row = TenderRecord(
@@ -854,7 +918,8 @@ async def regenerate_from_record(
         peer_ready = _output_exists(old_docx)
     else:
         peer_ready = _output_exists(old_tech)
-    generated, attachment_match = await _generate_for_record(db, brief, peer_ready=peer_ready)
+    extra = {'material_owner_id': int(row.user_id)} if any(c.enabled for c in brief.materialSelections.values()) else {}
+    generated, attachment_match = await _generate_for_record(db, brief, peer_ready=peer_ready, **extra)
     _apply_generated_files(row, brief, generated)
     await db.commit()
     await db.refresh(row)

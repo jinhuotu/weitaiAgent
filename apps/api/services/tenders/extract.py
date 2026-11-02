@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from api.services.tenders.prompts import get_prompt
+
 import asyncio
 import json
 import logging
@@ -26,7 +28,6 @@ from api.services.tenders.quote import (
     sheet_from_quote_records,
 )
 from api.services.tenders.history import (
-    BIDDER_LOCK,
     contains_foreign_bidder,
     latest_agent_profile,
     latest_company_profile,
@@ -49,7 +50,6 @@ logger = logging.getLogger("api.tenders.extract")
 
 _INVITE_MAX_CHARS = 18000
 _KB_MAX_CHARS = 6000
-_BIDDER_LOCK = BIDDER_LOCK
 _KB_QUAL_TAIL = " 投标资格 保证金 交货期 付款比例 类似业绩"
 _KB_FORMAT_QUERY = "投标文件格式 响应文件格式 响应函格式 报价表 偏离表 目录 装订"
 
@@ -110,45 +110,7 @@ _MONEY_FIELDS = frozenset(
     }
 )
 
-_SYSTEM = """你是投标文件助理。用户会上传甲方的投标邀请书或招标文件正文。
-商务标必须按照上传标书里的投标文件格式抽取，保持原文的章节、表格和条款，不能凭空想象，不能换成别的模板或自己补写一段。
-投标文件分商务标与技术标。商务标看有没有资格干（公司、资质、人员、业绩、报价、函件），缺资质或盖章错误会废标。
-技术标按本邀请书的技术章节和条款响应，不限定行业。识别阶段只抽字段和条款，不要写长篇方案，不要编造图纸、数量或工期。
-你的任务：抽出填「投标书表单」所需的项目侧字段，用 JSON 返回。Word 由程序按上传文件排版，这一步不要自己写文档。
-硬性规则：
-1. 投标人永远是河南伟泰光电科技有限公司。不要把招标人、代理机构或其他公司写进投标人。
-2. 找不到的字段填 null，不要编造报价、身份证、合同业绩、施工图纸或具体工程量。上传文件里没有的表格、函件、证明格式，不要臆造。
-3. 不要输出思考过程或 Markdown，只输出一个完整 JSON 对象。
-4. 知识库摘录仅对照资格条款种类。出现其他公司投标文件、投标函或合同，一律忽略，不得当作伟泰资料，也不得用它们替换上传标书的格式。
-5. 工程量清单必须来自本邀请书或用户上传的表格。没有表格则 quoteLines 必须为 []，禁止用其它项目的数量或历史投标书顶替。
-6. 「历史组卷经验」只可用来建议 requiredMaterials 的 key 和技术标要不要写，禁止把其中任何项目名、报价、数量、合同业绩写入 JSON，禁止用历史标书的版式覆盖本次上传文件。
-7. 目录边界（最高优先级）：目录页是【纯章节标题列表页】，页内绝对禁止出现任何粘贴框、虚线框、扫描件、附件、工程量清单、图片或「此处粘贴 XX」占位说明。这类内容只能出现在正文对应章节的内容区或卷末附件区，绝不能画进目录页。
-8. 两类对象严格分开：a) 组卷目录条目＝正文章节的标题，只能进目录；b) 附件待贴位＝正文对应章节内的占位，只能进正文、绝不能进目录。
-9. 附件落位（最高优先级）：每个附件只允许贴到标书【专门要求提供该附件】的正文一级章节内。凡某内容只是被【列举或提及】、但该处并不要求实际粘贴/提供的，一律禁止在此画粘贴框。典型例子：投标函组成清单里写的「（4）投标保证金（如有）」只是列举投标文件包含哪些内容，不是粘贴位；投标保证金必须贴到标书专门的「四、投标保证金」章节（该章会写明"在此提供汇款凭证复印件/附基本账户开户证明/提供银行保函"）。目录页、投标函、法定代表人身份证明等仅提及处，一律不得落附件。
-10. 页码与目录排版：封面与目录所在页不编页码，正文从第 1 页起编；目录条目须能对应到正文章节页码。不得因插入任何正文或附件内容破坏目录排版。
-JSON 字段：
-projectName, tenderer, bidContent, quality,
-deliveryDays, warrantyYears, bidValidityDays, bidPriceYuan,
-prepaidPct, arrivalPct, settlementPct, warrantyPct, extraNote,
-controlPriceYuan, safetyFeeYuan, provisionalYuan, primeCostYuan, bidBondYuan,
-pmName, pmCertNo, pmGrade, defectPeriod, perfBond,
-quoteTitle, quoteTaxRate,
-quoteLines（必须为 []；工程量由程序从本文件表格抽取，模型不要填）,
-notes（字符串数组，给经办人看的提醒；商务缺项用「废标风险」，技术缺项用「扣分风险」）,
-requiredMaterials（对象数组，每项 key/reason/attachToSection：
-  key 必须来自用户提供的资料库清单，禁止编造；名称不同但同属一类的必须用已有 key。
-  reason 说明该附件对应哪条要求。
-  attachToSection 该附件应贴入的【正文一级章节标题】，必须取自本标书正文且为"专门要求提供该附件"的章节，
-  例如投标保证金 →「四、投标保证金」。若本标书没有专门章节、仅在某条款提及该内容，则不写 attachToSection，
-  由程序放入卷末附件区。禁止把 attachToSection 设为投标函、目录、法定代表人身份证明等仅列举/提及该内容的条款。) ,
-missingMaterials（对象数组，每项 title/reason，仅当资料库完全没有同类项、邀请书额外要求时才填。不要因标题更长就新建；不要填其他项目的文件名；程序会建空项等用户上传）,
-deviationLines（对象数组，每项 seq/requirement/response/deviation；requirement 必须来自本邀请书技术条款或规格，禁止套用某一行业的固定参数。无条款则 []。response/deviation 可空，程序后续起草）,
-performanceLines（必须为 []；伟泰合同业绩由资料库扫描件抽取，禁止把邀请书范例或其它公司合同写入）,
-performanceRequirement（对象或 null：仅当资格/业绩条款写明类似项目门槛时填写。字段 similarScope, minAmountYuan, minCount, requireCompleted, keywords, note。keywords 只取业绩条款里的行业词，禁止把建设范围里的模块名当成业绩门槛。邀请书没写则 null，禁止套用默认行业）,
-constructionPlan, layoutPlan, powerPlan, omPlan, schedulePlan（不要填）,
-techPlanNote（空字符串；技术方案由后续分章起草，这里不要写）,
-factoryRole（字符串：如 生产厂商 / 供货单位 / 投标产品生产厂商；按本邀请书产品填写）。
-数字字段用数字或 null；百分比用 0-100 的整数。quoteTaxRate 用 0.13 这种小数。"""
+_SYSTEM = get_prompt("extract_system")
 
 
 _TENDER_JSON_KEYS = (
@@ -165,8 +127,19 @@ _TENDER_JSON_KEYS = (
 def parse_extract_payload(raw: str) -> dict[str, Any]:
     """从模型输出抽出 JSON。供测试与生成共用。"""
     try:
-        return extract_json_object(raw, prefer_keys=_TENDER_JSON_KEYS)
+        payload = extract_json_object(raw, prefer_keys=_TENDER_JSON_KEYS)
+        for key in ('requiredMaterials', 'missingMaterials', 'deviationLines', 'performanceLines', 'quoteLines', 'materialIntents'):
+            if isinstance(payload.get(key), dict):
+                payload[key] = [payload[key]]
+        return payload
     except AppError as exc:
+        # Enhanced error reporting for debugging
+        preview = raw[:500] if len(raw) <= 500 else raw[:250] + "..." + raw[-250:]
+        logger.warning(
+            "parse_extract_payload failed: %s preview=%s",
+            str(exc)[:200],
+            preview,
+        )
         raise AppError(
             ErrorCode.VALIDATION,
             f"模型未能抽出结构化字段：{exc.msg}",
@@ -219,9 +192,7 @@ def apply_extract_patch(base: BidBrief, patch: dict[str, Any]) -> tuple[BidBrief
             continue
         data[key] = text
         applied.append(key)
-    data["bidderName"] = _BIDDER_LOCK if not (data.get("bidderName") or "").strip() else data["bidderName"]
-    if _BIDDER_LOCK not in str(data.get("bidderName") or ""):
-        data["bidderName"] = _BIDDER_LOCK
+    data["bidderName"] = (base.bidderName or "").strip()
     from api.services.tenders.outline import _clean_pm_name
 
     data["pmName"] = _clean_pm_name(str(data.get("pmName") or ""))
@@ -253,7 +224,7 @@ def fill_empty_company_fields(
     brief: BidBrief,
     *profiles: BidBrief | dict | None,
 ) -> tuple[BidBrief, list[str]]:
-    """邀请书不含投标人资料。空的公司/法人字段用本公司默认值或上次投标回填。"""
+    """空的公司/法人字段只从已选同一公司的资料回填，缺失保持为空。"""
     data = brief.model_dump()
     applied: list[str] = []
     sources: list[dict[str, Any]] = []
@@ -264,7 +235,11 @@ def fill_empty_company_fields(
             sources.append(profile.model_dump())
         elif isinstance(profile, dict):
             sources.append(profile)
-    sources.append(default_brief().model_dump())
+    from api.services.tenders.company_identity import same_company
+    selected = (brief.bidderName or "").strip()
+    if not selected:
+        selected = next((str(p.get("bidderName") or "").strip() for p in sources if p.get("bidderName")), "")
+    sources = [p for p in sources if same_company(p.get("bidderName"), selected)]
     for key in COMPANY_FIELD_KEYS:
         if str(data.get(key) or "").strip():
             continue
@@ -278,8 +253,8 @@ def fill_empty_company_fields(
             data[key] = text
             applied.append(key)
             break
-    data["bidderName"] = _BIDDER_LOCK
-    if "bidderName" not in applied and not (brief.bidderName or "").strip():
+    data["bidderName"] = selected
+    if selected and "bidderName" not in applied and not (brief.bidderName or "").strip():
         applied.append("bidderName")
     return BidBrief.model_validate(data), applied
 
@@ -679,6 +654,9 @@ async def parse_invitation(
     persist_library: bool = True,
     volume_locked: bool = False,
 ) -> dict[str, Any]:
+    from api.services.tenders.performance_tracker import PerformanceTracker
+    tracker = PerformanceTracker()
+    tracker.start_total()
     path = await _save_invitation(upload)
     quote_path = None
     if quote_upload is not None and (quote_upload.filename or "").strip():
@@ -705,13 +683,13 @@ async def parse_invitation(
             hint += "。若为扫描件，请确认已配置 OCR"
         raise AppError(ErrorCode.VALIDATION, hint, status_code=422)
 
-    kb_hits, kb_notes = await _recall_knowledge(db, invitation, kb_ids or [])
-    if contains_foreign_bidder(invitation):
+    kb_hits, kb_notes = await _recall_knowledge(db, invitation, kb_ids or [], bidder_name=(current.bidderName if current else ""))
+    if contains_foreign_bidder(invitation, (current.bidderName if current else "")):
         kb_notes = [
             "正文出现其他公司名称，请确认上传的是甲方邀请书/招标文件，而不是他人已填的投标书",
             *kb_notes,
         ]
-    playbooks = await load_history_playbooks(db)
+    playbooks = await load_history_playbooks(db, bidder_name=(current.bidderName if current else ""))
     from api.services.tenders.library_kb import (
         catalog_placeholders,
         list_library_items,
@@ -721,71 +699,64 @@ async def parse_invitation(
 
     catalog = await catalog_placeholders(db)
     catalog_rows = await list_library_items(db)
+    # ========== 性能追踪开始 ==========
+    tracker.set_context(len(invitation), upload.filename or "")
+
     client = await build_llm_client(db, "fast")
-    messages = [
-        {"role": "system", "content": _SYSTEM},
-        {"role": "user", "content": _user_prompt(invitation, kb_hits, catalog_rows, playbooks)},
-    ]
-    raw = await client.complete(messages, mode="fast")
-    try:
-        patch = parse_extract_payload(raw)
-    except AppError as first:
-        if first.status_code != 422:
-            raise
-        logger.warning(
-            "tender extract json retry chars=%s err=%s head=%s",
-            len(raw or ""),
-            first.msg,
-            (raw or "")[:240],
-        )
-        raw = await client.complete(
-            [
-                *messages,
-                {"role": "assistant", "content": (raw or "")[:6000]},
-                {
-                    "role": "user",
-                    "content": (
-                        "上一轮无法解析为 JSON。请只输出一个完整 JSON 对象，"
-                        "不要思考过程、不要 markdown、不要解释。"
-                    ),
-                },
-            ],
-            mode="fast",
-        )
-        try:
-            patch = parse_extract_payload(raw)
-        except AppError as second:
-            raise AppError(
-                ErrorCode.VALIDATION,
-                (
-                    f"{second.msg}。"
-                    "DeepSeek-R1 等推理模型常把思考写进正文或截断 JSON，"
-                    "请改用 DeepSeek-V3 / Qwen 等非思考对话模型再识别。"
-                ),
-                status_code=422,
-            ) from second
+
+    from api.services.tenders.extract_chunks_optimized import extract_chunks, split_invitation
+    system_prompt = get_prompt("extract_system_optimized")
+    system_prompt += "\nReturn exact source material titles; catalog key mapping is performed locally against the complete catalog. Never omit unknown materials."
+    system_prompt += '\nAlso return materialReviewComplete (boolean) and materialIntents (array). Review ALL text for mandatory, conditional or implied submission requirements. Each materialIntents item must have title, evidence (exact verbatim source clause), section (source parent heading), optional key, condition and mode (attachment/form/statement). Include unfamiliar materials. Set materialReviewComplete=true only after reviewing this entire block. These fields are required even when materialIntents is empty.'
+    system_prompt += "\nBidder: " + (current.bidderName if current else "")
+    with tracker.track("llm_extract"):
+        patch = await extract_chunks(invitation, client, system_prompt, lambda text: text,
+                                     parse_extract_payload, enable_json_mode=True)
+        tracker.metrics.llm_chunk_count = len(split_invitation(invitation))
+    # ========== 一次性预解析文档结构 ==========
+    from api.services.tenders.document_parser import parse_document_structure
+    with tracker.track("document_parse"):
+        doc_structure = parse_document_structure(invitation)
+
     brief, filled = apply_extract_patch(current or default_brief(), patch)
     brief = apply_invite_letter_fields(brief, invitation, file_name=upload.filename or "")
     brief.invitationId = invitation_id
-    company_profile = await latest_company_profile(db)
+
+    # ========== 并行化独立DB查询 ==========
+    with tracker.track("db_query"):
+        # 批量执行独立查询
+        import asyncio
+        # AsyncSession is mutable transaction state and cannot be shared by
+        # concurrently executing queries.
+        company_profile = await latest_company_profile(db, bidder_name=brief.bidderName)
+        catalog = await catalog_placeholders(db)
+        catalog_rows = await list_library_items(db)
+
     brief, company_filled = fill_empty_company_fields(brief, current, company_profile)
     for key in company_filled:
         if key not in filled:
             filled.append(key)
     extras = slots_from_payload(patch, catalog=catalog)
     before_keys = {item.key for item in catalog if item.key}
+
     if persist_library:
-        extras = await persist_parsed_materials(db, extras, created_by=created_by)
+        with tracker.track("db_query"):
+            extras = await persist_parsed_materials(db, extras, created_by=created_by)
+            # Re-fetch catalog after persist (may have new items)
+            catalog = await catalog_placeholders(db)
+
     created_keys = [item.key for item in extras if item.key and item.key not in before_keys]
-    catalog = await catalog_placeholders(db)
     has_agent = bool(brief.authEnabled)
-    required_keys, include_keys = this_bid_keys(
-        extra=extras,
-        catalog=catalog,
-        required_keys=[item.key for item in extras],
-        include_keys=None,
-        has_agent=has_agent,
-    )
+
+    # First materials pass
+    with tracker.track("materials_match"):
+        required_keys, include_keys = this_bid_keys(
+            extra=extras,
+            catalog=catalog,
+            required_keys=[item.key for item in extras],
+            include_keys=None,
+            has_agent=has_agent,
+        )
     from api.services.tenders.format_rules import (
         extract_document_format,
         extract_tender_no,
@@ -816,47 +787,66 @@ async def parse_invitation(
         requirement_from_payload,
     )
 
-    chapter, outline_items = extract_outline(invitation)
-    if path.suffix.lower() == '.docx':
-        from api.services.tenders.native_format import word_format_section
+    # ========== 本地规则处理（使用预解析结构） ==========
+    with tracker.track("outline_extract"):
+        chapter, outline_items = extract_outline(invitation)
+        if path.suffix.lower() == '.docx':
+            from api.services.tenders.native_format import word_format_section
 
-        native_chapter, native_section = word_format_section(path)
-        if native_chapter:
-            chapter = native_chapter
-            _, native_items = extract_outline(native_section)
-            if native_items:
-                outline_items = native_items
-    brief.authNeed = extract_auth_need(invitation, outline_items)
+            native_chapter, native_section = word_format_section(path)
+            if native_chapter:
+                chapter = native_chapter
+                _, native_items = extract_outline(native_section)
+                if native_items:
+                    outline_items = native_items
+        brief.authNeed = extract_auth_need(invitation, outline_items)
+
     brief.authEnabled = bool(brief.authEnabled)
-    # 抽出的目录原样保留。按固定模板生成时不读这批条目；按本标生成时也不补公司固定章节。
     brief.layoutMode = choose_layout_mode(chapter, outline_items)
     brief.requirementsDriven = False
     brief.formatConfirmed = False
     brief.outlineChapter = chapter
     brief.outlineItems = hydrate_tech_excerpts(outline_items)
-    brief.documentFormat = extract_document_format(invitation)
-    tender_no = extract_tender_no(invitation)
+
+    with tracker.track("format_extract"):
+        brief.documentFormat = extract_document_format(invitation)
+        # Use cached tender_no from structure
+        from api.services.tenders.document_parser import extract_tender_no_from_structure
+        tender_no = extract_tender_no_from_structure(doc_structure)
+        if not tender_no:
+            tender_no = extract_tender_no(invitation)  # Fallback
     if tender_no and not _missing_project_fact(tender_no) and _missing_project_fact(brief.tenderNo):
         brief.tenderNo = tender_no
     for key in ("projectName", "tenderer", "tenderNo", "bidContent"):
         if str(getattr(brief, key, "") or "").strip() and key not in filled:
             filled.append(key)
-    brief.performanceRequirement = merge_performance_requirement(
-        extract_performance_requirement(invitation),
-        requirement_from_payload(patch),
-        invitation=invitation,
-    )
-    req_notes = apply_bid_requirements(
-        brief,
-        merge_veto_requirements(
-            extract_requirements(unmash_invitation_text(invitation)),
-            extract_veto_requirements(invitation),
-        ),
-    )
+
+    # Performance requirement extraction
+    with tracker.track("performance_extract"):
+        brief.performanceRequirement = merge_performance_requirement(
+            extract_performance_requirement(invitation),
+            requirement_from_payload(patch),
+            invitation=invitation,
+        )
+
+    # Requirements extraction - use unmashed text from structure
+    with tracker.track("requirements_extract"):
+        from api.services.tenders.document_parser import unmash_text_from_structure
+        unmashed_text = unmash_text_from_structure(doc_structure)
+        req_notes = apply_bid_requirements(
+            brief,
+            merge_veto_requirements(
+                extract_requirements(unmashed_text),
+                extract_veto_requirements(invitation),
+            ),
+        )
     brief.extraPlaceholders = extras
-    brief.requiredSlotKeys = required_keys
-    brief.includeSlotKeys = include_keys
+    brief.requiredSlotKeys = [slot.key for slot in extras if slot.key]
+    brief.includeSlotKeys = list(brief.requiredSlotKeys)
     brief.includePlaceholders = False
+
+    with tracker.track("db_query"):
+        quote_record_sheet = await _quote_record_sheet(db, created_by, quote_record_ids)
 
     quote_note, brief, quote_filled = _merge_quote(
         brief,
@@ -864,7 +854,7 @@ async def parse_invitation(
         invitation,
         path,
         quote_path,
-        record_sheet=await _quote_record_sheet(db, created_by, quote_record_ids),
+        record_sheet=quote_record_sheet,
         source_name=quote_upload.filename if quote_upload is not None else '',
     )
     if quote_filled:
@@ -876,17 +866,22 @@ async def parse_invitation(
     header_notes = apply_format_table_headers(brief)
     kb_fmt_notes: list[str] = []
     if (kb_ids or []) and not has_invite_format_chapter(chapter):
-        fmt_hits, fmt_err = await _recall_knowledge(
-            db,
-            invitation,
-            kb_ids or [],
-            query=_KB_FORMAT_QUERY,
-            quiet=True,
-        )
+        with tracker.track("kb_recall"):
+            fmt_hits, fmt_err = await _recall_knowledge(
+                db,
+                invitation,
+                kb_ids or [],
+                query=_KB_FORMAT_QUERY,
+                quiet=True,
+                bidder_name=brief.bidderName,
+            )
         kb_fmt_notes.extend(fmt_err)
         kb_fmt_notes.extend(apply_kb_format_suggestions(brief, chapter, fmt_hits or kb_hits))
         outline_items = list(brief.outlineItems or [])
-    lib_perf = await performance_from_library(db, extract_missing=False)
+
+    # Parallel DB queries for performance library
+    with tracker.track("db_query"):
+        lib_perf = await performance_from_library(db, extract_missing=False, bidder_name=brief.bidderName) if brief.bidderName else []
     if lib_perf or brief.performanceLines:
         brief.performanceLines = merge_performance_lines(
             brief.performanceLines,
@@ -900,17 +895,21 @@ async def parse_invitation(
     if brief.performanceLines and "performanceLines" not in filled:
         filled = [*filled, "performanceLines"]
 
-    # Outline/requirements are now available; an earlier LLM-only material list
-    # must not keep the matching library keys out of this bid.
-    required_keys, include_keys = this_bid_keys(
-        extra=extras, catalog=catalog, required_keys=required_keys, include_keys=include_keys,
-        has_agent=has_agent, outline_items=brief.outlineItems,
-        requirements=brief.bidRequirements, source_text=invitation,
-    )
-    brief.requiredSlotKeys, brief.includeSlotKeys = required_keys, include_keys
-    slots = collect_slots(extras, catalog=catalog, include_keys=include_keys,
-                          outline_items=brief.outlineItems)
-    catalog_rows = await list_library_items(db)
+    # Materials matching - track separately
+    with tracker.track("materials_match"):
+        # Outline/requirements are now available; an earlier LLM-only material list
+        # must not keep the matching library keys out of this bid.
+        required_keys, include_keys = this_bid_keys(
+            extra=extras, catalog=catalog, required_keys=required_keys, include_keys=include_keys,
+            has_agent=has_agent, outline_items=brief.outlineItems,
+            requirements=brief.bidRequirements, source_text=invitation,
+            material_demands=brief.materialDemands,
+        )
+        brief.requiredSlotKeys, brief.includeSlotKeys = required_keys, include_keys
+        slots = collect_slots(extras, catalog=catalog, include_keys=include_keys,
+                              outline_items=brief.outlineItems)
+
+    # catalog_rows already loaded at start, reuse it
     file_counts = {
         str(row.get("key") or ""): int(row.get("fileCount") or 0)
         for row in catalog_rows
@@ -1007,12 +1006,24 @@ async def parse_invitation(
     from api.services.tenders.requirement_bid import prepare_requirements_bid
 
     requirement_notes = prepare_requirements_bid(brief, text=invitation)
+    from api.services.tenders.material_intents import recognize_material_demands
+
+    with tracker.track("material_review"):
+        notes.extend(await recognize_material_demands(
+            brief,catalog=catalog,text=invitation,source_path=path,client=client,db=db,persist_source=True,semantic_payload=patch))
+    extras = brief.extraPlaceholders
+    required_keys = list(brief.requiredSlotKeys)
+    include_keys = list(brief.includeSlotKeys)
+    existing_catalog_keys = {str(row.get('key') or '') for row in catalog_rows}
+    catalog_rows.extend({'key':slot.key,'title':slot.title,'hint':slot.hint,'fileCount':0}
+        for slot in extras if slot.key not in existing_catalog_keys)
     # Requirements synthesis (or recovery of auto-numbered native headings) can
     # add sections after the first matching pass. Return keys for the final outline.
     required_keys, include_keys = this_bid_keys(
         extra=extras, catalog=catalog, required_keys=required_keys, include_keys=include_keys,
         has_agent=has_agent, outline_items=brief.outlineItems,
         requirements=brief.bidRequirements, source_text=invitation,
+        material_demands=brief.materialDemands,
     )
     brief.requiredSlotKeys, brief.includeSlotKeys = required_keys, include_keys
     slots = collect_slots(extras, catalog=catalog, include_keys=include_keys,
@@ -1040,7 +1051,8 @@ async def parse_invitation(
         notes.append("招标书有授权委托书格式；未打开「启用授权委托」则跳过该页")
     from api.services.tenders.library_kb import legal_persons_from_library
 
-    persons = await legal_persons_from_library(db, extract_missing=True)
+    with tracker.track("db_query"):
+        persons = await legal_persons_from_library(db, extract_missing=True)
     if len(persons) > 1:
         names = "、".join((item.get("name") or item.get("idNo") or "") for item in persons[:6])
         notes.append(
@@ -1057,7 +1069,14 @@ async def parse_invitation(
         notes.append(brief.volumeNote)
 
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
-    agent_hint = await latest_agent_profile(db)
+
+    with tracker.track("db_query"):
+        agent_hint = await latest_agent_profile(db, bidder_name=brief.bidderName)
+
+    # ========== 性能追踪结束 ==========
+    tracker.finish_total()
+    tracker.log_summary()
+
     return {
         "brief": brief.model_dump(),
         "filledKeys": filled,
@@ -1134,10 +1153,11 @@ def _user_prompt(
     kb_hits: list[dict[str, Any]],
     catalog_rows: list[dict[str, Any]] | None = None,
     playbooks: list | None = None,
+    *, bidder_name: str = "",
 ) -> str:
-    body = invitation[:_INVITE_MAX_CHARS]
+    body = invitation
     parts = [
-        f"投标人（不得修改）：{_BIDDER_LOCK}",
+        f"投标人（以本次 brief 的 bidderName 为准，不得从招标范例替换）：{bidder_name or '【待补充】'}",
         "请阅读邀请书正文并抽出 JSON。",
         "",
         "【邀请书正文】",
@@ -1147,9 +1167,9 @@ def _user_prompt(
         from api.services.tenders.library_kb import catalog_prompt_lines
 
         parts.append("")
-        parts.append("【投标资料库清单·requiredMaterials 的 key 必须从此清单选取】")
-        parts.append(catalog_prompt_lines(catalog_rows))
-    history_block = playbooks_prompt_block(playbooks)
+        parts.append("【投标资料库清单·能等价映射则复用 key；未知资料保留名称和原文，不得遗漏】")
+        parts.append(catalog_prompt_lines([{**row, "hint": ""} for row in catalog_rows]))
+    history_block = playbooks_prompt_block((playbooks or [])[:2])
     if history_block:
         parts.append("")
         parts.append(history_block)
@@ -1158,6 +1178,7 @@ def _user_prompt(
         for hit in (kb_hits or [])
         if not should_skip_kb_retrieval(
             name=str(hit.get("name") or ""),
+            bidder_name=bidder_name,
             content=str(hit.get("content") or ""),
             tags=hit.get("tags") if isinstance(hit.get("tags"), list) else None,
         )
@@ -1165,7 +1186,7 @@ def _user_prompt(
     if safe_hits:
         parts.append("")
         parts.append("【知识库摘录·仅对照资格条款，禁止套用历史投标书或他司合同】")
-        for hit in safe_hits:
+        for hit in safe_hits[:2]:
             name = str(hit.get("name") or "资料")
             content = str(hit.get("content") or "").strip()[:1800]
             if content:
@@ -1200,6 +1221,7 @@ def apply_kb_format_suggestions(
             continue
         if should_skip_kb_retrieval(
             name=str(hit.get("name") or ""),
+            bidder_name=brief.bidderName,
             content=text,
             tags=hit.get("tags") if isinstance(hit.get("tags"), list) else None,
         ):
@@ -1252,6 +1274,7 @@ async def _recall_knowledge(
     *,
     query: str | None = None,
     quiet: bool = False,
+    bidder_name: str = "",
 ) -> tuple[list[dict[str, Any]], list[str]]:
     notes: list[str] = []
     ids = [x.strip() for x in kb_ids if str(x).strip()]
@@ -1279,6 +1302,7 @@ async def _recall_knowledge(
         content = str(doc.get("content") or "")
         if should_skip_kb_retrieval(
             name=str(doc.get("name") or ""),
+            bidder_name=bidder_name,
             content=content,
             tags=doc.get("tags") if isinstance(doc.get("tags"), list) else None,
         ):
@@ -1288,7 +1312,7 @@ async def _recall_knowledge(
         used += len(clip)
         if used > _KB_MAX_CHARS:
             break
-        kept.append({"name": doc.get("name"), "docId": doc.get("doc_id"), "content": clip})
+        kept.append({"name": doc.get("name"), "docId": doc.get("doc_id"), "content": clip, "tags": doc.get("tags") or []})
     if skipped:
         notes.append(f"已忽略 {skipped} 篇疑似投标书或其他公司材料的知识库文档")
     if quiet:

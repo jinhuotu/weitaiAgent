@@ -77,14 +77,14 @@ def test_identical_content_across_different_keys_at_one_placeholder_is_pasted_on
     assert len(list(doc.element.iter(qn("w:drawing")))) == 2
 
 
-def test_different_placeholders_can_reuse_file_and_distinct_pages_are_kept(scans):
+def test_same_file_is_global_once_and_distinct_pages_are_kept(scans):
     original, duplicate, other = scans
     doc = Document()
     doc.add_paragraph("附：营业执照扫描件")
     doc.add_paragraph("一、其他资料", style="Heading 1")
     doc.add_paragraph("此处粘贴营业执照复印件")
     place_library_scans(doc, BidBrief(), {"license": [original, duplicate, other]})
-    assert len(list(doc.element.iter(qn("w:drawing")))) == 4
+    assert len(list(doc.element.iter(qn("w:drawing")))) == 2
 
 
 def test_old_custom_key_marker_already_satisfies_its_standard_alias(scans):
