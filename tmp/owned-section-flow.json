@@ -1,0 +1,199 @@
+{
+  "output": "E:\\code\\python\\weitaiAgent\\tmp\\owned-section-output\\6b1e96ae91b1.docx",
+  "flow": [
+    {
+      "chapter": "投 标 文 件",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "投标函及投标函附录",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "投标函",
+      "type": "A",
+      "images": 2,
+      "placeholders": 0
+    },
+    {
+      "chapter": "投标函附录",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "法定代表人身份证明",
+      "type": "B",
+      "images": 2,
+      "placeholders": 0
+    },
+    {
+      "chapter": "授权委托书",
+      "type": "B",
+      "images": 2,
+      "placeholders": 0
+    },
+    {
+      "chapter": "投标保证金",
+      "type": "B",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "已标价的工程量清单",
+      "type": "B",
+      "images": 0,
+      "placeholders": 1
+    },
+    {
+      "chapter": "项目管理机构",
+      "type": "C",
+      "images": 0,
+      "placeholders": 1
+    },
+    {
+      "chapter": "项目管理机构组成表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 1
+    },
+    {
+      "chapter": "项目经理简历表",
+      "type": "C",
+      "images": 0,
+      "placeholders": 3
+    },
+    {
+      "chapter": "项目经理主要工作经历",
+      "type": "C",
+      "images": 1,
+      "placeholders": 1
+    },
+    {
+      "chapter": "承诺书",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "主要项目管理人员简历表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 2
+    },
+    {
+      "chapter": "拟分包项目情况表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 1
+    },
+    {
+      "chapter": "资格审查资料",
+      "type": "C",
+      "images": 0,
+      "placeholders": 1
+    },
+    {
+      "chapter": "投标人基本情况表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 1
+    },
+    {
+      "chapter": "近年财务状况表",
+      "type": "C",
+      "images": 0,
+      "placeholders": 2
+    },
+    {
+      "chapter": "近年完成的类似项目情况表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 1
+    },
+    {
+      "chapter": "正在施工的和新承接的项目情况表",
+      "type": "C",
+      "images": 1,
+      "placeholders": 2
+    },
+    {
+      "chapter": "“国家企业信用信息公示系统”网站查询",
+      "type": "C",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "资格审查其他材料",
+      "type": "C",
+      "images": 0,
+      "placeholders": 1
+    },
+    {
+      "chapter": "其他资料",
+      "type": "C",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "中小企业声明函（如有）",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "残疾人福利性单位声明函（如有）",
+      "type": "A",
+      "images": 0,
+      "placeholders": 0
+    },
+    {
+      "chapter": "其他有必要提供的材料",
+      "type": "C",
+      "images": 0,
+      "placeholders": 1
+    },
+    {
+      "chapter": "暗标的编制和装订要求",
+      "type": "C",
+      "images": 0,
+      "placeholders": 0
+    }
+  ],
+  "date_slots": [
+    {
+      "chapter": "投 标 文 件",
+      "text": "2026年10月31日",
+      "filled": true
+    },
+    {
+      "chapter": "投标函",
+      "text": "2026年10月31日",
+      "filled": true
+    },
+    {
+      "chapter": "投标函附录",
+      "text": "2026年10月31日",
+      "filled": true
+    },
+    {
+      "chapter": "法定代表人身份证明",
+      "text": "2026年10月31日",
+      "filled": true
+    },
+    {
+      "chapter": "授权委托书",
+      "text": "2026年10月31日",
+      "filled": true
+    },
+    {
+      "chapter": "承诺书",
+      "text": "2026年10月31日",
+      "filled": true
+    }
+  ]
+}

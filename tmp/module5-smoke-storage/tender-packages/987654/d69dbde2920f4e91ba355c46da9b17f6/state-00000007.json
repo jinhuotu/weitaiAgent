@@ -1,0 +1,690 @@
+{
+  "id": "d69dbde2920f4e91ba355c46da9b17f6",
+  "name": "recognition-upload.zip",
+  "revision": 7,
+  "status": "processing",
+  "history": [
+    {
+      "operation": "unpack",
+      "actor": "isolated-page-test",
+      "basis": null,
+      "arguments": {},
+      "at": "2026-11-03T14:52:52.162651+00:00"
+    },
+    {
+      "operation": "classify",
+      "actor": "isolated-page-test",
+      "basis": null,
+      "arguments": {},
+      "at": "2026-11-03T14:52:52.388590+00:00"
+    }
+  ],
+  "uploads": {},
+  "updated_at": "2026-11-03T14:52:52.616360+00:00",
+  "archive": "dccd56f66e394fdeb7b2f9552af67481.zip",
+  "archive_source": {
+    "path": "dccd56f66e394fdeb7b2f9552af67481.zip",
+    "name": "recognition-upload.zip",
+    "sha256": "f8eadd017c90b85e841c4a36a1631c439e67d88c2c7e36fe3ecdddb93b6c76e2",
+    "size": 37168
+  },
+  "stage": "role",
+  "manifest": {
+    "files": [
+      {
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "source_chain": [],
+        "depth": 0,
+        "file_type": ".docx",
+        "size": 36994,
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "duplicate_of": null,
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "role": "pending"
+      }
+    ],
+    "total_bytes": 36994,
+    "file_count": 1,
+    "limits": {
+      "max_files": 2000,
+      "max_bytes": 536870912,
+      "max_ratio": 200,
+      "max_depth": 4,
+      "allowed": [
+        ".docx",
+        ".doc",
+        ".pdf",
+        ".xlsx",
+        ".xls",
+        ".csv",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".zip",
+        ".sign"
+      ]
+    }
+  },
+  "root": "unpacked-477a92a43ab240cebc384038b9454552",
+  "role_overrides": {},
+  "classified": {
+    "files": [
+      {
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "source_chain": [],
+        "depth": 0,
+        "file_type": ".docx",
+        "size": 36994,
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "duplicate_of": null,
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "role": "tech_spec",
+        "role_evidence": [
+          "文件名命中 tech_spec"
+        ],
+        "role_candidates": [
+          "tech_spec"
+        ],
+        "solidified_ids": [
+          "1234-123456789-00001"
+        ],
+        "material_candidates": [],
+        "role_order": 1,
+        "primary_candidate": true,
+        "material_recognition": {
+          "material": null,
+          "evidence": [],
+          "conflict": false,
+          "needs_confirmation": true,
+          "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+        }
+      }
+    ],
+    "total_bytes": 36994,
+    "file_count": 1,
+    "limits": {
+      "max_files": 2000,
+      "max_bytes": 536870912,
+      "max_ratio": 200,
+      "max_depth": 4,
+      "allowed": [
+        ".docx",
+        ".doc",
+        ".pdf",
+        ".xlsx",
+        ".xls",
+        ".csv",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".zip",
+        ".sign"
+      ]
+    },
+    "role_counts": {
+      "tech_spec": 1
+    },
+    "solidified_id_map": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "material": null,
+        "material_candidates": [],
+        "needs_confirmation": true,
+        "material_evidence": [],
+        "conflict": true,
+        "material_reason": "多来源名称冲突，请核对全部依据",
+        "material_source_type": null,
+        "material_sources": [
+          {
+            "solidified_id": "1234-123456789-00001",
+            "source_file": "技术规范_1234-123456789-00001.docx",
+            "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+            "source_sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+            "name": null,
+            "source_type": "composed",
+            "valid": false,
+            "parameters": {
+              "model": [
+                {
+                  "value": "YJLV22",
+                  "table_index": 0,
+                  "row": 2,
+                  "column": 4,
+                  "label": "产品型号规格",
+                  "raw_value": "YJLV22"
+                }
+              ],
+              "conductor": [
+                {
+                  "value": "铜",
+                  "table_index": 0,
+                  "row": 3,
+                  "column": 4,
+                  "label": "导体材料",
+                  "raw_value": "铜"
+                }
+              ],
+              "specification": [
+                {
+                  "value": "3×120",
+                  "table_index": 0,
+                  "row": 4,
+                  "column": 4,
+                  "label": "导体芯数×标称截面",
+                  "raw_value": "3×120"
+                }
+              ],
+              "voltage": [],
+              "outer": [],
+              "voltage_annotations": [
+                {
+                  "value": "10kV",
+                  "table_index": 0,
+                  "row": 5,
+                  "column": 4,
+                  "label": "绝缘平均厚度",
+                  "raw_value": "大于等于4.5(10kV)"
+                }
+              ]
+            },
+            "raw_rows": [
+              [
+                "序号",
+                "参数名称",
+                "单位",
+                "项目需求值或表述",
+                "投标人保证值"
+              ],
+              [
+                "1.1",
+                "产品型号规格",
+                "无",
+                "YJLV22",
+                ""
+              ],
+              [
+                "1.2",
+                "导体材料",
+                "无",
+                "铜",
+                ""
+              ],
+              [
+                "1.3",
+                "导体芯数×标称截面",
+                "芯数×mm2",
+                "3×120",
+                ""
+              ],
+              [
+                "1.4",
+                "绝缘平均厚度",
+                "mm",
+                "大于等于4.5(10kV)",
+                ""
+              ]
+            ],
+            "issues": [
+              {
+                "field": "conductor",
+                "message": "型号隐含导体材质与正文导体材料矛盾",
+                "model_value": "铝",
+                "table_value": "铜",
+                "conflict": true
+              }
+            ],
+            "conflict": true,
+            "components": [],
+            "model_parse": {
+              "model": "YJLV22",
+              "insulation": "交联聚乙烯绝缘",
+              "conductor": "铝",
+              "sheath": "聚氯乙烯护套",
+              "armor": "双钢带铠装",
+              "outer": "聚氯乙烯外护套",
+              "outer_code": "2",
+              "tokens": {
+                "insulation": "YJ",
+                "conductor": "L",
+                "sheath": "V",
+                "armor": "2",
+                "outer": "2"
+              },
+              "rules_version": "power-cable-code-v1"
+            },
+            "rules_version": "power-cable-code-v1",
+            "rules_sha256": "cf95083e1f810652632de81a51f4a9394f1a70bb085a38806064fe1d8556c0a9"
+          }
+        ],
+        "composition_resolved_by_authority": false,
+        "category": null
+      }
+    ],
+    "pending_confirmation": [],
+    "classification_warnings": [
+      "未识别邀请书；请人工确认或补充文件"
+    ],
+    "material_pending_confirmation": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "material": null,
+        "material_candidates": [],
+        "needs_confirmation": true,
+        "material_evidence": [],
+        "conflict": true,
+        "material_reason": "多来源名称冲突，请核对全部依据",
+        "material_source_type": null,
+        "material_sources": [
+          {
+            "solidified_id": "1234-123456789-00001",
+            "source_file": "技术规范_1234-123456789-00001.docx",
+            "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+            "source_sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+            "name": null,
+            "source_type": "composed",
+            "valid": false,
+            "parameters": {
+              "model": [
+                {
+                  "value": "YJLV22",
+                  "table_index": 0,
+                  "row": 2,
+                  "column": 4,
+                  "label": "产品型号规格",
+                  "raw_value": "YJLV22"
+                }
+              ],
+              "conductor": [
+                {
+                  "value": "铜",
+                  "table_index": 0,
+                  "row": 3,
+                  "column": 4,
+                  "label": "导体材料",
+                  "raw_value": "铜"
+                }
+              ],
+              "specification": [
+                {
+                  "value": "3×120",
+                  "table_index": 0,
+                  "row": 4,
+                  "column": 4,
+                  "label": "导体芯数×标称截面",
+                  "raw_value": "3×120"
+                }
+              ],
+              "voltage": [],
+              "outer": [],
+              "voltage_annotations": [
+                {
+                  "value": "10kV",
+                  "table_index": 0,
+                  "row": 5,
+                  "column": 4,
+                  "label": "绝缘平均厚度",
+                  "raw_value": "大于等于4.5(10kV)"
+                }
+              ]
+            },
+            "raw_rows": [
+              [
+                "序号",
+                "参数名称",
+                "单位",
+                "项目需求值或表述",
+                "投标人保证值"
+              ],
+              [
+                "1.1",
+                "产品型号规格",
+                "无",
+                "YJLV22",
+                ""
+              ],
+              [
+                "1.2",
+                "导体材料",
+                "无",
+                "铜",
+                ""
+              ],
+              [
+                "1.3",
+                "导体芯数×标称截面",
+                "芯数×mm2",
+                "3×120",
+                ""
+              ],
+              [
+                "1.4",
+                "绝缘平均厚度",
+                "mm",
+                "大于等于4.5(10kV)",
+                ""
+              ]
+            ],
+            "issues": [
+              {
+                "field": "conductor",
+                "message": "型号隐含导体材质与正文导体材料矛盾",
+                "model_value": "铝",
+                "table_value": "铜",
+                "conflict": true
+              }
+            ],
+            "conflict": true,
+            "components": [],
+            "model_parse": {
+              "model": "YJLV22",
+              "insulation": "交联聚乙烯绝缘",
+              "conductor": "铝",
+              "sheath": "聚氯乙烯护套",
+              "armor": "双钢带铠装",
+              "outer": "聚氯乙烯外护套",
+              "outer_code": "2",
+              "tokens": {
+                "insulation": "YJ",
+                "conductor": "L",
+                "sheath": "V",
+                "armor": "2",
+                "outer": "2"
+              },
+              "rules_version": "power-cable-code-v1"
+            },
+            "rules_version": "power-cable-code-v1",
+            "rules_sha256": "cf95083e1f810652632de81a51f4a9394f1a70bb085a38806064fe1d8556c0a9"
+          }
+        ],
+        "composition_resolved_by_authority": false,
+        "category": null
+      }
+    ],
+    "material_conflicts": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "material": null,
+        "material_candidates": [],
+        "needs_confirmation": true,
+        "material_evidence": [],
+        "conflict": true,
+        "material_reason": "多来源名称冲突，请核对全部依据",
+        "material_source_type": null,
+        "material_sources": [
+          {
+            "solidified_id": "1234-123456789-00001",
+            "source_file": "技术规范_1234-123456789-00001.docx",
+            "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+            "source_sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+            "name": null,
+            "source_type": "composed",
+            "valid": false,
+            "parameters": {
+              "model": [
+                {
+                  "value": "YJLV22",
+                  "table_index": 0,
+                  "row": 2,
+                  "column": 4,
+                  "label": "产品型号规格",
+                  "raw_value": "YJLV22"
+                }
+              ],
+              "conductor": [
+                {
+                  "value": "铜",
+                  "table_index": 0,
+                  "row": 3,
+                  "column": 4,
+                  "label": "导体材料",
+                  "raw_value": "铜"
+                }
+              ],
+              "specification": [
+                {
+                  "value": "3×120",
+                  "table_index": 0,
+                  "row": 4,
+                  "column": 4,
+                  "label": "导体芯数×标称截面",
+                  "raw_value": "3×120"
+                }
+              ],
+              "voltage": [],
+              "outer": [],
+              "voltage_annotations": [
+                {
+                  "value": "10kV",
+                  "table_index": 0,
+                  "row": 5,
+                  "column": 4,
+                  "label": "绝缘平均厚度",
+                  "raw_value": "大于等于4.5(10kV)"
+                }
+              ]
+            },
+            "raw_rows": [
+              [
+                "序号",
+                "参数名称",
+                "单位",
+                "项目需求值或表述",
+                "投标人保证值"
+              ],
+              [
+                "1.1",
+                "产品型号规格",
+                "无",
+                "YJLV22",
+                ""
+              ],
+              [
+                "1.2",
+                "导体材料",
+                "无",
+                "铜",
+                ""
+              ],
+              [
+                "1.3",
+                "导体芯数×标称截面",
+                "芯数×mm2",
+                "3×120",
+                ""
+              ],
+              [
+                "1.4",
+                "绝缘平均厚度",
+                "mm",
+                "大于等于4.5(10kV)",
+                ""
+              ]
+            ],
+            "issues": [
+              {
+                "field": "conductor",
+                "message": "型号隐含导体材质与正文导体材料矛盾",
+                "model_value": "铝",
+                "table_value": "铜",
+                "conflict": true
+              }
+            ],
+            "conflict": true,
+            "components": [],
+            "model_parse": {
+              "model": "YJLV22",
+              "insulation": "交联聚乙烯绝缘",
+              "conductor": "铝",
+              "sheath": "聚氯乙烯护套",
+              "armor": "双钢带铠装",
+              "outer": "聚氯乙烯外护套",
+              "outer_code": "2",
+              "tokens": {
+                "insulation": "YJ",
+                "conductor": "L",
+                "sheath": "V",
+                "armor": "2",
+                "outer": "2"
+              },
+              "rules_version": "power-cable-code-v1"
+            },
+            "rules_version": "power-cable-code-v1",
+            "rules_sha256": "cf95083e1f810652632de81a51f4a9394f1a70bb085a38806064fe1d8556c0a9"
+          }
+        ],
+        "composition_resolved_by_authority": false,
+        "category": null
+      }
+    ],
+    "composition_history": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "source_file": "技术规范_1234-123456789-00001.docx",
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "source_sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "name": null,
+        "source_type": "composed",
+        "valid": false,
+        "parameters": {
+          "model": [
+            {
+              "value": "YJLV22",
+              "table_index": 0,
+              "row": 2,
+              "column": 4,
+              "label": "产品型号规格",
+              "raw_value": "YJLV22"
+            }
+          ],
+          "conductor": [
+            {
+              "value": "铜",
+              "table_index": 0,
+              "row": 3,
+              "column": 4,
+              "label": "导体材料",
+              "raw_value": "铜"
+            }
+          ],
+          "specification": [
+            {
+              "value": "3×120",
+              "table_index": 0,
+              "row": 4,
+              "column": 4,
+              "label": "导体芯数×标称截面",
+              "raw_value": "3×120"
+            }
+          ],
+          "voltage": [],
+          "outer": [],
+          "voltage_annotations": [
+            {
+              "value": "10kV",
+              "table_index": 0,
+              "row": 5,
+              "column": 4,
+              "label": "绝缘平均厚度",
+              "raw_value": "大于等于4.5(10kV)"
+            }
+          ]
+        },
+        "raw_rows": [
+          [
+            "序号",
+            "参数名称",
+            "单位",
+            "项目需求值或表述",
+            "投标人保证值"
+          ],
+          [
+            "1.1",
+            "产品型号规格",
+            "无",
+            "YJLV22",
+            ""
+          ],
+          [
+            "1.2",
+            "导体材料",
+            "无",
+            "铜",
+            ""
+          ],
+          [
+            "1.3",
+            "导体芯数×标称截面",
+            "芯数×mm2",
+            "3×120",
+            ""
+          ],
+          [
+            "1.4",
+            "绝缘平均厚度",
+            "mm",
+            "大于等于4.5(10kV)",
+            ""
+          ]
+        ],
+        "issues": [
+          {
+            "field": "conductor",
+            "message": "型号隐含导体材质与正文导体材料矛盾",
+            "model_value": "铝",
+            "table_value": "铜",
+            "conflict": true
+          }
+        ],
+        "conflict": true,
+        "components": [],
+        "model_parse": {
+          "model": "YJLV22",
+          "insulation": "交联聚乙烯绝缘",
+          "conductor": "铝",
+          "sheath": "聚氯乙烯护套",
+          "armor": "双钢带铠装",
+          "outer": "聚氯乙烯外护套",
+          "outer_code": "2",
+          "tokens": {
+            "insulation": "YJ",
+            "conductor": "L",
+            "sheath": "V",
+            "armor": "2",
+            "outer": "2"
+          },
+          "rules_version": "power-cable-code-v1"
+        },
+        "rules_version": "power-cable-code-v1",
+        "rules_sha256": "cf95083e1f810652632de81a51f4a9394f1a70bb085a38806064fe1d8556c0a9"
+      }
+    ],
+    "original_material_map": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "material": null,
+        "material_candidates": [],
+        "needs_confirmation": true,
+        "material_evidence": [],
+        "conflict": false,
+        "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    ],
+    "material_source_ledger": [],
+    "mapping_import_issues": [],
+    "unmatched_source_entries": []
+  }
+}

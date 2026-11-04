@@ -1,0 +1,141 @@
+def material_name(title):
+    """Reject unnamed fragments without an industry-specific admission list."""
+    name = re.sub(r'^对应\s*', '', (title or '').strip())
+    if not 2 <= len(re.sub(r'\s+', '', name)) <= 120:
+        return ''
+    if re.fullmatch(r'(?:的)?(?:资料|材料|附件|证明)?(?:要求)?(?:待补充|待核对|名称待核对)?',name.replace(' ','')):
+        return ''
+    if re.search(r'资料要求待核对|名称待核对|原文完整性待核对|第[零一二三四五六七八九十百\d]+条',name):
+        return ''
+    return name
+
+
+def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=()):
+    """Plan ownership once; insert and diagnose exactly that plan."""
+    from time import perf_counter
+    from api.services.tenders.match import attachment_requests, find_catalog_item
+    from api.services.tenders.classifier import material_output_coverage
+    from api.services.tenders.placeholders import _body_block, _wants_attach
+    from common.errors import AppError, ErrorCode
+
+    started=perf_counter(); logger=logging.getLogger(__name__)
+    notes=[]; skipped=set(skip_keys or ())
+    # Historical markers are never completion evidence. Only remove metadata,
+    # retaining all source runs, tables and text.
+    stale=[]
+    for mark in doc.element.body.iter(qn('w:bookmarkStart')):
+        if mark.get(qn('w:name'),'').startswith(('supplement_','renderedkey_')):
+            stale.append(mark)
+    stale_ids={mark.get(qn('w:id')) for mark in stale}
+    for mark in [*stale,*[m for m in doc.element.body.iter(qn('w:bookmarkEnd')) if m.get(qn('w:id')) in stale_ids]]:
+        mark.getparent().remove(mark)
+    scopes=sections(doc,set(excluded))
+    generated=set()
+    for mark in doc.element.body.iter(qn('w:bookmarkStart')):
+        if mark.get(qn('w:name'),'').startswith('result_'):
+            generated.add(_body_block(mark))
+    scopes=[(h,[b for b in body if b not in generated],rank) for h,body,rank in scopes]
+    catalog={s.key:s for s in slots or [] if s.key and material_name(s.title)}
+    named=[s.model_copy(update={'hint':''}) for s in catalog.values()]
+    hints={}; labels=numbering_labels(doc,list(doc.element.body))
+    # Discover original physical submit items before assigning any ownership.
+    for head,body,_ in scopes:
+        if section_type(head,body)=='A':
+            continue
+        for block in body:
+            value=_text(block)
+            info=numbering_info(doc,block) if block.tag==qn('w:p') else None
+            if info and not _ITEM.match(value):
+                value=labels.get(block,('',0))[0]+value
+            requests=attachment_requests(value)
+            alpha=re.match(r'^\s*[A-Za-z][.．、）)]\s*(.+)',value,re.S)
+            if not requests and alpha and material_name(alpha.group(1)):
+                requests=[PlaceholderItem(key='',title=alpha.group(1).split('：')[0].split(':')[0])]
+            for request in requests:
+                if not material_name(request.title):
+                    continue
+                found=find_catalog_item(named,key=request.key,title=request.title)
+                key=found.key if found else request.key or 'request_'+hashlib.sha256(request.title.encode()).hexdigest()[:20]
+                if key not in catalog:
+                    catalog[key]=request.model_copy(update={'key':key,'attachToSection':_heading_text(head)})
+                    named.append(catalog[key].model_copy(update={'hint':''}))
+                hints.setdefault(key,[]).append((head,block,value))
+    # Cache immutable owners/boundaries on this document across shared entrypoints.
+    # A changed title/section is a new plan, never a second opinion mid-render.
+    cached=getattr(doc._element,'_material_plans',None)
+    if cached is None:
+        cached={}; doc._element._material_plans=cached
+    plans={}; fallback_count=0
+    for key,slot in catalog.items():
+        if key in skipped:
+            continue
+        signature=(key,slot.title,slot.attachToSection)
+        if signature in cached:
+            plans[key]=cached[signature]; continue
+        name,section=_key(slot.title),_key(slot.attachToSection)
+        best=None; score=0
+        for head,body,_ in scopes:
+            if section_type(head,body)=='A':
+                continue
+            heading=_key(_heading_text(head))
+            exact=hints.get(key,[])
+            hit=next((row for row in exact if row[0] is head),None)
+            rank=200 if name==heading else 180 if hit else 150 if section and section==heading else 100 if name and (name in heading or heading in name) else 0
+            if section and section!=heading and not hit:
+                continue
+            if not rank and name in _key(''.join(_text(b) for b in body)):
+                rank=30
+            if rank>score:
+                best,score=(head,body,hit),rank
+        # Preserve complete letters: their composition lists aren't attachments.
+        if best is None and any(section_type(h,b)=='A' and (section==_key(_heading_text(h)) or name in _key(''.join(_text(el) for el in b))) for h,b,_ in scopes):
+            continue
+        fallback=False
+        if best is None:
+            fallback=True
+            found=next(((h,b,None) for h,b,_ in scopes if re.search(r'其他.*(?:资料|材料)|附件区',_heading_text(h))),None)
+            if found is None:
+                head=doc.add_paragraph('其他资料（待核对归属）',style='Normal')._p
+                found=(head,[],None)
+                scopes.append((head,[],1))
+            best=found
+            notes.append('警告：'+slot.title+'：所属章节未识别，已降级至「'+_heading_text(best[0])+'」')
+        head,body,hit=best
+        # One immutable block boundary per owned requirement. No note locator,
+        # equivalence pass, handled heuristic or further ownership computation.
+        endpoint=body[-1] if body else head
+        if endpoint.getparent() is not doc.element.body:
+            raise AppError(ErrorCode.VALIDATION,'无法定位任何块边界：'+slot.title,status_code=422)
+        label=hit[2] if hit and re.match(r'^\s*[A-Za-z][.．、）)]',hit[2]) else slot.title
+        plan={'head':head,'chapter':_heading_text(head),'anchor':endpoint,'slot':slot,'label':label,'fallback':fallback}
+        plans[key]=cached[signature]=plan
+    planned=perf_counter(); handled=set()
+    # Every owned key enters pending once, including a title-only section.
+    pending=list(plans.items())
+    existing={m.get(qn('w:name')) for m in doc.element.body.iter(qn('w:bookmarkStart'))}
+    for key,plan in reversed(pending):
+        token='result_'+hashlib.sha256(key.encode()).hexdigest()[:20]
+        if token+'_img' in existing or token+'_box' in existing:
+            handled.add(key);continue
+        slot=plan['slot']; files=material_files(slot,media)
+        caption=slot.model_copy(update={'title':'对应 '+plan['label']+'；所需材料：'+material_name(slot.title)})
+        try:
+            pasted=insert_material(doc,plan['anchor'],caption,files)
+        except (OSError,ValueError,RuntimeError) as exc:
+            notes.append('警告：'+slot.title+' 渲染异常，保留文字占位：'+type(exc).__name__)
+            pasted=insert_material(doc,plan['anchor'],caption,[])
+        handled.add(key)
+        existing.add(token+('_img' if pasted else '_box'))
+        logger.info('material result key=%s kind=%s files=%s chapter=%s',key,'img' if pasted else 'box',len(files),plan['chapter'])
+    rendered=perf_counter()
+    report=material_output_coverage(doc,plans)
+    for row in report['rows']:
+        if row['count']!=1 or row['occurrences']!=1:
+            notes.append('警告：资料落位异常 key='+row['key']+' count='+str(row['count'])+' occurrences='+str(row['occurrences']))
+    fallback_count=sum(p['fallback'] for p in plans.values())
+    ratio=fallback_count/len(plans) if plans else 0
+    if ratio>=.05:
+        notes.append(f'警告：资料归属兜底 {fallback_count}/{len(plans)}（{ratio:.1%}），请核对章节识别')
+    notes.append(f"资料落位核对：{report['expected']} 项，输出 {report['outputs']} 项，未满足 {report['unmet']}")
+    logger.info('material phases demands=%s pending=%s img=%s box=%s fallback=%s fallback_ratio=%.4f plan_seconds=%.4f render_seconds=%.4f coverage_seconds=%.4f total_seconds=%.4f',len(plans),len(pending),sum(r['img'] for r in report['rows']),sum(r['box'] for r in report['rows']),fallback_count,ratio,planned-started,rendered-planned,perf_counter()-rendered,perf_counter()-started)
+    return notes,handled

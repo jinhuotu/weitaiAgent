@@ -1,0 +1,30 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>物料名称补齐</title>
+<style>body{font:15px system-ui;max-width:1100px;margin:32px auto;padding:16px;color:#223}section,article{border:1px solid #ccd;padding:16px;margin:16px 0;border-radius:8px}input,select,button{padding:8px;margin:4px}input{max-width:90%}.warn{color:#a43}pre{white-space:pre-wrap;overflow-wrap:anywhere}summary{cursor:pointer}label{display:inline-block}button{cursor:pointer}#error{color:#b22;white-space:pre-wrap}</style>
+<h1>物料名称补齐</h1><p>独立审查工具。只保存补齐结果，不修改原始识别清单或投标文件。优先级：mapping &gt; manual &gt; composed &gt; extracted；冲突保留全部依据。</p>
+<section><h2>导入映射表</h2><input id="file" type="file" accept=".csv,.tsv,.xlsx"><br>
+<label>ID列号（从0开始，选填）<input id="idcol" type="number" min="0"></label><label>名称列号（选填）<input id="namecol" type="number" min="0"></label><br>
+<label>工作表（多表必填）<input id="sheet"></label><label>CSV编码（选填）<input id="encoding" placeholder="utf-8 / gb18030"></label><button id="import">导入并保存</button></section>
+<p id="error" role="alert"></p><p id="summary"></p><div id="items"></div><details><summary>映射表异常与未命中项</summary><pre id="issues"></pre></details>
+<script>
+const token='__TOKEN__';const conductorOptions=__CONDUCTOR_OPTIONS__;let busy=false;
+async function request(path,body){const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Review-Token':token},body:JSON.stringify(body)});const data=await response.json();if(!response.ok)throw new Error(data.error);return data}
+function el(tag,text,parent){const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(parent)parent.append(node);return node}
+function render(state){const items=document.querySelector('#items');items.replaceChildren();const groups=new Map();for(const m of state.solidified_id_map){if(!groups.has(m.solidified_id))groups.set(m.solidified_id,[]);groups.get(m.solidified_id).push(m)}
+ document.querySelector('#summary').textContent=`${groups.size} 个ID；待确认记录 ${(state.material_pending_confirmation||[]).length}；历史冲突记录 ${(state.material_conflicts||[]).length}`;
+ document.querySelector('#issues').textContent=JSON.stringify({issues:state.mapping_import_issues||[],unmatched:state.unmatched_source_entries||[]},null,2);
+ for(const [id,records] of groups){const m=records[0];const box=el('article',undefined,items);el('h3',id,box);el('p',`${m.material||'待确认'} · ${m.material_source_type||'尚无可靠来源'} · ${m.needs_confirmation?'需确认':'已补齐'}`,box);el('p',!m.needs_confirmation && m.composition_resolved_by_authority ? '已按人工或权威来源确认；原始冲突仅供追溯，无需重复核验。' : m.material_reason,box);if(m.category)el('p','大类说明：'+m.category,box);
+ const details=el('details',undefined,box);el('summary','全部来源、文件及原始证据',details);el('pre',JSON.stringify(records,null,2),details);
+ for(const source of (m.material_sources||[])){if(source.record_id && source.active!==false){const b=el('button','纠正无效来源 '+source.record_id,box);b.onclick=()=>action(async()=>{const actor=prompt('纠正人');const basis=prompt('该来源无效的依据（原记录仍保留）');if(!actor||!basis)throw new Error('需填写纠正人和依据');render(await request('/retire',{record_id:source.record_id,actor,basis}))})}}
+ const attempts=(state.composition_history||[]).filter(a=>a.solidified_id===id);
+ if(attempts.length){const issues=attempts.flatMap(a=>a.issues||[]);if(issues.length){const note=el('p',undefined,box);note.className='warn';note.textContent='原始参数问题（人工确认后仍保留）：'+issues.map(x=>x.field+'：'+x.message+(x.model_value?'；型号值='+x.model_value:'')+(x.table_value?'；正文值='+x.table_value:'')).join('；')}}
+ const review=el('details',undefined,box);review.open=!!m.needs_confirmation;
+ const reviewTitle=el('summary',m.needs_confirmation?'填写人工确认（可暂不处理）':'修改已确认结果',review);
+ if(m.needs_confirmation){const skip=el('button','暂不处理此项',box);skip.type='button';skip.onclick=()=>{review.open=false;reviewTitle.textContent='已暂缓，仍待确认（点击继续填写）';skip.textContent='已暂缓';skip.disabled=true;el('p','已收起本项。没有新增确认记录，最终映射仍保留待确认；可继续处理其他资料。',box)}}
+ const form=el('form',undefined,review);const fields={};
+ if(attempts.length){const label=el('label','人工确认的导体材质',form);const select=el('select',undefined,label);select.required=true;select.setAttribute('aria-label','人工确认的导体材质');const blank=el('option','请选择，不预设材质',select);blank.value='';for(const value of conductorOptions){const option=el('option',value,select);option.value=value}fields.conductor=select;el('p','此选择只记录人工结论，不修改原技术规范。请填写最终名称、确认人及依据；若改正已有人工记录，请先通过上方入口纠正无效来源。',form)}
+ for(const [key,title] of [['name','最终完整物料名称（不是仅填铜或铝）'],['actor','确认人'],['basis','确认依据']]){const label=el('label',title,form);const input=el('input',undefined,label);input.required=true;input.setAttribute('aria-label',title);fields[key]=input}const button=el('button','人工确认并保存',form);button.type='submit';form.onsubmit=async e=>{e.preventDefault();await action(async()=>render(await request('/manual',{solidified_id:id,...Object.fromEntries(Object.entries(fields).map(([k,v])=>[k,v.value]))})))}}
+}
+async function action(fn){if(busy)return;busy=true;document.querySelector('#error').textContent='';try{await fn()}catch(e){document.querySelector('#error').textContent=e.message}finally{busy=false}}
+document.querySelector('#import').onclick=()=>action(async()=>{const f=document.querySelector('#file').files[0];if(!f)throw new Error('请选择映射表');if(f.size>16*1024*1024)throw new Error('文件超过16MB');const bytes=new Uint8Array(await f.arrayBuffer());let raw='';for(let i=0;i<bytes.length;i+=8192)raw+=String.fromCharCode(...bytes.subarray(i,i+8192));const payload={filename:f.name,data:btoa(raw)};for(const [id,key] of [['idcol','id_column'],['namecol','name_column'],['sheet','sheet'],['encoding','encoding']]){const value=document.getElementById(id).value.trim();if(value)payload[key]=key.endsWith('column')?Number(value):value}render(await request('/import',payload))});
+action(async()=>render(await request('/state',{})));
+</script></html>

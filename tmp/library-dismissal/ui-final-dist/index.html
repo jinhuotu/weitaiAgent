@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="zh-CN" class="light">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>优祺智能</title>
+    <script>
+      ;(function () {
+        try {
+          var t = localStorage.getItem('youqi-theme-v1')
+          var mode = t === 'dark' ? 'dark' : 'light'
+          var root = document.documentElement
+          root.classList.toggle('dark', mode === 'dark')
+          root.classList.toggle('light', mode === 'light')
+          root.dataset.theme = mode
+        } catch (e) {}
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-BwptD1aq.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-ehKnQ4TO.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>

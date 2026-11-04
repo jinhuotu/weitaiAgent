@@ -1,0 +1,21 @@
+{
+  "version": "goods-adapter/1",
+  "guarantee_header": "^(?:投标人|供应商)?(?:保证值|响应值|应答值|承诺值)$",
+  "requirement_header": "需求值|要求值|规定值|要求表述",
+  "status_header": "^(?:响应[/／或与]偏离|偏离情况|响应情况|备注)$",
+  "price_header": "单价|合价|总价|报价",
+  "price_quantity_header": "^(?:数量|采购数量|需求数量)$",
+  "price_columns": "单价|合价|总价|报价|税率",
+  "pending_text": "待确认",
+  "critical_pattern": "资格|否决|废标|限价|price_ceiling|qualification|rejection",
+  "business_title": "商务资料附件",
+  "missing_business_title": "资格及承诺资料",
+  "business_image_max_pages": 100,
+  "platform_max_file_bytes": null,
+  "platform_max_package_bytes": null,
+  "allowed_formats": [
+    ".docx"
+  ],
+  "business_context": "资格|商务|投标文件格式|响应文件格式|资质|授权|证明|承诺",
+  "business_unknown_title": "(?:证|证书|报告|报表|证明材料|说明|承诺书|声明|截图|回单|发票)$"
+}

@@ -1,0 +1,9 @@
+{
+  "business": {
+    "frontFile": "business-front.docx"
+  },
+  "full": {
+    "frontFile": "full-front.docx"
+  },
+  "sourceUnchanged": true
+}

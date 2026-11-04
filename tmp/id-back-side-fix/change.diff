@@ -1,0 +1,14 @@
+--- id_card.before.py
++++ id_card.py
+@@ -110,9 +110,9 @@
+ 
+ 
+ def assign_person(card: dict, existing: list[dict]) -> dict:
+-    """反面没有证号。挂到还没有反面的最近一张正面上。"""
++    """保留已识别的反面，沿用最近一张未配对正面的归属。"""
+     out = dict(card)
+-    if out.get("idNo"):
++    if out.get("idNo") and out.get("side") != "back":
+         out["side"] = "front"
+         out["personKey"] = out["idNo"]
+         if not out.get("gender"):

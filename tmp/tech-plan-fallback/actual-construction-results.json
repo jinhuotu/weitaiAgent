@@ -1,0 +1,44 @@
+[
+  {
+    "volume": "technical",
+    "missingModelChapters": true,
+    "file": "E:\\code\\python\\weitaiAgent\\tmp\\tech-plan-fallback\\actual-construction.technical.pending.docx",
+    "generatedBytes": 105824,
+    "notes": [
+      "技术方案已填充 0 个既有章节",
+      "技术方案：1 个章节正文未完整返回，已在原章节标【待补充】，投标文件继续生成"
+    ],
+    "sourceFormatUnchanged": true
+  },
+  {
+    "volume": "technical",
+    "missingModelChapters": false,
+    "file": "E:\\code\\python\\weitaiAgent\\tmp\\tech-plan-fallback\\actual-construction.technical.valid.docx",
+    "generatedBytes": 105825,
+    "notes": [
+      "技术方案已填充 1 个既有章节"
+    ],
+    "sourceFormatUnchanged": true
+  },
+  {
+    "volume": "full",
+    "missingModelChapters": true,
+    "file": "E:\\code\\python\\weitaiAgent\\tmp\\tech-plan-fallback\\actual-construction.full.pending.docx",
+    "generatedBytes": 200331,
+    "notes": [
+      "技术方案已填充 0 个既有章节",
+      "技术方案：1 个章节正文未完整返回，已在原章节标【待补充】，投标文件继续生成"
+    ],
+    "sourceFormatUnchanged": true
+  },
+  {
+    "volume": "full",
+    "missingModelChapters": false,
+    "file": "E:\\code\\python\\weitaiAgent\\tmp\\tech-plan-fallback\\actual-construction.full.valid.docx",
+    "generatedBytes": 200324,
+    "notes": [
+      "技术方案已填充 1 个既有章节"
+    ],
+    "sourceFormatUnchanged": true
+  }
+]

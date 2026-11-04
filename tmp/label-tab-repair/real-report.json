@@ -1,0 +1,17 @@
+{
+  "business": {
+    "frontFile": "business-front.docx",
+    "pagesThroughAppendixHeading": 4,
+    "labelsSameLine": true,
+    "originalSectionBoundaryRetained": true
+  },
+  "full": {
+    "frontFile": "full-front.docx",
+    "pagesThroughAppendixHeading": 4,
+    "labelsSameLine": true,
+    "originalSectionBoundaryRetained": true
+  },
+  "sourceUnchanged": true,
+  "oldPagesThroughAppendixHeading": 5,
+  "sourcePagesThroughAppendixHeading": 4
+}

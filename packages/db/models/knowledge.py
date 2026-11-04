@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 import sqlalchemy as sa
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, func
@@ -140,6 +140,8 @@ class KnowledgeDocument(Base):
     storage_path: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="存储相对路径")
     file_key: Mapped[str | None] = mapped_column(String(512), nullable=True, comment="文件键")
     preview_url: Mapped[str | None] = mapped_column(String(2048), nullable=True, comment="预览地址")
+    expire_at: Mapped[date | None] = mapped_column(sa.Date, nullable=True, default=None)
+    is_perpetual: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False, server_default=sa.false())
     summary: Mapped[str | None] = mapped_column(Text, nullable=True, comment="摘要")
     char_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="字符数")
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, comment="向量切块数")

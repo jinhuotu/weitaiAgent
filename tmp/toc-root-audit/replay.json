@@ -1,0 +1,78 @@
+{
+  "volumes": [
+    {
+      "entries": 20,
+      "firstBodyBlock": 44,
+      "volume": "business",
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-root-audit\\business\\70f53492d779.docx",
+      "titles": [
+        "一、投标函及投标函附录\t1",
+        "二、法定代表人身份证明\t5",
+        "三、授权委托书\t6",
+        "四、投标保证金\t7",
+        "五、已标价的工程量清单\t8",
+        "六、项目管理机构\t9",
+        "(一)项目管理机构组成表\t10",
+        "(二)项目经理简历表\t11",
+        "(三)项目经理主要工作经历\t12",
+        "(四)承诺书\t13",
+        "(五)主要项目管理人员简历表\t14",
+        "七、拟分包项目情况表\t16",
+        "八、资格审查资料\t17",
+        "(一)投标人基本情况表\t18",
+        "(二)近年财务状况表\t20",
+        "(三)近年完成的类似项目情况表\t21",
+        "(四)正在施工的和新承接的项目情况表\t23",
+        "(五)“国家企业信用信息公示系统”网站查询\t25",
+        "(六)资格审查其他材料\t26",
+        "九、其他资料\t27"
+      ],
+      "repeatStable": true,
+      "uniqueBookmarks": true
+    },
+    {
+      "entries": 1,
+      "firstBodyBlock": 26,
+      "volume": "technical",
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-root-audit\\technical\\afafc6999dea.docx",
+      "titles": [
+        "十、施工组织格式\t1"
+      ],
+      "repeatStable": true,
+      "uniqueBookmarks": true
+    },
+    {
+      "entries": 21,
+      "firstBodyBlock": 45,
+      "volume": "full",
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-root-audit\\full\\4f5549e2fa7c.docx",
+      "titles": [
+        "一、投标函及投标函附录\t1",
+        "二、法定代表人身份证明\t5",
+        "三、授权委托书\t6",
+        "四、投标保证金\t7",
+        "五、已标价的工程量清单\t8",
+        "六、项目管理机构\t9",
+        "(一)项目管理机构组成表\t10",
+        "(二)项目经理简历表\t11",
+        "(三)项目经理主要工作经历\t12",
+        "(四)承诺书\t13",
+        "(五)主要项目管理人员简历表\t14",
+        "七、拟分包项目情况表\t16",
+        "八、资格审查资料\t17",
+        "(一)投标人基本情况表\t18",
+        "(二)近年财务状况表\t20",
+        "(三)近年完成的类似项目情况表\t21",
+        "(四)正在施工的和新承接的项目情况表\t23",
+        "(五)“国家企业信用信息公示系统”网站查询\t25",
+        "(六)资格审查其他材料\t26",
+        "九、其他资料\t27",
+        "十、施工组织格式\t30"
+      ],
+      "repeatStable": true,
+      "uniqueBookmarks": true
+    }
+  ],
+  "brokenOutputRejected": true,
+  "sourceUnchanged": true
+}

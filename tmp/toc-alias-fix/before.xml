@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="4" time="8.815" timestamp="2026-10-29T15:07:04.339022+08:00" hostname="awen"><testcase classname="tests.test_tender_word_numbered_toc" name="test_recognized_format_title_anchors_existing_design_without_supplement[business-False]" time="2.824" /><testcase classname="tests.test_tender_word_numbered_toc" name="test_recognized_format_title_anchors_existing_design_without_supplement[technical-False]" time="1.146"><failure message="common.errors.AppError: 目录结构校验失败：目录区残留非页码目录条目或占位文字：施工组织设计">tests\test_tender_word_numbered_toc.py:249: in test_recognized_format_title_anchors_existing_design_without_supplement
+    result = generate_bid(brief, catalog_slots=[], catalog_media={})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\generate.py:88: in generate_bid
+    validate_native_toc(Document(dest))
+apps\api\services\tenders\native_format.py:1399: in validate_native_toc
+    raise AppError(
+E   common.errors.AppError: 目录结构校验失败：目录区残留非页码目录条目或占位文字：施工组织设计</failure></testcase><testcase classname="tests.test_tender_word_numbered_toc" name="test_recognized_format_title_anchors_existing_design_without_supplement[technical-True]" time="1.200"><failure message="common.errors.AppError: 目录结构校验失败：目录区残留非页码目录条目或占位文字：施工组织设计">tests\test_tender_word_numbered_toc.py:249: in test_recognized_format_title_anchors_existing_design_without_supplement
+    result = generate_bid(brief, catalog_slots=[], catalog_media={})
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\generate.py:88: in generate_bid
+    validate_native_toc(Document(dest))
+apps\api\services\tenders\native_format.py:1399: in validate_native_toc
+    raise AppError(
+E   common.errors.AppError: 目录结构校验失败：目录区残留非页码目录条目或占位文字：施工组织设计</failure></testcase><testcase classname="tests.test_tender_word_numbered_toc" name="test_recognized_format_title_anchors_existing_design_without_supplement[full-False]" time="2.357"><failure message="assert not True&#10; +  where True = any(&lt;generator object test_recognized_format_title_anchors_existing_design_without_supplement.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001CBFCC117D0&gt;)">tests\test_tender_word_numbered_toc.py:253: in test_recognized_format_title_anchors_existing_design_without_supplement
+    assert not any("原版格式章缺少「施工组织格式」" in s for s in result["warnings"])
+E   assert not True
+E    +  where True = any(&lt;generator object test_recognized_format_title_anchors_existing_design_without_supplement.&lt;locals&gt;.&lt;genexpr&gt; at 0x000001CBFCC117D0&gt;)</failure></testcase></testsuite></testsuites>

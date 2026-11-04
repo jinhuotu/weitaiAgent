@@ -1,0 +1,16 @@
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(272,7): error TS6133: 'OUTLINE_KIND_OPTIONS' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(325,10): error TS6133: 'setOutlineKind' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(343,10): error TS6133: 'outlinePolicyHint' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(456,10): error TS6133: 'onOutlineDragStart' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(468,10): error TS6133: 'onOutlineDragOver' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(475,10): error TS6133: 'onOutlineDrop' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(482,10): error TS6133: 'onOutlineDragEnd' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(854,16): error TS6133: 'loadOutlinePreview' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(975,10): error TS6133: 'setItemPolicy' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(2933,10): error TS6133: 'onDrawingsDrop' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(3080,68): error TS2345: Argument of type '{ includeCommitment: boolean; includePlaceholders: boolean; requiredSlotKeys: string[]; includeSlotKeys: string[]; outlineItems: { id: string; title: string; kind: OutlineKind | string; ... 10 more ...; rawTitle?: string | undefined; }[]; ... 90 more ...; volumeNote?: string | undefined; }' is not assignable to parameter of type 'BidBrief'.
+  Types of property 'generateVolume' are incompatible.
+    Type 'string' is not assignable to type '"full" | "business" | "technical" | undefined'.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(3082,43): error TS2345: Argument of type '{ includeCommitment: boolean; includePlaceholders: boolean; requiredSlotKeys: string[]; includeSlotKeys: string[]; outlineItems: { id: string; title: string; kind: OutlineKind | string; ... 10 more ...; rawTitle?: string | undefined; }[]; ... 90 more ...; volumeNote?: string | undefined; }' is not assignable to parameter of type 'BidBrief'.
+  Types of property 'generateVolume' are incompatible.
+    Type 'string' is not assignable to type '"full" | "business" | "technical" | undefined'.

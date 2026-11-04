@@ -1,0 +1,58 @@
+--- before/pdf_format.py
++++ apps/api/services/tenders/pdf_format.py
+@@ -3677,11 +3677,35 @@
+     # An underline tab can also advance the following label to its original
+     # column. Retain that existing tab as non-underlined layout, not a new tab
+     # or an empty underline beside the value. Hint text is not layout padding.
+-    alignment = (after.startswith('\t') or (el.find('w:pPr/w:tabs',el.nsmap) is not None
+-                 and re.match(r'^[（(](?:盖|签字|签章)',after)))
++    # A fixed label may be split across several runs. Inspect its original blob
++    # coordinates, before mutation (the next value may already be filled).
++    fixed_parts = []
++    filled_sizes = getattr(el.getroottree().getroot(), '_original_fill_sizes', {})
++    for run, node, a, b, text in tokens:
++        if b <= end:
++            continue
++        if node.tag != qn('w:t'):
++            break
++        part = text[max(0, end-a):]
++        if not part.strip(_BLANK_CHARS) or run in filled_sizes:
++            break
++        fixed_parts.append(part)
++        if re.search(r'[:：]', part):
++            break
++    fixed_label = ''.join(fixed_parts).strip()
++    tab_defs = el.findall('w:pPr/w:tabs/w:tab', el.nsmap)
++    column_boundary = (any(tab.get(qn('w:val'),'left') != 'clear' for tab in tab_defs)
++                       and bool(fixed_label)
++                       and not fixed_label.startswith(('(', '（', '[', '【', '{'))
++                       and bool(re.search(r'[:：]', fixed_label)))
++    alignment = after.startswith('\t') or column_boundary
+     saved_tabs = [t[1] for t in selected if t[1].tag == qn('w:tab') and _run_under(t[0])]
+     if not raw_blank or re.sub(r'[ _＿\u3000\t]', '', raw_blank) or not alignment:
+         saved_tabs = []
++    elif column_boundary:
++        # One dual-purpose tab restores the next column. Other blank tabs are
++        # underline padding, not additional column jumps.
++        saved_tabs = saved_tabs[-1:]
+     host = next((t[0] for t in selected if _run_under(t[0])),
+                 selected[0][0] if selected else None)
+     if host is None:
+@@ -3779,6 +3803,7 @@
+             underline.set(qn('w:val'),'none')
+             carrier.append(rpr)
+             carrier._fill_alignment_carrier = True
++            carrier._fill_layout_boundary = bool(column_boundary)
+             for tab in saved_tabs:
+                 carrier.append(tab)
+             host.addnext(carrier)
+@@ -3892,7 +3917,8 @@
+         # Remove only this renderer's adjacent carrier; original layout tabs
+         # and their tab-stop definitions stay intact.
+         following = filled.getnext()
+-        if following is not None and getattr(following,'_fill_alignment_carrier',False):
++        if (following is not None and getattr(following,'_fill_alignment_carrier',False)
++                and not getattr(following,'_fill_layout_boundary',False)):
+             following.getparent().remove(following)
+             _fit_filled_run(el,filled)
+             return

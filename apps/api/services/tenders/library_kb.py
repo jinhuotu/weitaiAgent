@@ -504,6 +504,7 @@ def _files_of(parent: KnowledgeDocument, children: list[KnowledgeDocument]) -> l
 
 
 def _file_entry(doc: KnowledgeDocument, path: Path) -> dict[str, object]:
+    from api.services.knowledge.expiry import expiry_fields
     ext = (doc.file_type or path.suffix.lstrip(".")).lower()
     title = (doc.name or path.stem or path.name).strip() or path.name
     line = load_perf_meta(doc.summary)
@@ -516,6 +517,7 @@ def _file_entry(doc: KnowledgeDocument, path: Path) -> dict[str, object]:
             title = label
     payload: dict[str, object] = {
         "id": doc.public_id,
+        **expiry_fields(doc),
         "fileId": doc.public_id,
         "name": title,
         "fileName": path.name,
@@ -572,6 +574,7 @@ def item_to_slot(
 
 async def library_facts(db: AsyncSession) -> list[dict]:
     from api.services.tenders.facts import view_facts
+    from api.services.knowledge.expiry import expiry_fields
 
     base = await ensure_library_base(db)
     docs = await _list_docs(db, base.id)
@@ -588,7 +591,8 @@ async def library_facts(db: AsyncSession) -> list[dict]:
             out.append(
                 {
                     "key": key,
-                    "fileId": doc.public_id,
+                    **expiry_fields(doc),
+        "fileId": doc.public_id,
                     "role": view.get("role") or "",
                     "fields": view.get("fields") or [],
                     "source": view.get("source") or "",
@@ -621,6 +625,7 @@ async def open_library_file(
     path = _doc_file_path(doc) if doc is not None else None
     if doc is None or path is None:
         raise AppError(ErrorCode.NOT_FOUND, "扫描件不存在", status_code=404)
+    from api.services.knowledge.expiry import expiry_fields
     ext = (doc.file_type or path.suffix.lstrip(".")).lower()
     title = (doc.name or path.stem or pid).strip() or pid
     if thumb:
@@ -772,6 +777,8 @@ async def _attach_id_extract(
 ) -> dict | None:
     del db
     text = await _read_id_text(path, doc.name or path.name)
+    from api.services.knowledge.expiry import apply_expiry
+    apply_expiry(doc, text)
     card = parse_id_card_text(text)
     known = _peer_cards(peers, doc.public_id)
     card = assign_person(card, [meta for _, meta in known])
@@ -809,6 +816,7 @@ async def _attach_facts_extract(db, doc, path: Path, *, key: str, title: str, hi
         title=title,
         hint=hint,
         filename=path.name,
+        expiry_document=doc,
     )
     if not bundle:
         return

@@ -1,0 +1,18 @@
+[
+  {
+    "file": "3d0a4ef456f5.format.docx",
+    "paragraphs": 2270,
+    "changed": 48,
+    "repeatStable": true,
+    "sourceUnchanged": true,
+    "sourceSha256": "8cf97178e5ea965d0bd2ee4c7e3c5d5d0f8b926bce2ceb59e7203465de00a8e5"
+  },
+  {
+    "file": "68a42d038c39.format.docx",
+    "paragraphs": 1233,
+    "changed": 21,
+    "repeatStable": true,
+    "sourceUnchanged": true,
+    "sourceSha256": "f4f571364590e05ce5be1b8dee1adbfe139415e80f5fa4cce0f5c49924d7cc8d"
+  }
+]

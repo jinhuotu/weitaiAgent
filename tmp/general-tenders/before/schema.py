@@ -1,0 +1,370 @@
+"""投标文件填空字段。邀请书可由 LLM 抽项目侧字段；投标人侧由表单/默认值提供。"""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+class PlaceholderItem(BaseModel):
+    """Word 中待补扫描件的方框。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    key: str = ""
+    title: str
+    hint: str = ""
+    attachToSection: str = ""
+
+
+class MaterialUse(BaseModel):
+    enabled: bool = False
+    fileIds: list[str] = Field(default_factory=list, max_length=30)
+    mode: Literal['scan', 'reference'] = 'scan'
+    targetSection: str = Field(default='', max_length=200)
+
+
+class QuoteLineIn(BaseModel):
+    """分项报价一行。由邀请书/工程量清单解析或页面改写。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    seq: str = ""
+    name: str = ""
+    spec: str = ""
+    unit: str = ""
+    qty: float = 0
+    unitPrice: float = Field(default=0, ge=0)
+    amount: float = Field(default=0, ge=0)
+    groups: list[str] = Field(default_factory=list)
+
+
+class DeviationLine(BaseModel):
+    """技术偏差表一行。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    seq: str = ""
+    requirement: str = ""
+    response: str = ""
+    deviation: str = ""
+    explanation: str = ""
+
+
+class PerformanceLine(BaseModel):
+    """企业业绩表一条（对应第五章类似项目/在建项目）。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    projectName: str = ""
+    spec: str = ""
+    location: str = ""
+    client: str = ""
+    contact: str = ""
+    amountYuan: float = Field(default=0, ge=0)
+    summary: str = ""
+    note: str = ""
+    ongoing: bool = False
+    chargerRelated: bool = False
+    includeInBid: bool = True
+
+
+class PerformanceRequirement(BaseModel):
+    """本标招标书对类似业绩的资格门槛。没有抽出则为空，不套用充电桩默认 20 万。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    similarScope: str = ""
+    keywords: list[str] = Field(default_factory=list)
+    minAmountYuan: float = Field(default=0, ge=0)
+    minCount: int = Field(default=0, ge=0, le=20)
+    requireCompleted: bool = False
+    note: str = ""
+
+
+OUTLINE_KINDS: tuple[str, ...] = (
+    "letter",
+    "legal_id",
+    "auth",
+    "quote",
+    "biz_dev",
+    "tech_dev",
+    "commitment_copy",
+    "scan",
+    "performance",
+    "factory",
+    "tech_plan",
+    "tech_chapter",
+    "company",
+    "unknown",
+)
+
+OUTLINE_SOURCES: tuple[str, ...] = ("generate", "copy", "skip")
+
+PAGE_NUMBER_POS: tuple[str, ...] = ("bottom-center", "bottom-right", "none")
+PAGE_NUMBER_START: tuple[str, ...] = ("toc", "body", "cover")
+TOC_NUMBERING: tuple[str, ...] = ("cn", "arabic", "paren", "attach")
+
+
+class VolumeFormat(BaseModel):
+    """某一卷里标书写明的版式。没写明的开关是假，生成时不拿默认值去改范本。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    marginSet: bool = False
+    marginLeftCm: float = Field(default=2.8, ge=1.0, le=5.0)
+    marginRightCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginTopCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginBottomCm: float = Field(default=2.5, ge=1.0, le=5.0)
+    fontSet: bool = False
+    fontName: str = ""
+    bodySizeSet: bool = False
+    bodySizePt: float = Field(default=12, ge=8, le=26)
+    pagePosSet: bool = False
+    pageStartSet: bool = False
+    pageNumberPos: str = ""
+    pageNumberStart: str = ""
+    notes: list[str] = Field(default_factory=list)
+
+
+class DocumentFormat(BaseModel):
+    """招标书抽出的排版要求。未写明的字段保持默认，不臆造。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    specified: bool = False
+    notes: list[str] = Field(default_factory=list)
+
+    marginLeftCm: float = Field(default=2.8, ge=1.0, le=5.0)
+    marginRightCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginTopCm: float = Field(default=2.6, ge=1.0, le=5.0)
+    marginBottomCm: float = Field(default=2.5, ge=1.0, le=5.0)
+
+    fontName: str = Field(default="宋体", max_length=32)
+    bodySizePt: float = Field(default=12, ge=8, le=26)
+    headingSizePt: float = Field(default=16, ge=10, le=26)
+    coverTitleSizePt: float = Field(default=22, ge=12, le=42)
+    coverDocSizePt: float = Field(default=26, ge=14, le=42)
+    tocTitleSizePt: float = Field(default=16, ge=10, le=26)
+    tocItemSizePt: float = Field(default=12, ge=9, le=18)
+
+    coverRequired: bool = True
+    coverShowProject: bool = True
+    coverShowTenderNo: bool = True
+    coverShowBidder: bool = True
+    coverShowCopyMark: bool = True
+    coverCopyMark: str = Field(default="正本", max_length=8)
+    coverShowDate: bool = True
+    coverNeedSeal: bool = False
+
+    tocNumbering: str = Field(default="cn", max_length=12)
+    tocNeedPageNos: bool = True
+
+    pageNumberPos: str = Field(default="bottom-center", max_length=24)
+    pageNumberStart: str = Field(default="body", max_length=12)
+    businessFormat: VolumeFormat = Field(default_factory=VolumeFormat)
+    technicalFormat: VolumeFormat = Field(default_factory=VolumeFormat)
+
+
+class BidRequirement(BaseModel):
+    """招标书里的资格/评分/佐证要求，用于生成对照，不进组卷目录。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = ""
+    text: str = ""
+    category: str = "qualification"
+    targetKind: str = ""
+    targetTitle: str = ""
+    # general：原分类器条目。mandatory：★/废标/否决/实质性/无效投标/不予受理/不得。评分项这期不抽。
+    strength: str = "general"
+    scoreWeight: float | None = None
+    sourceChapter: str = ""
+    sourcePage: str = ""
+    # matched 有证据；gap 有落点但没填；unbound 格式章无此空；format 只提示。
+    matchStatus: str = ""
+    slotKey: str = ""
+    matchNote: str = ""
+    # business / technical。否决项必须落在一卷里，空的不进任何一卷的清单和质检。
+    volume: str = ""
+    # 下面三项给生成和质检用。空的由程序按 category 补，不改原有分类语义。
+    reqType: str = ""
+    attachToSection: str = ""
+    respond: str = ""
+    display: str = ""
+
+
+class OutlineItem(BaseModel):
+    """招标书「投标/响应文件格式」里的一条组卷要求。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: str = ""
+    title: str
+    kind: str = "unknown"
+    source: str = "copy"
+    required: bool = True
+    skipped: bool = False
+    # Forms/materials remain available for body filling, but never become TOC chapters.
+    tocEligible: bool | None = None
+    body: str = ""
+    # 招标原文；组卷时不得当投标响应。
+    inviteExcerpt: str = ""
+    draftBody: str = ""
+    draftStatus: str = "empty"
+    level: int = Field(default=1, ge=1, le=4)
+    # 招标书原文标题（含「一、」「A.」）。按标书生成时目录和正文用它，不再另编序号。
+    rawTitle: str = ""
+
+
+class BidBrief(BaseModel):
+    """一次生成所需的全部填空项。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    projectName: str = Field(default="")
+    tenderer: str = Field(default="")
+    bidContent: str = Field(default="")
+    quality: str = Field(default="合格")
+    deliveryDays: int = Field(default=30, ge=1, le=3650)
+    warrantyYears: int = Field(default=2, ge=1, le=20)
+    bidValidityDays: int = Field(default=60, ge=1, le=365)
+    bidPriceYuan: float = Field(default=0, ge=0)
+    prepaidPct: int = Field(default=30, ge=0, le=100)
+    arrivalPct: int = Field(default=50, ge=0, le=100)
+    settlementPct: int = Field(default=17, ge=0, le=100)
+    warrantyPct: int = Field(default=3, ge=0, le=100)
+    bidDate: str = Field(default_factory=lambda: date.today().isoformat())
+    tenderNo: str = Field(default="")
+    lotName: str = Field(default="")
+
+    bidderName: str = Field(default="河南伟泰光电科技有限公司")
+    bidderNature: str = Field(default="有限责任公司")
+    bidderAddress: str = Field(
+        default="河南省郑州市高新区开发区梧桐街与红松路交叉口东南角远大产业园区内6号楼三层"
+    )
+    bidderWebsite: str = Field(default="")
+    bidderPhone: str = Field(default="17630567052")
+    bidderFax: str = Field(default="")
+    bidderPostcode: str = Field(default="")
+    bidderEmail: str = Field(default="gzwceo@163.com")
+    foundedDate: str = Field(default="2017年07月")
+    businessTerm: str = Field(default="长期")
+
+    legalPersonName: str = Field(default="郭志伟")
+    legalPersonGender: str = Field(default="男")
+    legalPersonAge: str = Field(default="28")
+    legalPersonTitle: str = Field(default="执行董事")
+    legalPersonIdNo: str = Field(default="410521199802104053")
+    # 资料库身份证归人键（证号）。多本时生成前必须选；空且库里只有一位则生成时自动用那位。
+    legalPersonKey: str = Field(default="")
+
+    agentName: str = Field(default="")
+    agentIdNo: str = Field(default="")
+    agentAuthUntil: str = Field(default="")
+    # required=招标书强制委托；optional=有格式页但法人可自签；空=未抽出
+    authNeed: str = Field(default="")
+    # 经办人开关：默认关，关着不校验委托人；打开才入卷并要填姓名/证号
+    authEnabled: bool = Field(default=False)
+
+    trafficFeeNote: str = Field(default="质保期外流量年收费标准：7元/年")
+    extraNote: str = Field(default="")
+    factoryRole: str = Field(default="")
+    # 邀请书抽出的控制价/保证金；None=未抽出，0 也要按原文填写。
+    controlPriceYuan: float | None = Field(default=None)
+    safetyFeeYuan: float | None = Field(default=None)
+    provisionalYuan: float | None = Field(default=None)
+    primeCostYuan: float | None = Field(default=None)
+    bidBondYuan: float | None = Field(default=None)
+    pmName: str = Field(default="")
+    pmCertNo: str = Field(default="")
+    pmGrade: str = Field(default="")
+    defectPeriod: str = Field(default="")
+    perfBond: str = Field(default="")
+    attachQualifications: bool = Field(default=False)
+    includePlaceholders: bool = Field(default=False)
+    includeCommitment: bool = Field(default=True)
+    extraPlaceholders: list[PlaceholderItem] = Field(default_factory=list)
+    requiredSlotKeys: list[str] = Field(default_factory=list)
+    includeSlotKeys: list[str] = Field(default_factory=list)
+
+    quoteTitle: str = Field(default="")
+    quoteTaxRate: float = Field(default=0.13, ge=0, le=1)
+    quoteSourceIncTax: float = Field(default=0, ge=0)
+    quoteSource: str = Field(default="")
+    quoteSourceName: str = Field(default="")
+    quoteSourceTitle: str = Field(default="")
+    quoteSourceProjects: list[str] = Field(default_factory=list)
+    quoteMatchStatus: str = Field(default="")
+    quoteMatchNote: str = Field(default="")
+    quoteAutoPrice: bool = Field(default=False)
+    quoteLines: list[QuoteLineIn] = Field(default_factory=list)
+    quoteHeaders: list[str] = Field(default_factory=list)
+    quoteRoles: list[str] = Field(default_factory=list)
+    deviationLines: list[DeviationLine] = Field(default_factory=list)
+    bizDeviationLines: list[DeviationLine] = Field(default_factory=list)
+    bizDevHeaders: list[str] = Field(default_factory=list)
+    techDevHeaders: list[str] = Field(default_factory=list)
+    performanceLines: list[PerformanceLine] = Field(default_factory=list)
+    performanceRequirement: PerformanceRequirement = Field(default_factory=PerformanceRequirement)
+
+    constructionPlan: str = Field(default="")
+    layoutPlan: str = Field(default="")
+    powerPlan: str = Field(default="")
+    omPlan: str = Field(default="")
+    schedulePlan: str = Field(default="")
+    techPlanNote: str = Field(default="")
+    autoDraftTechPlan: bool = Field(default=False)
+    autoDraftBizResp: bool = Field(default=False)
+    techPlanSourceIds: list[str] = Field(default_factory=list)
+    # New archives are opt-in inputs; never synthesize outline/placeholder items.
+    materialSelections: dict[str, MaterialUse] = Field(default_factory=dict, max_length=12)
+    techPlanKbIds: list[str] = Field(default_factory=list)
+    bizRespKbIds: list[str] = Field(default_factory=list)
+
+    # chapter5：公司固定投标文件格式（可更换空白稿）；outline：按本标截出的格式章组卷。
+    layoutMode: str = Field(default="chapter5")
+    # 格式章不完整时，由全文提交要求综合大纲，使用自动封面和目录组卷。
+    requirementsDriven: bool = Field(default=False)
+    # 按本标时，用户预览并点「确认使用这份模板」后才允许生成。目录条目不参与组卷。
+    formatConfirmed: bool = Field(default=False)
+    # business=只出商务标；technical=只出技术标；full=完整投标文件。空值仍按商务标。
+    generateVolume: str = Field(default="business")
+    generateBoth: bool = Field(default=False)
+    # 解析写入。full=不强制分卷；split=商务/技术分册。生成请求已带卷别时不改 generateVolume。
+    volumeAdvice: str = Field(default="")
+    techAnonymous: bool = Field(default=False)
+    volumeNote: str = Field(default="")
+    # 只在分卷那次的商务卷上为真，用来裁掉格式章里的技术部分。普通商务标保持 False。
+    splitSlice: bool = Field(default=False)
+    outlineChapter: str = Field(default="")
+    outlineItems: list[OutlineItem] = Field(default_factory=list)
+    bidRequirements: list[BidRequirement] = Field(default_factory=list)
+    documentFormat: DocumentFormat = Field(default_factory=DocumentFormat)
+    # 解析邀请书时写入，供生成后对照原文做 AI 质检。
+    invitationId: str = Field(default="", max_length=16)
+
+
+COMPANY_FIELD_KEYS: tuple[str, ...] = (
+    "bidderName",
+    "bidderNature",
+    "bidderAddress",
+    "bidderWebsite",
+    "bidderPhone",
+    "bidderFax",
+    "bidderPostcode",
+    "bidderEmail",
+    "foundedDate",
+    "businessTerm",
+    "legalPersonName",
+    "legalPersonGender",
+    "legalPersonAge",
+    "legalPersonTitle",
+    "legalPersonIdNo",
+)
+
+
+def default_brief() -> BidBrief:
+    return BidBrief()

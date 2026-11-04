@@ -1,0 +1,354 @@
+--- pdf_format.before.py
++++ pdf_format.py
+@@ -3439,6 +3439,7 @@
+         _swap_tokens(el, brief)
+         _fill_para_blanks(el, brief)
+         _fill_label_gap(el, brief)
++        _relax_signature_flow(el)
+     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
+         _swap_tokens(tbl, brief)
+         _fill_amount_pairs(tbl, brief)
+@@ -3620,76 +3621,264 @@
+     return "".join(token[4] for token in _blank_tokens(el))
+ 
+ 
++def _layout_tab(token, blob):
++    run,node,_,end,_ = token
++    tail = blob[end:].split('\n',1)[0].lstrip(' \t\u3000')
++    # Tabs embedded in one blank span (or before date-unit glyphs) are slot
++    # padding, not a boundary between two labelled columns.
++    padding = tail.startswith(('_','＿')) or bool(re.match(r'^[年月日](?:[\d年月日 _＿\t\u3000]|$)',tail))
++    return (node.tag == qn('w:tab') and not _run_under(run)
++            and bool(tail) and not padding)
++
++
+ def _write_blank_span(el, start: int, end: int, value: str) -> None:
+-    """Replace the complete blank once, preserving surrounding runs and rPr."""
++    """Write in the original underline run; retain layout tabs and fixed labels."""
+     if value is None:
+         return
+     tokens = list(_blank_tokens(el))
+     blob = "".join(t[4] for t in tokens)
+-    while start > 0 and blob[start - 1] in _BLANK_CHARS:
++    def blank_at(index):
++        if blob[index] not in _BLANK_CHARS:
++            return False
++        return blob[index] != '\t' or any(t[2] <= index < t[3] and not _layout_tab(t,blob)
++                                          for t in tokens)
++    while start > 0 and blank_at(start - 1):
+         start -= 1
+-    while end < len(blob) and blob[end] in _BLANK_CHARS:
++    while end < len(blob) and blank_at(end):
+         end += 1
+-    selected = [t for t in tokens if t[2] < end and t[3] > start]
++    while start < end and blob[start] == '\t' and not blank_at(start):
++        start += 1
++    while end > start and blob[end-1] == '\t' and not blank_at(end-1):
++        end -= 1
++    # A plain tab separates fields/columns. An underlined tab is the blank
++    # itself, and is replaced with the value rather than retained beside it.
++    selected = [t for t in tokens if t[2] < end and t[3] > start
++                and not _layout_tab(t,blob)]
+     if start == end:
+         selected = [t for t in tokens if t[2] <= start < t[3]][:1]
+     if any(t[1].tag not in {qn("w:t"), qn("w:tab")} for t in selected):
+         return
+-    first_run = selected[0][0] if selected else next(reversed(list(el.iter(qn("w:r")))), None)
+-    if first_run is None:
+-        return
+-    value_run = OxmlElement("w:r")
+-    style_run = next((t[0] for t in selected if _run_under(t[0])), first_run)
+-    rpr = style_run.find(qn("w:rPr"))
+-    if rpr is not None:
+-        value_run.append(deepcopy(rpr))
++    raw_blank = blob[start:end]
++    after = blob[end:]
++    # An underline tab can also advance the following label to its original
++    # column. Retain that existing tab as non-underlined layout, not a new tab
++    # or an empty underline beside the value. Hint text is not layout padding.
++    alignment = (after.startswith('\t') or (el.find('w:pPr/w:tabs',el.nsmap) is not None
++                 and re.match(r'^[（(](?:盖|签字|签章)',after)))
++    saved_tabs = [t[1] for t in selected if t[1].tag == qn('w:tab') and _run_under(t[0])]
++    if not raw_blank or re.sub(r'[ _＿\u3000\t]', '', raw_blank) or not alignment:
++        saved_tabs = []
++    host = next((t[0] for t in selected if _run_under(t[0])),
++                selected[0][0] if selected else None)
++    if host is None:
++        last = next(reversed(list(el.iter(qn('w:r')))), None)
++        if last is not None and value:
++            host = OxmlElement('w:r')
++            rpr = last.find(qn('w:rPr'))
++            if rpr is not None:
++                host.append(deepcopy(rpr))
++            _set_run_text(host, value.strip())
++            last.addnext(host)
++            _fit_filled_run(el, host)
++        return
++    # Split only substantive prefix/suffix content that shares the host run.
++    # The original run remains the value's physical anchor and keeps its rPr.
++    owned = [t for t in tokens if t[0] is host]
++    for left in (True, False):
++        piece = OxmlElement('w:r')
++        rpr = host.find(qn('w:rPr'))
++        if rpr is not None:
++            piece.append(deepcopy(rpr))
++        for _, node, a, b, text in owned:
++            part = text[:max(0, start - a)] if left else text[max(0, end - a):]
++            # Full tabs/breaks outside the blank retain their original OOXML.
++            if part:
++                clone = deepcopy(node)
++                if clone.tag == qn('w:t'):
++                    clone.text = part
++                    clone.set('{http://www.w3.org/XML/1998/namespace}space', 'preserve')
++                piece.append(clone)
++        if len(piece) > (1 if piece.find(qn('w:rPr')) is not None else 0):
++            if left:
++                host.addprevious(piece)
++            else:
++                host.addnext(piece)
++    for run, node, a, _, text in selected:
++        if run is host:
++            continue
++        if node.tag == qn('w:tab'):
++            run.remove(node)
++        else:
++            node.text = text[:max(0, start - a)] + text[max(0, end - a):]
++    for child in list(host):
++        if child.tag != qn('w:rPr'):
++            host.remove(child)
+     blank = "".join(c for c in blob[start:end] if c in _BLANK_CHARS)
+     if blank:
+-        rpr = value_run.find(qn("w:rPr"))
++        rpr = host.find(qn("w:rPr"))
+         if rpr is None:
+             rpr = OxmlElement("w:rPr")
+-            value_run.insert(0, rpr)
+-        if not _run_under(value_run):
++            host.insert(0, rpr)
++        if not _run_under(host):
+             underline = rpr.find(qn("w:u"))
+             if underline is None:
+                 underline = OxmlElement("w:u")
+                 rpr.append(underline)
+             underline.set(qn("w:val"), "single")
+-        # Let the value occupy its natural width; never compress long names
+-        # into a guessed underscore width or add padding beside the value.
+         for fit in list(rpr.findall(qn("w:fitText"))):
+             rpr.remove(fit)
+-    _set_run_text(value_run, value.strip())
+-    if not selected:
+-        first_run.addnext(value_run)
+-        return
+-    # Split only the first run at the start. A label sharing that run must keep
+-    # its original formatting instead of inheriting the value's underline.
+-    _, first_node, a, _, original = selected[0]
+-    left_run = OxmlElement("w:r")
+-    if first_run.find(qn("w:rPr")) is not None:
+-        left_run.append(deepcopy(first_run.find(qn("w:rPr"))))
+-    for child in list(first_run):
+-        if child is first_node:
++    _set_run_text(host, value.strip())
++    for run in {t[0] for t in selected} - {host}:
++        if all(child.tag == qn('w:rPr') or (child.tag == qn('w:t') and not child.text) for child in run):
++            run.getparent().remove(run)
++    # Repair the legacy shape: empty underlined run + separately appended value.
++    following = host.getnext()
++    if blank and value and following is not None and following.tag == qn('w:r'):
++        existing = _run_text(following).strip()
++        suffix = existing[len(value.strip()):].strip() if existing.startswith(value.strip()) else ''
++        if (suffix and re.fullmatch(r'[（(](?:盖单位(?:公)?章|盖章|签字(?:或盖章)?|签章)[）)]',suffix)
++                and all(child.tag in {qn('w:rPr'),qn('w:t')} for child in following)):
++            _set_run_text(following, suffix)
++        if _run_text(following).strip() == value.strip() and all(child.tag in {qn('w:rPr'),qn('w:t')} for child in following):
++            following.getparent().remove(following)
++            following = host.getnext()
++            while following is not None and following.tag == qn('w:r') and _run_under(following):
++                if any(child.tag not in {qn('w:rPr'),qn('w:t'),qn('w:tab')} for child in following):
++                    break
++                if re.sub(r'[\s_＿]', '', _run_text(following)):
++                    break
++                extra = following
++                following = following.getnext()
++                extra.getparent().remove(extra)
++    if not value:
++        host.getparent().remove(host)
++    else:
++        if saved_tabs:
++            carrier = OxmlElement('w:r')
++            rpr = deepcopy(host.find(qn('w:rPr')))
++            if rpr is None:
++                rpr = OxmlElement('w:rPr')
++            underline = rpr.find(qn('w:u'))
++            if underline is None:
++                underline = OxmlElement('w:u')
++                rpr.append(underline)
++            underline.set(qn('w:val'),'none')
++            carrier.append(rpr)
++            for tab in saved_tabs:
++                carrier.append(tab)
++            host.addnext(carrier)
++        _fit_filled_run(el, host)
++
++
++def _fill_font_half(run, para):
++    for source in [run, para.find(qn('w:pPr')), *para.findall(qn('w:r'))]:
++        size = source.find('w:rPr/w:sz', source.nsmap) if source is not None else None
++        if size is not None and size.get(qn('w:val'), '').isdigit():
++            return int(size.get(qn('w:val')))
++    return 24
++
++
++def _fill_line_width(el):
++    body = next(el.iterancestors(qn('w:body')), None)
++    section = body.find(qn('w:sectPr')) if body is not None else None
++    block = el
++    while block.getparent() is not None and block.getparent() is not body:
++        block = block.getparent()
++    if body is not None:
++        for sibling in list(body)[list(body).index(block):]:
++            boundary = sibling.find('w:pPr/w:sectPr', sibling.nsmap)
++            if boundary is not None:
++                section = boundary
++                break
++    width = 9000
++    if section is not None:
++        size, margin = section.find(qn('w:pgSz')), section.find(qn('w:pgMar'))
++        if size is not None and margin is not None:
++            width = int(size.get(qn('w:w'),'11906')) - sum(int(margin.get(qn('w:'+name),'0')) for name in ('left','right'))
++    cell = next(el.iterancestors(qn('w:tc')), None)
++    if cell is not None:
++        size = cell.find('w:tcPr/w:tcW', cell.nsmap)
++        if size is not None and size.get(qn('w:type'),'dxa') == 'dxa':
++            width = min(width, int(size.get(qn('w:w'),'9000'))) - 216
++    indent = el.find('w:pPr/w:ind', el.nsmap)
++    if indent is not None:
++        width -= sum(int(indent.get(qn('w:'+name),'0')) for name in ('left','right'))
++    return max(20, width)
++
++
++def _fit_filled_run(el, filled):
++    """Shrink only a value run to the next layout tab or the line's right edge."""
++    tokens = list(_blank_tokens(el))
++    index = next((i for i,t in enumerate(tokens) if t[0] is filled), None)
++    if index is None:
++        return
++    half = _fill_font_half(filled, el)
++    indent = el.find('w:pPr/w:ind', el.nsmap)
++    left = int(indent.get(qn('w:left'),'0')) if indent is not None else 0
++    first = (int(indent.get(qn('w:firstLine'),'0')) - int(indent.get(qn('w:hanging'),'0'))) if indent is not None else 0
++    tabs = sorted(int(tab.get(qn('w:pos'),'0')) - left for tab in el.findall('w:pPr/w:tabs/w:tab', el.nsmap)
++                  if tab.get(qn('w:val'),'left') != 'clear')
++    def advance(x):
++        return next((stop for stop in tabs if stop > x + 1), (int(x+left)//720 + 1)*720-left)
++    x = float(first)
++    for run, node, _, _, text in tokens[:index]:
++        if node.tag == qn('w:tab'):
++            x = advance(x)
++        elif node.tag == qn('w:t'):
++            x += _vis_width(text) * _fill_font_half(run, el) * 5
++        else:
++            x = 0.0
++    suffix = 0.0
++    edge = _fill_line_width(el)
++    for run,node,_,_,text in tokens[index+1:]:
++        if run is filled:
++            continue
++        if node.tag == qn('w:tab'):
++            edge = min(edge, advance(x))
+             break
+-        if child.tag != qn("w:rPr"):
+-            first_run.remove(child)
+-            left_run.append(child)
+-    prefix = original[:max(0, start - a)]
+-    if prefix:
+-        node = OxmlElement("w:t")
+-        node.text = prefix
+-        node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+-        left_run.append(node)
+-    if any(child.tag != qn("w:rPr") for child in left_run):
+-        first_run.addprevious(left_run)
+-    first_run.addprevious(value_run)
+-    for run, node, a, b, text in selected:
+-        if node.tag == qn("w:tab"):
+-            run.remove(node)
+-        else:
+-            left = "" if node is first_node else text[:max(0, start - a)]
+-            node.text = left + text[max(0, end - a):]
++        if node.tag != qn('w:t'):
++            break
++        suffix += _vis_width(text) * _fill_font_half(run, el) * 5
++    needed = _vis_width(_run_text(filled)) * half * 5
++    room = max(10, edge - x - suffix - 40)
++    if needed <= room or needed <= 0:
++        return
++    size = max(2, min(half, int(half * room / needed)))
++    rpr = filled.get_or_add_rPr()
++    for name in ('sz','szCs'):
++        node = rpr.find(qn('w:' + name))
++        if node is None:
++            node = OxmlElement('w:' + name)
++            rpr.append(node)
++        node.set(qn('w:val'), str(size))
++
++
++def _relax_signature_flow(el):
++    """A signature/contact line may flow naturally; never glue the whole block."""
++    text = re.sub(r'\s+', '', _el_text(el))
++    labelled = re.match(r'^(?:投标人(?:名称|或联合体牵头人)?|法定代表人(?:或其?委托代理人)?|委托代理人|地址|网址|电话|传真|邮政编码|邮箱|日期)[:：]', text)
++    dated = re.fullmatch(r'(?:日期[:：]?)?\d{4}年\d{1,2}月\d{1,2}日', text)
++    if not dated and (not labelled or '。' in text):
++        return
++    props = el.find(qn('w:pPr'))
++    if props is None or all(props.find(qn('w:' + name)) is None for name in ('keepLines','keepNext')):
++        return
++    following = el.getnext()
++    suffix = (following is not None and following.tag == qn('w:p')
++              and re.fullmatch(r'[（(](?:盖单位(?:公)?章|签字(?:或盖章)?)[）)]', re.sub(r'\s+','',_el_text(following))))
++    for name, flag in [('keepLines',False),('keepNext',bool(suffix))]:
++        node = props.find(qn('w:' + name))
++        if node is None:
++            node = OxmlElement('w:' + name)
++            props.append(node)
++        node.set(qn('w:val'),'1' if flag else '0')
++    if suffix:
++        for name in ('keepLines','keepNext'):
++            node = following.get_or_add_pPr().find(qn('w:' + name))
++            if node is None:
++                node = OxmlElement('w:' + name)
++                following.get_or_add_pPr().append(node)
++            node.set(qn('w:val'),'0')
+ 
+ 
+ def _replace_span_at(el, start: int, end: int, value: str) -> None:
+@@ -3758,7 +3947,6 @@
+         run.remove(tab)
+     body = (text or "").strip()
+     _set_run_text(run, body)
+-    _drop_blank_tab(run)
+ 
+ 
+ def _drop_blank_tab(run) -> None:
+@@ -3841,7 +4029,7 @@
+ 
+ def _fill_para_blanks(el, brief) -> None:
+     blob = _blank_text(el)
+-    for match in reversed(list(re.finditer(r"[ _＿\u3000\t]+", blob))):
++    for match in reversed(_blank_ranges(el)):
+         raw = match.group()
+         under = any(_run_under(r) for r, _, a, b, _ in _blank_tokens(el)
+                     if a < match.end() and b > match.start())
+@@ -3851,6 +4039,14 @@
+         value = _blank_value(label, brief)
+         if value:
+             _write_blank_span(el, match.start(), match.end(), value)
++
++
++def _blank_ranges(el):
++    """Separate underline fields at plain layout tabs and paragraph breaks."""
++    tokens = list(_blank_tokens(el))
++    original = ''.join(t[4] for t in tokens)
++    blob = ''.join('\n' if _layout_tab(token,original) else token[4] for token in tokens)
++    return list(re.finditer(r'[ _＿\u3000\t]+', blob))
+ 
+ 
+ def _fill_label_gap(el, brief) -> None:

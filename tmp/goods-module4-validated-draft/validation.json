@@ -1,0 +1,112 @@
+{
+  "technical_files": 10,
+  "business_files": 1,
+  "price_forms": 4,
+  "parameter_rows": 769,
+  "response_statuses": {
+    "待确认": 769
+  },
+  "warnings": 892,
+  "warning_types": {
+    "package_scope_pending": 1,
+    "ssot_pending": 88,
+    "platform_limits_pending": 1,
+    "package_assignment_pending": 1,
+    "business_forms_pending": 1,
+    "business_missing": 8,
+    "business_unresolved": 2,
+    "price_template_selection_pending": 1,
+    "price_values_pending": 1,
+    "ssot_conflict": 15,
+    "ssot_warning": 2,
+    "technical_pending": 769,
+    "business_selection_pending": 2
+  },
+  "package_keys": [
+    "scope_pending"
+  ],
+  "source_hashes_verified": 29,
+  "technical_structure_verified": true,
+  "price_tables_unchanged": true,
+  "visual_verified": false,
+  "visual_failure": "本机未找到LibreOffice soffice.exe，未完成逐页PNG检查",
+  "render_diagnostics": "tmp/goods-render-diagnostics.log",
+  "ready_for_submission": false,
+  "artifacts": [
+    {
+      "path": "scope_pending\\business\\business.docx",
+      "size": 37393,
+      "sha256": "0e095f12827d360b2589d25c4eb26c98f65c3092e37d06d25b13761436f5197b"
+    },
+    {
+      "path": "scope_pending\\price\\form-a7b1ad1d7082b4848f995339-16.docx",
+      "size": 17022564,
+      "sha256": "56c3c708a2ef544a5eb8daad9c04f184b4e51cb8a81024ca37c9885b40f0205a"
+    },
+    {
+      "path": "scope_pending\\price\\form-a7b1ad1d7082b4848f995339-17.docx",
+      "size": 17023478,
+      "sha256": "a3c513058df3a79a702d105a554127da1197a3ab381f5750121523122f31f9d4"
+    },
+    {
+      "path": "scope_pending\\price\\form-a7b1ad1d7082b4848f995339-19.docx",
+      "size": 17022598,
+      "sha256": "14b47d879cdca2de65fd14156a62e55a5822bd6d26d5c49dd7743748748fd83d"
+    },
+    {
+      "path": "scope_pending\\price\\form-a7b1ad1d7082b4848f995339-20.docx",
+      "size": 17023603,
+      "sha256": "021991b8c3f6f47032935b32dbead72b56020debbccfcd76f51fb6363b87b2c8"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500107624-00001.docx",
+      "size": 6076,
+      "sha256": "b394cddc62ac8cbd4add40188016a84df8b1b066b79da88aff1f5f9abff65db3"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500107868-00001.docx",
+      "size": 6071,
+      "sha256": "b0724094fa7b2f7525b7ac25890e40e5709607c0ca91ddd2e9f76b1f2b424237"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500107869-00001.docx",
+      "size": 6068,
+      "sha256": "86bb6fd953ca08f32ab07a275cfdafadd8564d0d1c24482ade502a0b090212eb"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108108-00001.docx",
+      "size": 6068,
+      "sha256": "ec078fe91943be3123bc2a47341e52ee8063eb515f379f98365ef8acd164782f"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108211-00001.docx",
+      "size": 6069,
+      "sha256": "63836d403897f5cac9ceff9e02351cc192493ccd1e7a14e5281facc38547a80c"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108302-00002.docx",
+      "size": 6067,
+      "sha256": "e5cc0adf0e6ac2a4ee20d2f6edb5b25703700931830947bfed76fa30fb06e7a0"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108449-00001.docx",
+      "size": 6065,
+      "sha256": "5b75a86a2a1f85fac9f6ee3c6b8b24f91f9b2381972d83425536595c663c65b9"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108478-00001.docx",
+      "size": 6061,
+      "sha256": "ddbff39923900dbb9d49a35ad368a4b63b900f556b3925fdde4a94313b896bd6"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500108651-00001.docx",
+      "size": 6062,
+      "sha256": "524e355d88a12de3beeac4c31a4426c177c67ca3695401a8d22c6ca8bcfa2ae8"
+    },
+    {
+      "path": "scope_pending\\technical\\9985-500138466-00001.docx",
+      "size": 6050,
+      "sha256": "17206b8dc84a68de327ff77943f1f6d9c1ce35112eff415eba5f353903fee191"
+    }
+  ]
+}

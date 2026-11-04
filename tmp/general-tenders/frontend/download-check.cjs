@@ -1,0 +1,25 @@
+const fs = require('fs');
+const vm = require('vm');
+const assert = require('assert/strict');
+const ts = require('E:/code/python/weitaiAgentui/node_modules/typescript');
+const code = fs.readFileSync('E:/code/python/weitaiAgentui/src/lib/tenders-api.ts','utf8');
+const js = ts.transpileModule(code,{ compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const calls=[];
+const tenderExports={};
+vm.runInNewContext(js,{exports:tenderExports, URLSearchParams, FormData, require:(name)=> name==='./auth' ? {getAccessToken:()=> 'test-token'} : {apiDownload:async(...args)=>calls.push(args),apiRequest:async()=>({})}});
+const row={docxFile:'biz.docx',downloadName:'business-name.docx',techDocxFile:'tech.docx',techDownloadName:'technical-name.docx',projectName:'project'};
+assert.equal(tenderExports.volumeDocx({...row,generateVolume:'full',downloadName:'full-name.docx'},'full').file,'biz.docx');
+assert.equal(tenderExports.volumeDocx({...row,generateVolume:'full',downloadName:'full-name.docx'},'business').name,'full-name.docx');
+assert.equal(tenderExports.volumeDocx({...row,generateVolume:'full'},'technical').file,'');
+assert.equal(tenderExports.volumeDocx({...row,generateVolume:'business'},'full').file,'');
+assert.equal(tenderExports.volumeDocx(row,'technical').file,'tech.docx');
+assert.equal(tenderExports.volumeDocx(row,'business').file,'biz.docx');
+assert.equal(tenderExports.volumeDocx({...row,techDocxFile:undefined},'technical').file,'');
+assert.equal(tenderExports.volumeDocx({docxFile:'full.docx',generateVolume:'full',projectName:'project'},'full').name,'project-综合标.docx');
+(async()=>{
+ await tenderExports.downloadTenderFile('full.docx','本次项目-投标文件.docx');
+ assert.equal(calls.length,1);
+ assert.equal(calls[0][1].fallbackName,'本次项目-投标文件.docx');
+ assert.equal(new URL(calls[0][0],'http://localhost').searchParams.get('download_name'),'本次项目-投标文件.docx');
+ console.log('PASS: full/business/technical selection, absent peer, filename and download request (10 assertions)');
+})().catch(err=>{console.error(err);process.exitCode=1});

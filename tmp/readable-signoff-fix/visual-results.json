@@ -1,0 +1,37 @@
+{
+  "contacts-fixed": {
+    "pages": 1,
+    "minFont": 12.0,
+    "chars": 71
+  },
+  "contacts-source": {
+    "pages": 1,
+    "minFont": 12.0,
+    "chars": 23
+  },
+  "gap-fixed": {
+    "pages": 1,
+    "minFont": 12.0,
+    "chars": 161
+  },
+  "gap-source": {
+    "pages": 1,
+    "minFont": 1.0,
+    "chars": 119
+  },
+  "readability-fixed": {
+    "pages": 1,
+    "minFont": 9.0,
+    "chars": 214
+  },
+  "readability-old": {
+    "pages": 1,
+    "minFont": 4.5,
+    "chars": 214
+  },
+  "readability-source": {
+    "pages": 1,
+    "minFont": 12.0,
+    "chars": 40
+  }
+}

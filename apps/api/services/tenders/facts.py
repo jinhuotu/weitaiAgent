@@ -233,12 +233,15 @@ def guess_role(key: str, title: str) -> str:
     return "company"
 
 
-async def extract_facts(db, path: Path, *, key: str, title: str, hint: str, filename: str) -> dict | None:
+async def extract_facts(db, path: Path, *, key: str, title: str, hint: str, filename: str, expiry_document=None) -> dict | None:
     text = ""
     try:
         from api.services.knowledge.parsers import extract_text_from_file
 
         extracted = await extract_text_from_file(path, ext=path.suffix.lower().lstrip("."))
+        if expiry_document is not None:
+            from api.services.knowledge.expiry import apply_expiry
+            apply_expiry(expiry_document, extracted.text or "")
         text = (extracted.text or "")[:_MAX_CHARS]
     except Exception:
         logger.info("facts OCR skipped file=%s", filename)

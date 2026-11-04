@@ -1,0 +1,85 @@
+{
+  "version": "tender-ssot-rules/1",
+  "fields": {
+    "tender_number": "招标编号|采购编号|项目编号",
+    "project_name": "招标项目名称|采购项目名称|项目名称|标的名称",
+    "procurement_method": "采购方式|招标方式",
+    "subject_type": "标的类型|采购类型|项目类型",
+    "procurement_mode": "采购模式|采购组织形式",
+    "delivery_period": "交货期|交货时间|供货期限|供货期|服务期限|工期",
+    "price_ceiling": "最高限价|最高投标限价|最高投标限额|采购预算",
+    "selected_lots": "本次标包范围|纳入分标"
+  },
+  "authority": {
+    "identity": {
+      "notice": 0,
+      "invitation": 1,
+      "quotation": 2
+    },
+    "contract": {
+      "special": 0,
+      "agreement": 1,
+      "general": 2
+    },
+    "default": {
+      "notice": 0,
+      "invitation": 1,
+      "quotation": 2,
+      "contract": 3,
+      "tech_spec": 4
+    },
+    "delivery": {
+      "special": 0,
+      "agreement": 1,
+      "notice": 2,
+      "invitation": 3,
+      "general": 4
+    }
+  },
+  "columns": {
+    "lot_code": "分标编号|标段编号|标段号|分标号",
+    "lot_name": "分标名称|标段名称",
+    "package_code": "包号|包编号|分包编号|标包编号|包件号",
+    "package_name": "包名称|包名|分包名称|标包名称",
+    "province": "省份|地区|区域",
+    "project_unit": "项目单位|建设单位|需求单位|采购单位",
+    "unit": "计量单位|数量单位|单位",
+    "quantity": "采购数量|需求数量|数量|预估数量",
+    "material_name": "物料名称|物资名称|货物名称|物料描述|物资描述",
+    "solidified_id": "固化ID|技术规范ID|技术规范书ID",
+    "price_ceiling": "最高限价.*|最高投标限价.*",
+    "unit_price": "单价.*|含税单价.*|不含税单价.*",
+    "total_price": "总价.*|合价.*|含税总价.*"
+  },
+  "requirement_patterns": {
+    "qualification_general": "通用资格|一般资格|基本资格|资格条件|资格要求",
+    "qualification_special": "专用资格|特殊资格|专项资格|资格预审",
+    "rejection": "废标|否决投标|投标.{0,8}无效|投标.{0,12}否决|不予受理",
+    "delivery": "交货|供货期限|供货期|交付|交付期|交付时间",
+    "pricing": "报价构成|报价范围|报价包含|报价应包括|报价应包含|分项报价|最高限价"
+  },
+  "subject_patterns": {
+    "goods": "货物采购|货物招标|物资采购",
+    "works": "工程施工招标|施工总承包|工程类采购",
+    "services": "服务采购|服务招标"
+  },
+  "method_patterns": [
+    "公开招标",
+    "邀请招标",
+    "竞争性谈判",
+    "竞争性磋商",
+    "询价采购",
+    "单一来源"
+  ],
+  "mode_patterns": [
+    "协议库存",
+    "框架协议"
+  ],
+  "limits": {
+    "xml_bytes": 33554432,
+    "blocks": 100000
+  },
+  "mode_subject": {
+    "协议库存": "goods"
+  }
+}

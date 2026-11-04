@@ -1,0 +1,66 @@
+[
+  {
+    "case": "engineer",
+    "complete": true,
+    "titles": [
+      "《跨域协调纪要》",
+      "《履约资源札记》"
+    ],
+    "reviewRequired": 0,
+    "providerFailures": [],
+    "toc": {
+      "entries": 1,
+      "firstBodyBlock": 7
+    },
+    "sourceUnchanged": true,
+    "bookmarksUnique": true,
+    "images": 1,
+    "outcomes": [
+      "pasted",
+      "placeholder"
+    ],
+    "file": "tmp\\material-intents\\live-generated\\8f135de3e5b8.docx"
+  },
+  {
+    "case": "goods",
+    "complete": true,
+    "titles": [
+      "兼容边界册",
+      "单体追溯页"
+    ],
+    "reviewRequired": 0,
+    "providerFailures": [],
+    "toc": {
+      "entries": 1,
+      "firstBodyBlock": 7
+    },
+    "sourceUnchanged": true,
+    "bookmarksUnique": true,
+    "images": 1,
+    "outcomes": [
+      "pasted",
+      "placeholder"
+    ],
+    "file": "tmp\\material-intents\\live-generated\\047b5095c48c.docx"
+  },
+  {
+    "case": "service",
+    "complete": true,
+    "titles": [
+      "作业交接索引"
+    ],
+    "reviewRequired": 0,
+    "providerFailures": [],
+    "toc": {
+      "entries": 1,
+      "firstBodyBlock": 7
+    },
+    "sourceUnchanged": true,
+    "bookmarksUnique": true,
+    "images": 1,
+    "outcomes": [
+      "pasted"
+    ],
+    "file": "tmp\\material-intents\\live-generated\\e8da8b73da2a.docx"
+  }
+]

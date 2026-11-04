@@ -1,0 +1,71 @@
+--- section_materials.before.py
++++ section_materials.py
+@@ -270,6 +270,11 @@
+         following=body[index+1]
+         value=_text(following).lstrip()
+         if not value and following.tag==qn('w:p'):
++            page_before=following.find('w:pPr/w:pageBreakBefore',following.nsmap)
++            if (next(following.iter(qn('w:sectPr')),None) is not None
++                    or any(br.get(qn('w:type'))=='page' for br in following.iter(qn('w:br')))
++                    or (page_before is not None and page_before.get(qn('w:val'),'1') not in {'0','false','off'})):
++                break
+             index+=1;anchor=following;continue
+         if re.search(r'[。；！？;!?][”"）)]?$',current) or following.tag!=qn('w:p'):
+             break
+@@ -401,8 +406,18 @@
+             previous['slot']=previous['slot'].model_copy(update={'key':new})
+             old_plans.setdefault(new,previous)
+     auth_heads={h for h,_,_ in scopes if '授权委托' in _key(_heading_text(h))}
++    required_agent_heads={head for head,body,_ in scopes if head in auth_heads
++                          for site in attachment_anchors(body)
++                          if not re.search(r'如有|如非|若|如果',_text(site))
++                          and _identity_family(PlaceholderItem(key='',title=_text(site)),_heading_text(head)).startswith('id_agent')}
+     if auth_enabled is None:
+-        auth_enabled=any(_identity_family(s,s.attachToSection).startswith('id_agent') for s in catalog.values())
++        auth_enabled=(any(_identity_family(s,s.attachToSection).startswith('id_agent') for s in catalog.values())
++                      or any(_identity_family(PlaceholderItem(key='',title=_text(site)),_heading_text(head)).startswith('id_agent')
++                             for head,body,_ in scopes if head in auth_heads
++                             for site in attachment_anchors(body)))
++    # A physical, unconditional attachment site must not remain blank merely
++    # because the invitation's inferred authorization flag was left at default.
++    auth_enabled = auth_enabled or bool(required_agent_heads)
+     def suppressed(slot):
+         if _identity_family(slot,slot.attachToSection).startswith('id_agent') and not auth_enabled:
+             return True
+@@ -484,6 +499,12 @@
+         if signature in cached:
+             plans[key]=cached[signature]; continue
+         name,section=_key(slot.title),_key(slot.attachToSection)
++        agent_target = None
++        if _identity_family(slot,slot.attachToSection) == 'id_agent':
++            candidates = [h for h,_,_ in scopes if h in auth_heads]
++            agent_target = next((h for h in candidates if any(row[0] is h for row in hints.get(key,[]))),None)
++            if agent_target is None:
++                agent_target = next((h for h in candidates if _key(_heading_text(h))==section),next(iter(candidates),None))
+         best=None; score=0
+         for head,body,_ in scopes:
+             kind,heading,blob,item_names=details[head]
+@@ -494,6 +515,8 @@
+             hit=next((row for row in candidates if _ATTACHMENT_SITE.search(row[2]) and not re.search(r'如有|如非|若|如果',row[2])),None)
+             hit=hit or next((row for row in candidates if _ATTACHMENT_SITE.search(row[2])),None) or next(iter(candidates),None)
+             rank=200 if name==heading else 180 if hit else 150 if section and section==heading else 100 if name and (name in heading or heading in name) else 0
++            if head is agent_target:
++                rank = max(rank, 400)
+             if credit_source(slot.title) and credit_source(slot.title)==credit_source(_heading_text(head)):
+                 rank=max(rank,90)
+             if (slot.key=='credit' or 'credit' in _kind_hits(slot.title)) and credit_heads:
+@@ -533,6 +556,14 @@
+         if tables and endpoint in body and body.index(endpoint)<body.index(tables[-1]):
+             endpoint=tables[-1]
+         endpoint=_sentence_boundary(endpoint,body)
++        # Leave chapter whitespace available to the single writer instead of
++        # fixing its insertion boundary after the last empty paragraph.
++        from api.services.tenders.placeholders import _slot_blank
++        while _slot_blank(doc,endpoint) and endpoint.getprevious() is not None:
++            previous=endpoint.getprevious()
++            if previous is not head and previous not in body:
++                break
++            endpoint=previous
+         if endpoint.getparent() is not doc.element.body:
+             raise AppError(ErrorCode.VALIDATION,'无法定位任何块边界：'+slot.title,status_code=422)
+         label=hit[2] if hit and re.match(r'^\s*[A-Za-z][.．、）)]',hit[2]) else slot.title

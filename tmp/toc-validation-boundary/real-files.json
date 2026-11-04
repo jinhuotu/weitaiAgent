@@ -1,0 +1,59 @@
+[
+  {
+    "file": "574ec4de4b7c.docx",
+    "sha256": "4a66d4491107b34351aef12cb5284a4834101e6aad7ef528c406b5ceaa133ba2",
+    "before_error": "目录结构校验失败：目录区残留非页码目录条目或占位文字：采购需求偏离表",
+    "after": {
+      "entries": 8,
+      "firstBodyBlock": 34
+    },
+    "xml_unchanged": true,
+    "file_unchanged": true
+  },
+  {
+    "file": "8e5f22252ad0.docx",
+    "sha256": "648dd9254c6021774cc76fed2e83416f854226572ae593bf76ffebc9eb8bff37",
+    "before": {
+      "entries": 34,
+      "firstBodyBlock": 58
+    },
+    "after": {
+      "entries": 34,
+      "firstBodyBlock": 58
+    },
+    "xml_unchanged": true,
+    "file_unchanged": true
+  },
+  {
+    "file": "7bc090fb9655.docx",
+    "sha256": "ee658d5de1d8267c1911e0b575659fa77264653d0d4f4240e1e8c5d18fa683e2",
+    "before": {
+      "entries": 21,
+      "firstBodyBlock": 45
+    },
+    "after": {
+      "entries": 21,
+      "firstBodyBlock": 45
+    },
+    "xml_unchanged": true,
+    "file_unchanged": true
+  },
+  {
+    "file": "../../tmp/full-letter-guard/full/c7f9e25f06d0.docx",
+    "sha256": "0c3405c6b291755dd1fd3d367f55be38a9ed9069e97239697e3927416e7d9add",
+    "before": {
+      "entries": 21,
+      "firstBodyBlock": 45
+    },
+    "after": {
+      "entries": 21,
+      "firstBodyBlock": 45
+    },
+    "xml_unchanged": true,
+    "file_unchanged": true
+  },
+  {
+    "file": "d8953b4a65b4.docx",
+    "still_rejected": "目录结构校验失败：目录区残留非页码目录条目或占位文字：施工组织设计"
+  }
+]

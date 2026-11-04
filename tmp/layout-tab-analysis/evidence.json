@@ -1,0 +1,67 @@
+{
+  "invitation": {
+    "paragraph": 5812,
+    "blob": "地\t址：\t 网\t址：\t",
+    "followingSectionBreak": true
+  },
+  "format": {
+    "paragraph": 76,
+    "blob": "地\t址：\t 网\t址：\t",
+    "tabs": [
+      {
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val": "left",
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pos": "4027"
+      },
+      {
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val": "left",
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pos": "9008"
+      }
+    ],
+    "indent": {
+      "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}left": "3409",
+      "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}right": "911"
+    },
+    "followingSectionBreak": true,
+    "sectionType": "(absent => nextPage)"
+  },
+  "reproduction": {
+    "before": "地\t址：\t 网\t址：\t",
+    "after": "地\t址：通用地址网\t址：\t",
+    "rightLabelSeparatorRestored": false
+  },
+  "generated": {
+    "paragraph": 74,
+    "blob": "地\t址：博览中心网\t址：\t",
+    "tabs": [
+      {
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val": "left",
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pos": "4027"
+      },
+      {
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val": "left",
+        "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}pos": "9008"
+      }
+    ],
+    "indent": {
+      "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}left": "3409",
+      "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}right": "911"
+    },
+    "followingSectionBreak": true,
+    "sectionType": "(absent => nextPage)"
+  },
+  "controlledConversions": {
+    "format": {
+      "pages": 4
+    },
+    "generated": {
+      "pages": 5
+    },
+    "tabs-only": {
+      "pages": 5
+    },
+    "tabs-and-source-margin": {
+      "pages": 5
+    }
+  },
+  "businessCodeModified": false
+}

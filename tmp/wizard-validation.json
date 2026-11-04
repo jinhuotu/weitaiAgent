@@ -1,0 +1,28 @@
+{
+  "baseline_files_unchanged": 119,
+  "unchanged_files": [],
+  "real_state_revision": 43,
+  "real_offers": 769,
+  "real_prices": 193,
+  "issue_counts": {
+    "open": {
+      "business_missing": 1
+    },
+    "resolved": {
+      "material_conflict": 1,
+      "missing_field": 770,
+      "price_missing": 191
+    },
+    "deferred": {
+      "price_missing": 2,
+      "rule_uncovered": 1
+    }
+  },
+  "real_task_read_only": true,
+  "full_regression_run": false,
+  "production_services_restarted": false,
+  "backend_tests_passed": 10,
+  "form_checks_passed": 13,
+  "new_frontend_typecheck": "passed",
+  "running_api_wizard_loaded": false
+}

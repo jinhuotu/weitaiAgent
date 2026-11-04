@@ -1,0 +1,12 @@
+--- a/src/lib/api.ts
++++ b/src/lib/api.ts
+@@ -70,6 +70,9 @@
+       return '技术方案暂未完整生成。可先关闭「起草技术方案」后重新生成投标文件，缺失章节请按【待补充】人工完善。'
+     }
+     return detail || '提交内容未通过校验，请检查必填项'
++  }
++  if (status >= 500 && /^(internal server error|bad gateway|service unavailable|gateway timeout)$/i.test(detail)) {
++    return '服务处理请求失败，请稍后重试；若持续出现，请联系管理员。'
+   }
+   // 优先展示后端具体错误（如 MCP stdio 失败原因）
+   if (msg && msg.trim()) {

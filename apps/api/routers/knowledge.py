@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, Response
 from api.deps import AdminUser, CurrentUser, DbSession
 from api.services.menus import user_is_admin
 from api.schemas.knowledge import (
+    UpdateExpiryRequest,
     AttachDocumentRequest,
     CreateBaseRequest,
     QdrantApplyRequest,
@@ -550,3 +551,16 @@ async def documents_delete(
         "data": payload,
         "items": payload.get("items") or [],
     }
+
+
+@router.patch("/documents/{public_id}/expiry")
+async def documents_update_expiry(public_id: str, body: UpdateExpiryRequest, db: DbSession, user: CurrentUser) -> dict:
+    from api.services.knowledge.ingest import _get_doc_in_base, to_kb_item
+    base = await kb_access.require_base(db, user, body.baseId, kb_access.PERM_MANAGE)
+    doc = await _get_doc_in_base(db, base_id=base.id, public_id=public_id)
+    if doc is None:
+        raise AppError(ErrorCode.NOT_FOUND, "资料不存在", status_code=404)
+    doc.is_perpetual = body.is_perpetual
+    doc.expire_at = None if body.is_perpetual else body.expire_at
+    await db.commit()
+    return ok({"item": to_kb_item(doc)})

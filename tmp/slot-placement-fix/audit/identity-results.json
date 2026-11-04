@@ -1,0 +1,30 @@
+{
+  "business": {
+    "id_legal": [
+      {
+        "type": "img",
+        "images": 2
+      }
+    ],
+    "id_agent": [
+      {
+        "type": "box",
+        "images": 0
+      }
+    ]
+  },
+  "full": {
+    "id_legal": [
+      {
+        "type": "img",
+        "images": 2
+      }
+    ],
+    "id_agent": [
+      {
+        "type": "box",
+        "images": 0
+      }
+    ]
+  }
+}

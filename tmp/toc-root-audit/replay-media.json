@@ -1,0 +1,20 @@
+[
+  {
+    "entries": 20,
+    "firstBodyBlock": 44,
+    "volume": "business",
+    "drawingBlocks": [
+      265
+    ],
+    "repeatStable": true
+  },
+  {
+    "entries": 21,
+    "firstBodyBlock": 45,
+    "volume": "full",
+    "drawingBlocks": [
+      266
+    ],
+    "repeatStable": true
+  }
+]

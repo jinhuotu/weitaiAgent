@@ -1,0 +1,2652 @@
+{
+  "base": "tenderlib01",
+  "parents": 279,
+  "withFiles": 8,
+  "empty": 271,
+  "duplicateKeys": {
+    "license": 2,
+    "iso": 2
+  },
+  "activeTasks": 0,
+  "missingReferences": 0,
+  "storageFiles": 4047,
+  "storageBytes": 2825343749,
+  "groups": [
+    {
+      "id": 958,
+      "public_id": "17c2c6bc6e50",
+      "key": "id_legal",
+      "title": "法定代表人身份证正反面",
+      "children": 2,
+      "files": [
+        {
+          "id": 1827,
+          "public_id": "75929174bcd0",
+          "files": [
+            "tender-assets/slots/id_legal/75929174bcd0.jpg"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:id_legal"
+          ],
+          "summaryType": "text"
+        },
+        {
+          "id": 1828,
+          "public_id": "4f100041bfc7",
+          "files": [
+            "tender-assets/slots/id_legal/4f100041bfc7.jpg"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:id_legal"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 959,
+      "public_id": "b925d2ff9be2",
+      "key": "id_agent",
+      "title": "授权代理人身份证及近半年社保缴纳证明",
+      "children": 1,
+      "files": [
+        {
+          "id": 1073,
+          "public_id": "c87ce1ef7b1c",
+          "files": [
+            "knowledge/tenderlib01/c87ce1ef7b1c.png"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:id_agent"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 960,
+      "public_id": "489be252914d",
+      "key": "perf",
+      "title": "类似项目合同及发票（单份金额≥20万元）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 961,
+      "public_id": "539ef39ece5f",
+      "key": "finance",
+      "title": "近三年财务审计报告 / 完税证明 / 社保缴纳证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 962,
+      "public_id": "9cea6c377bdd",
+      "key": "credit",
+      "title": "信用中国查询页及国家企业信用信息公示（股东）",
+      "children": 1,
+      "files": [
+        {
+          "id": 1878,
+          "public_id": "31f661180e4d",
+          "files": [
+            "tender-assets/slots/credit/31f661180e4d.pdf"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:credit"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 963,
+      "public_id": "44a46b6c7d47",
+      "key": "product",
+      "title": "所投产品检测报告 / 3C / 对应功率桩型证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 964,
+      "public_id": "31edacd45c69",
+      "key": "bond",
+      "title": "投标保证金缴存回单",
+      "children": 1,
+      "files": [
+        {
+          "id": 1879,
+          "public_id": "1fa15ebc1c1e",
+          "files": [
+            "tender-assets/slots/bond/1fa15ebc1c1e.png"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:bond"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 965,
+      "public_id": "02a573de0219",
+      "key": "seal",
+      "title": "投标文件签章页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 991,
+      "public_id": "b97f6cfae6e1",
+      "key": "mb97f6cfae6e1",
+      "title": "法定代表人身份证明/法人身份证扫描件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 994,
+      "public_id": "5624a51283f1",
+      "key": "m5624a51283f1",
+      "title": "投标保证金缴纳凭证 / 电子保函凭证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 995,
+      "public_id": "5641425fda52",
+      "key": "m5641425fda52",
+      "title": "营业执照",
+      "children": 1,
+      "files": [
+        {
+          "id": 1875,
+          "public_id": "0dfcd2e6f229",
+          "files": [
+            "tender-assets/slots/m5641425fda52/0dfcd2e6f229.png"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:m5641425fda52"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 996,
+      "public_id": "157b8881cdcf",
+      "key": "m157b8881cdcf",
+      "title": "施工资质",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 997,
+      "public_id": "e17fa97dd752",
+      "key": "me17fa97dd752",
+      "title": "安全生产许可证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 998,
+      "public_id": "bfbba247160d",
+      "key": "mbfbba247160d",
+      "title": "设计资质",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 999,
+      "public_id": "f3e9bb2565a1",
+      "key": "mf3e9bb2565a1",
+      "title": "基本存款账户信息",
+      "children": 1,
+      "files": [
+        {
+          "id": 1075,
+          "public_id": "75dc677223a5",
+          "files": [
+            "knowledge/tenderlib01/75dc677223a5.pdf"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:mf3e9bb2565a1"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 1000,
+      "public_id": "b2794e2f1307",
+      "key": "mb2794e2f1307",
+      "title": "信用截图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1001,
+      "public_id": "05518b54e4b3",
+      "key": "m05518b54e4b3",
+      "title": "各类承诺书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1002,
+      "public_id": "794139829a9e",
+      "key": "m794139829a9e",
+      "title": "项目人员资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1003,
+      "public_id": "e083f41abba0",
+      "key": "me083f41abba0",
+      "title": "财务资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1004,
+      "public_id": "277b69ac78aa",
+      "key": "m277b69ac78aa",
+      "title": "类似项目业绩",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1005,
+      "public_id": "eb06c1b6862f",
+      "key": "meb06c1b6862f",
+      "title": "设备商务资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1006,
+      "public_id": "4cf0221bc5a5",
+      "key": "m4cf0221bc5a5",
+      "title": "售后服务、质保运维方案",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1024,
+      "public_id": "3a08f97a45fd",
+      "key": "m3a08f97a45fd",
+      "title": "技术规范书全文",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1025,
+      "public_id": "0ea624efc490",
+      "key": "m0ea624efc490",
+      "title": "开标一览表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1026,
+      "public_id": "171d4830fbbe",
+      "key": "m171d4830fbbe",
+      "title": "投标保证金电子保函凭证（如选用）",
+      "children": 1,
+      "files": [
+        {
+          "id": 1067,
+          "public_id": "ee8bd2c93c0e",
+          "files": [
+            "knowledge/tenderlib01/ee8bd2c93c0e.png"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:m171d4830fbbe"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 1031,
+      "public_id": "8f381d011c4d",
+      "key": "m8f381d011c4d",
+      "title": "投标报价单（独立邮件版）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1033,
+      "public_id": "7aaa6459b4ed",
+      "key": "10000",
+      "title": "投标保证金缴纳凭证（10000元）",
+      "children": 1,
+      "files": [
+        {
+          "id": 1068,
+          "public_id": "b4d68ee65878",
+          "files": [
+            "knowledge/tenderlib01/b4d68ee65878.png"
+          ],
+          "own_parent": false,
+          "tags": [
+            "投标资料",
+            "slot:10000"
+          ],
+          "summaryType": "text"
+        }
+      ],
+      "missingReferences": 0
+    },
+    {
+      "id": 1037,
+      "public_id": "18292f5ac3cf",
+      "key": "m18292f5ac3cf",
+      "title": "本次招标要求的具体资质证书清单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1040,
+      "public_id": "55df7774b315",
+      "key": "m55df7774b315",
+      "title": "本次标要求的具体资质证书明细",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1071,
+      "public_id": "1890a61e40e1",
+      "key": "m1890a61e40e1",
+      "title": "电力工程总承包或输变电专业承包资质",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1087,
+      "public_id": "74f981188864",
+      "key": "3",
+      "title": "制造行业3家以上案例合同原件扫描件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1088,
+      "public_id": "066f60e3f9bc",
+      "key": "license",
+      "title": "营业执照",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1090,
+      "public_id": "a708499230b8",
+      "key": "license",
+      "title": "营业执照",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1091,
+      "public_id": "829ecd22b921",
+      "key": "iso",
+      "title": "ISO/质量管理体系认证证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1092,
+      "public_id": "305bee6b100b",
+      "key": "bank_permit",
+      "title": "开户许可证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1093,
+      "public_id": "beced3e35811",
+      "key": "iso",
+      "title": "ISO/质量管理体系认证证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1094,
+      "public_id": "bc00d00945c5",
+      "key": "mbc00d00945c5",
+      "title": "技术标准和要求（第七章）完整附件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1097,
+      "public_id": "474135abd30f",
+      "key": "m474135abd30f",
+      "title": "制造行业案例合同首页、金额页、签字盖章页及证明页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1098,
+      "public_id": "943fdbedc3d5",
+      "key": "m943fdbedc3d5",
+      "title": "近三年财务审计报告或承诺书（财务要求）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1101,
+      "public_id": "479c626d8934",
+      "key": "m479c626d8934",
+      "title": "工程量清单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1102,
+      "public_id": "d5abd6dd1fd4",
+      "key": "mom",
+      "title": "附件一《MOM生产运营管理平台技术要求》全文",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1104,
+      "public_id": "b498a58b4118",
+      "key": "1_7_1",
+      "title": "发包人指定的接收人及联系方式（专用合同条款1.7.1）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1105,
+      "public_id": "6ebd47c30abc",
+      "key": "m6ebd47c30abc",
+      "title": "技术标准和要求（第七章）原文",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1106,
+      "public_id": "8d0c04185c7c",
+      "key": "m8d0c04185c7c",
+      "title": "招标图纸（第六章）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1107,
+      "public_id": "e64e62c20890",
+      "key": "me64e62c20890",
+      "title": "投标人须知前附表及评标办法完整内容",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1108,
+      "public_id": "2033c309c0b6",
+      "key": "m2033c309c0b6",
+      "title": "专用合同条款完整版",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1109,
+      "public_id": "561236871241",
+      "key": "m561236871241",
+      "title": "第八章投标文件格式（商务标及技术标）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1110,
+      "public_id": "44e06213996b",
+      "key": "m44e06213996b",
+      "title": "如委托代理人投标，须提供代理人身份证及近半年社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1111,
+      "public_id": "80774aa2de75",
+      "key": "b",
+      "title": "须提供项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、劳动合同及社保缴纳证明等。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1112,
+      "public_id": "930e2c166c7d",
+      "key": "m930e2c166c7d",
+      "title": "承装（修、试）电力设施许可证（承装三级、承修三级、承试三级及以上）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1113,
+      "public_id": "b0faef5caba9",
+      "key": "mb0faef5caba9",
+      "title": "该资料库项要求项目经理机电工程专业注册建造师证、项目负责人安全生产考核合格证B证、劳动合同及社保缴纳证明，需核对招标文件资格条款后上传。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1114,
+      "public_id": "b9f13383dc42",
+      "key": "mb9f13383dc42",
+      "title": "ISO体系证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1115,
+      "public_id": "3aab9068b6e0",
+      "key": "m3aab9068b6e0",
+      "title": "需提供项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、劳动合同及社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1117,
+      "public_id": "f8f9666972cf",
+      "key": "mf8f9666972cf",
+      "title": "投标文件封面、目录及密封标记格式",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1118,
+      "public_id": "cc23f020beb2",
+      "key": "mcc23f020beb2",
+      "title": "项目经理须有机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、劳动合同及社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1119,
+      "public_id": "76dba673a881",
+      "key": "m76dba673a881",
+      "title": "拟派项目经理及委托代理人须为本企业人员，提供劳动合同和社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1120,
+      "public_id": "9dc236723579",
+      "key": "3_2_10_5_b",
+      "title": "资格要求3.2及前附表10.5：项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、全国建筑市场监管公共服务平台注册人员查询截图、劳动合同及社保缴纳证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1121,
+      "public_id": "1fbf1e811616",
+      "key": "m1fbf1e811616",
+      "title": "资格条款3.2及前附表10.5：项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、全国建筑市场监管公共服务平台注册人员查询截图、劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1122,
+      "public_id": "c3cdf48b3494",
+      "key": "mc3cdf48b3494",
+      "title": "如由委托代理人投标，须提供授权委托书及代理人身份证、近半年社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1123,
+      "public_id": "e3b937279ffc",
+      "key": "me3b937279ffc",
+      "title": "资格要求项目经理机电工程专业二级及以上注册建造师、项目负责人安全生产考核合格证（B证）、全国建筑市场监管公共服务平台注册人员查询截图、劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1124,
+      "public_id": "24e2fd11b530",
+      "key": "m24e2fd11b530",
+      "title": "如非法人亲自投标，须提供授权委托书及代理人身份证、近半年社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1125,
+      "public_id": "8da71c5a1715",
+      "key": "m8da71c5a1715",
+      "title": "全国和河南省建筑市场监管公共服务平台资质异常查询截图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1131,
+      "public_id": "7781bb131533",
+      "key": "m7781bb131533",
+      "title": "资格条款3.2及前附表10.5要求项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证B证、劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1174,
+      "public_id": "246d0842b139",
+      "key": "m246d0842b139",
+      "title": "软件企业认证证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1175,
+      "public_id": "816a22f46d9a",
+      "key": "m816a22f46d9a",
+      "title": "设备制造商针对本项目的授权书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1176,
+      "public_id": "1a64fd1ff8df",
+      "key": "m1a64fd1ff8df",
+      "title": "天津市政府采购网注册合格供应商证明或截图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1177,
+      "public_id": "bf11b5be03a4",
+      "key": "mbf11b5be03a4",
+      "title": "介入法律诉讼案件表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1178,
+      "public_id": "4b4cce0bfd13",
+      "key": "m4b4cce0bfd13",
+      "title": "税务登记证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1179,
+      "public_id": "ba1785678d7b",
+      "key": "aaa",
+      "title": "银行AAA资信证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1326,
+      "public_id": "b5321fcca7a4",
+      "key": "mb5321fcca7a4",
+      "title": "附件二《精细氧化铝工业试验线建设项目包二十三：数智化运营管理系统采购合同（模板）》",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1327,
+      "public_id": "81a1c7cfd560",
+      "key": "m81a1c7cfd560",
+      "title": "分项报价表所需分项名称及配置清单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1385,
+      "public_id": "cbe0f39d9e64",
+      "key": "mcbe0f39d9e64",
+      "title": "项目经理须有机电工程专业二级及以上注册建造师证、安全生产考核合格证B证、平台注册人员查询截图、劳动合同及社保缴纳证明、无在施项目承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1405,
+      "public_id": "cf4d4fd3f33d",
+      "key": "mcf4d4fd3f33d",
+      "title": "资格要求项目经理具有机电工程专业二级及以上注册建造师执业资格证书、项目负责人安全生产考核合格证（B证），并提供劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1414,
+      "public_id": "bbb22dce324d",
+      "key": "mbbb22dce324d",
+      "title": "资格要求3.2及前附表10.5：项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、平台注册人员查询截图、劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1465,
+      "public_id": "ecf9868b9acc",
+      "key": "mecf9868b9acc",
+      "title": "如委托代理人投标：代理人身份证及近半年社保缴纳证明，且代理人须为本企业人员。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1470,
+      "public_id": "b330899c52f1",
+      "key": "mb330899c52f1",
+      "title": "资格要求项目经理具有机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、平台注册人员查询截图、劳动合同及社保缴纳证明、无在施项目承诺。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1485,
+      "public_id": "97dc37ba7064",
+      "key": "b_3_2_10_5",
+      "title": "项目经理机电工程专业二级及以上注册建造师证、项目负责人安全生产考核合格证（B证）、全国建筑市场监管公共服务平台注册人员查询截图、劳动合同及社保缴纳证明，对应资格条款3.2及前附表10.5。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1486,
+      "public_id": "e0283b1957fd",
+      "key": "3_9_8",
+      "title": "如委托代理人投标，提供代理人身份证及近半年社保缴纳证明，资格条款3.9.8要求为本企业人员。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1562,
+      "public_id": "fd84d50abcc5",
+      "key": "mfd84d50abcc5",
+      "title": "资格条款3.9.8要求委托代理人如有时须为本企业人员，提供代理人身份证及近半年社保缴纳证明。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1563,
+      "public_id": "90be97e890bd",
+      "key": "m90be97e890bd",
+      "title": "第六章招标图纸",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1564,
+      "public_id": "72c36a51ffb7",
+      "key": "m72c36a51ffb7",
+      "title": "第三章评标办法完整内容",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1567,
+      "public_id": "f3eed657e0dd",
+      "key": "12",
+      "title": "信誉及业绩要求：提供近三年未发生较大及以上生产安全事故、一般及以上突发环境事件、员工职业健康事故或质量事故，开标前12个月内未发生一般生产安全事故的承诺书；并提供允许采购人实地参观考察类似业绩的承诺书。",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1572,
+      "public_id": "26a07f64f526",
+      "key": "material_84b73452ba6f56118ef2",
+      "title": "合同条款响应书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1573,
+      "public_id": "240b0be25101",
+      "key": "material_e3ce0e7cd7620bc28fd5",
+      "title": "响应方案（技术方案）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1586,
+      "public_id": "a3b1015a3e7e",
+      "key": "material_6ab773c9ff2ab1e9181e",
+      "title": "公司简介",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1591,
+      "public_id": "dab1ba1ab571",
+      "key": "material_75dbaf45e2cd2b66dd5d",
+      "title": "附表一：拟投入本工程的主要施工设备表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1592,
+      "public_id": "8273a3ebe952",
+      "key": "material_22bdc10178ba68dca316",
+      "title": "附表二：拟配备本工程的试验和检测仪器设备表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1593,
+      "public_id": "d7ccef760fee",
+      "key": "material_2dc9b302011bf5b6806f",
+      "title": "附表三：劳动力计划表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1594,
+      "public_id": "53423855c4e0",
+      "key": "material_e8eed5d6ed225d6acf5f",
+      "title": "附表四：计划开、竣工日期与施工进度表和网络计划图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1595,
+      "public_id": "e28c80f916fe",
+      "key": "material_2253688c3cc630dcd408",
+      "title": "附表五：施工总平面图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1596,
+      "public_id": "dba8c6c6d5f3",
+      "key": "material_07114ab8b7ce92592364",
+      "title": "附表六：临时用地表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1597,
+      "public_id": "9b6d6db0dbfb",
+      "key": "material_377bd72f5d13e287b500",
+      "title": "施工组织设计（含附表一至附表七）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1598,
+      "public_id": "0d8e1669de69",
+      "key": "material_6465c56db796ac9ea65e",
+      "title": "项目名称及招标人信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1599,
+      "public_id": "2261a911f033",
+      "key": "material_f49ad0abcb27e7b6678a",
+      "title": "工期、质量、质保及投标有效期条款",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1600,
+      "public_id": "3590491730e4",
+      "key": "material_85648ef8c254348f8adf",
+      "title": "投标人须知前附表/专用合同条款",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1601,
+      "public_id": "f6dcc6ad652d",
+      "key": "material_c99dc597aa10925ac26d",
+      "title": "项目管理机构及项目经理注册证书/安全考核证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1602,
+      "public_id": "06113351c07a",
+      "key": "material_0003c7edaad9e4a923f3",
+      "title": "招标公告 / 投标邀请书正文",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1603,
+      "public_id": "055fe816b6b1",
+      "key": "material_10e31c2519bf0084a6fe",
+      "title": "投标函及投标函附录格式",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1604,
+      "public_id": "cfc728c106ed",
+      "key": "material_8c4b705c76a0f2345049",
+      "title": "招标文件专用合同条款及投标人须知前附表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1605,
+      "public_id": "10cc244439b9",
+      "key": "material_63dbc10f179a3efe20ce",
+      "title": "技术规范书/图纸/施工要求",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1606,
+      "public_id": "e2a675928612",
+      "key": "material_fe924fc9bcf36a8e49ed",
+      "title": "完整投标邀请书或招标公告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1607,
+      "public_id": "8cb684994a57",
+      "key": "material_cabbc55f8418df685421",
+      "title": "招标控制价/最高限价文件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1608,
+      "public_id": "b09bbfea1f55",
+      "key": "material_cb9ce04c647146b01be6",
+      "title": "项目经理证书及社保材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1609,
+      "public_id": "76d13acdb0fe",
+      "key": "material_83c8aac4289d1a25fea9",
+      "title": "项目经理建造师注册证书及安全生产考核合格证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1610,
+      "public_id": "af705b9dba5f",
+      "key": "material_4da3433d9cb3dcd57fa5",
+      "title": "拟派项目管理人员社保证明及劳动合同",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1611,
+      "public_id": "431152e629ee",
+      "key": "material_c3259a65924c9f88953a",
+      "title": "履约保函或履约保证金承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1612,
+      "public_id": "fb3cc36bed8e",
+      "key": "material_afc56da921f22d53cf8c",
+      "title": "项目名称及招标人全称页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1613,
+      "public_id": "499077ee075c",
+      "key": "material_0023f71b6162c3fbc973",
+      "title": "招标图纸及技术规范书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1614,
+      "public_id": "da2329a1e2b9",
+      "key": "material_e6d8a386b2044bdd7cf5",
+      "title": "项目经理资格要求及证书要求",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1615,
+      "public_id": "90ac735c6ad5",
+      "key": "material_dbaa497f7ce54e0723cf",
+      "title": "投标工期",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1616,
+      "public_id": "e26f517e25e1",
+      "key": "material_3921f457ad4ed38c2e44",
+      "title": "投标质量",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1617,
+      "public_id": "b393678b22fa",
+      "key": "material_470b66a270df4a51a188",
+      "title": "项目经理姓名、级别、注册证号",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1618,
+      "public_id": "548f73c928d9",
+      "key": "material_a4a278e0d48392df49f9",
+      "title": "控制价、安全文明施工费、暂列金额、专业工程暂估价",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1619,
+      "public_id": "8de468da1e3b",
+      "key": "material_2561bb9049e80fb90323",
+      "title": "履约保证金/质量保证金比例",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1620,
+      "public_id": "08725b87bebd",
+      "key": "material_0e71e481e327e318d46c",
+      "title": "招标文件封面/投标人须知前附表（项目名称、招标人、标的名称、所属行业）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1621,
+      "public_id": "ad28ae133aa0",
+      "key": "material_3c19e636713051873b9d",
+      "title": "合同条款/工期与质保要求页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1622,
+      "public_id": "eca4c19ff789",
+      "key": "material_96d972a1c0c3a95ab6ab",
+      "title": "最高投标限价、安全文明施工费、暂列金额、暂估价及保证金金额页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1623,
+      "public_id": "81afdefde7be",
+      "key": "material_5e1fc61dcf2d3f47a8ec",
+      "title": "项目负责人（项目经理）资格要求及人员配备表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1624,
+      "public_id": "d5eee9b268c1",
+      "key": "material_fd6ac8930f5970a8a660",
+      "title": "企业上一年度从业人员数、营业收入、资产总额数据",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1625,
+      "public_id": "61a4c5ccd623",
+      "key": "material_6f9bf69e649ac5efcadf",
+      "title": "项目经理劳动合同及社会保险（或养老保险）缴纳证明、无在建项目书面承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1626,
+      "public_id": "e43b5e4af5ff",
+      "key": "material_4c8749e5f8ecc180155c",
+      "title": "信誉查询信息（含投标人名称、统一社会信用代码、法定代表人姓名及身份证号、拟派项目经理姓名及身份证号）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1627,
+      "public_id": "b292a274ef3f",
+      "key": "material_2dd9ef43b4b014aaa2a5",
+      "title": "残疾人福利性单位声明函（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1628,
+      "public_id": "2ffcaa1a2647",
+      "key": "material_41a1058a3dab2df0c41c",
+      "title": "施工组织设计（含文字及图表）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1629,
+      "public_id": "9e3caa4e5469",
+      "key": "material_e2f6ee4b5d77caa2dac3",
+      "title": "拟投入本工程的主要施工设备表（附表一）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1630,
+      "public_id": "ab0d12dc67b9",
+      "key": "material_1e86d6604e196b78b43c",
+      "title": "拟配备本工程的试验和检测仪器设备表（附表二）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1631,
+      "public_id": "d4329000cff3",
+      "key": "material_4a052aed6664846dc829",
+      "title": "劳动力计划表（附表三）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1632,
+      "public_id": "67aca2cbb792",
+      "key": "material_5575b07240d41a1708cd",
+      "title": "计划开、竣工日期与施工进度表和网络计划图（附表四）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1633,
+      "public_id": "2a5d4eea932c",
+      "key": "material_6027acee3fa40a3bbe25",
+      "title": "施工总平面图（附表五）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1634,
+      "public_id": "63b583bbfc74",
+      "key": "material_766ba76b8ea47919adce",
+      "title": "临时用地表（附表六）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1635,
+      "public_id": "88310de75730",
+      "key": "material_a4f6a06b27cfa8387327",
+      "title": "拟派项目经理姓名、身份证号、建造师注册证书编号及等级",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1636,
+      "public_id": "a6d23dc658ee",
+      "key": "material_df38c087ab56ff5b7d3b",
+      "title": "项目名称、招标人全称、计划工期与质量目标",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1637,
+      "public_id": "8047a8a3c707",
+      "key": "material_31c07e2a528e8c5699b3",
+      "title": "增值税税率及报价表标题",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1638,
+      "public_id": "5d6d746688e2",
+      "key": "material_4d9a0a39d477a5b30d7a",
+      "title": "拟派项目经理及主要管理人员证书信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1639,
+      "public_id": "8d3994c94e5b",
+      "key": "material_d33e096cc7cd92c9f924",
+      "title": "项目名称、招标人及工程范围",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1640,
+      "public_id": "14ce021d1fbb",
+      "key": "material_a584bbd4276a051b4e68",
+      "title": "投标报价、税率及付款比例",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1641,
+      "public_id": "f8c46204f6f2",
+      "key": "material_b0a8ba39b7e24643dc3a",
+      "title": "招标文件投标人须知前附表及评标办法前附表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1642,
+      "public_id": "1fff7c67568f",
+      "key": "material_dfd6cfde6cfc942654f5",
+      "title": "合同条款中工期、质量、质保、付款、缺陷责任期、履约担保等条款",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1643,
+      "public_id": "b9f1c8f45c5e",
+      "key": "material_a0f777249b5b562bc387",
+      "title": "招标公告/项目概况及招标范围",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1644,
+      "public_id": "ec14d9017796",
+      "key": "material_8e0f1d578b028458e1fc",
+      "title": "项目经理注册建造师证书及安全生产考核合格证信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1645,
+      "public_id": "e8471458a5ce",
+      "key": "material_4ff89dfde2730947a485",
+      "title": "缺陷责任期与保修期具体期限",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1646,
+      "public_id": "bd026a82ec37",
+      "key": "material_132ab9ea24709cce12ec",
+      "title": "供电答复单及供电公司投资建设内容协调承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1647,
+      "public_id": "5ded925b37f6",
+      "key": "material_28c355b047d9d5de7d5a",
+      "title": "充电设施平台服务费报价承诺（不高于总收入的6‰）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1648,
+      "public_id": "8663a0ac1cc2",
+      "key": "material_9733d0c6724976d80796",
+      "title": "投标邀请书 / 招标公告正文（含项目名称、招标人、招标编号）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1649,
+      "public_id": "850ddadfdc6e",
+      "key": "material_cbac3b21e1e672dc4c47",
+      "title": "招标控制价 / 最高投标限价及安全文明施工费、暂列金额、暂估价明细",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1650,
+      "public_id": "0efc2fdcbfea",
+      "key": "material_2b7bb8541d643cf5a667",
+      "title": "投标邀请书/招标公告及投标人须知前附表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1651,
+      "public_id": "c7a74b30927d",
+      "key": "material_0f45895db24afc2984f2",
+      "title": "投标人须知/报价清单/技术规范书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1652,
+      "public_id": "fba4f978b865",
+      "key": "material_da529069d23f817e8093",
+      "title": "招标文件中的项目名称及招标人全称",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1653,
+      "public_id": "edd1d6f6f66f",
+      "key": "material_faa4a8ac162b9e673b6b",
+      "title": "投标书表单/投标文件格式页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1654,
+      "public_id": "de180aafa802",
+      "key": "material_8a6b4bd7ecf6912bdd88",
+      "title": "投标报价、工期、质量、质保及投标有效期要求",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1655,
+      "public_id": "3747804a3f59",
+      "key": "material_e825a75a051a444908a8",
+      "title": "项目经理资格及人员配置要求",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1656,
+      "public_id": "f0f9274c884c",
+      "key": "material_59389dcc7bd079ffcf23",
+      "title": "缺陷责任期及履约保证金条款",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1657,
+      "public_id": "e0e61fcb61dc",
+      "key": "material_5189d5f39100ee605d3c",
+      "title": "项目经理及主要管理人员社保证明和劳动合同",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1658,
+      "public_id": "16a610e24222",
+      "key": "material_29d1156a9a65d3701ad0",
+      "title": "履约保函或履约保证金凭证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1659,
+      "public_id": "9114b9aa7196",
+      "key": "material_1dcc88cd54c1f81a3ab2",
+      "title": "施工组织设计、工程策划及总进度计划",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1660,
+      "public_id": "1e04244d6210",
+      "key": "material_e89542fbb178030cf778",
+      "title": "投标人须知前附表（投标有效期、质量标准、缺陷责任期）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1661,
+      "public_id": "e846087a2e93",
+      "key": "material_a19d3b60f9224c2884cf",
+      "title": "招标文件封面/投标邀请书首页",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1662,
+      "public_id": "15454ba94648",
+      "key": "material_93f6dee24fda25e0920c",
+      "title": "拟分包项目情况表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1663,
+      "public_id": "0bc9f2707111",
+      "key": "material_9ea2e657bdc82a863cad",
+      "title": "投标报价及税率",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1664,
+      "public_id": "310d170cc960",
+      "key": "material_e8c44993e64c3022ae12",
+      "title": "工期/交货期、质保期、投标有效期",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1665,
+      "public_id": "81dbd072c467",
+      "key": "material_56f6848c79ecae8edee3",
+      "title": "质量要求/验收标准",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1666,
+      "public_id": "b5366e907cf1",
+      "key": "material_86437584cd6604f022b0",
+      "title": "付款条件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1667,
+      "public_id": "1f5de1d11f0b",
+      "key": "material_a432bae2775552437598",
+      "title": "项目负责人信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1668,
+      "public_id": "700b903a2714",
+      "key": "material_3fefa7c0fb70b3e0b635",
+      "title": "投标人企业规模类型及残疾人福利性单位适用情况",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1732,
+      "public_id": "5728b2789695",
+      "key": "material_148bc834ea9f854d4b51",
+      "title": "工程竣工图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1733,
+      "public_id": "4fe38cb60c2c",
+      "key": "material_0b134b78b325ea7c4201",
+      "title": "工程施工全过程原始记录及验收单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1734,
+      "public_id": "fa3853b10a65",
+      "key": "material_566ec3e18997b88098b6",
+      "title": "材料质保书、检验签证单、材料试验报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1735,
+      "public_id": "b2af2111d8d4",
+      "key": "material_62682620cf69dac19846",
+      "title": "有关设计变更的技术资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1736,
+      "public_id": "9deb7c7021ba",
+      "key": "material_070cb4ea58e8e0c7a6e9",
+      "title": "工程施工中的检测数据、质量评定报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1737,
+      "public_id": "d7c452090655",
+      "key": "material_69dd8b0a3a39efc9f2ce",
+      "title": "工程竣工决（结）算的全部资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1738,
+      "public_id": "c8ab61dcd3e5",
+      "key": "material_b980a6f6b03091901be7",
+      "title": "开工报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1739,
+      "public_id": "aa446b114d60",
+      "key": "material_d35ada9c6dc0a4c2ab42",
+      "title": "竣工验收报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1740,
+      "public_id": "8c21ceeb16a1",
+      "key": "material_02243d048112764c9cb7",
+      "title": "主材合格证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1741,
+      "public_id": "21a1a7ad8cd6",
+      "key": "material_b3cce8367a8db6f755fd",
+      "title": "材料设备使用说明书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1742,
+      "public_id": "b6e89a90d53e",
+      "key": "material_4333ba259900a2b01a87",
+      "title": "复检报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1743,
+      "public_id": "0c661404c767",
+      "key": "material_f0b54e497722d2f9cd58",
+      "title": "工程试验报告单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1744,
+      "public_id": "01ba56a71587",
+      "key": "material_7c592479c12e4829f787",
+      "title": "隐蔽工程验收资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1745,
+      "public_id": "4a31f0f34c68",
+      "key": "material_bcfa5ad6511a158360e6",
+      "title": "结算书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1746,
+      "public_id": "609ce455ee04",
+      "key": "material_d6884f1d73b49153e1e9",
+      "title": "施工机械和人员使用计划",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1747,
+      "public_id": "43a389d3975b",
+      "key": "material_424a01a274d2663792f0",
+      "title": "主要材料供应计划",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1748,
+      "public_id": "71f52c998868",
+      "key": "material_75380b67ad76469729ba",
+      "title": "节点拆分支付预算书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1749,
+      "public_id": "436ab5acfea2",
+      "key": "material_5ba5b8220275383918d2",
+      "title": "施工安全措施计划和施工环保措施计划",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1750,
+      "public_id": "df69a1bc66d4",
+      "key": "material_9fe10597d9a73174371f",
+      "title": "项目施工组织架构表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1751,
+      "public_id": "afa82e43156f",
+      "key": "material_d785817c12cef95e37e8",
+      "title": "项目管理机构及施工现场管理人员安排报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1752,
+      "public_id": "01bba64d9ba3",
+      "key": "material_8195dd0b07e9cff971ad",
+      "title": "人员上岗证、设备合格证年审证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1753,
+      "public_id": "9dc11b6cb862",
+      "key": "material_b99a49ea50b4dbd7e1d2",
+      "title": "材料样品及相关生产及技术规格文件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1754,
+      "public_id": "92ea25f4dacf",
+      "key": "material_720cad92b8b9302133fa",
+      "title": "材料封样",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1755,
+      "public_id": "e6ffcfd4f501",
+      "key": "material_4694aaa14a5a8e8e10b7",
+      "title": "广联达GBQ版预算",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1756,
+      "public_id": "284cbb7c1db4",
+      "key": "material_c20025d36d246afe0575",
+      "title": "图纸会审测算成果",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1757,
+      "public_id": "29bd37383e2b",
+      "key": "material_49e3e0b9dd862daee357",
+      "title": "工人代发工资凭证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1758,
+      "public_id": "ba649a50b696",
+      "key": "material_68b5e3087b7366ea0a09",
+      "title": "智慧平台对接协议端口及协议文档",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1759,
+      "public_id": "69ceb2ee2e16",
+      "key": "material_825cb525ec0e71d87407",
+      "title": "充电设施服务平台（或系统）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1760,
+      "public_id": "da74e28eabd1",
+      "key": "material_0025d60201224a5002ff",
+      "title": "法定代表人身份证明及授权委托书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1771,
+      "public_id": "022cfe5ce2ca",
+      "key": "material_8ddafc73ad43853cd267",
+      "title": "书面承诺（未处于被责令停业、投标资格被取消或财产被接管冻结破产状态；最近三年内无骗取中标或严重违约及重大工程质量、安全生产事故等；未被暂停投标资格）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1772,
+      "public_id": "853ef6b34bea",
+      "key": "material_4c48752e169503ac9606",
+      "title": "未被列入环保失信黑名单书面承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1773,
+      "public_id": "0b14cbc57dc1",
+      "key": "material_e6e168712a87598b7eab",
+      "title": "遵守《保障农民工工资支付条例》及未被列入拖欠农民工工资黑名单承诺（格式自拟）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1774,
+      "public_id": "6195d8c5c83e",
+      "key": "material_c2eb1e50da189cba6599",
+      "title": "全国和河南省建筑市场监管公共服务平台资质查询截图（含查询日期）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1775,
+      "public_id": "6df4b3bf8eb7",
+      "key": "material_2c53df5cb187332ca87e",
+      "title": "委托代理人（如有）、拟派项目经理的劳动合同及社会保险（或养老保险）缴纳证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1776,
+      "public_id": "fb25d5d5fffa",
+      "key": "material_61a6fcc1211ae392af33",
+      "title": "拟派项目经理建造师电子注册证书、安全生产考核合格证(B证)及全国建筑市场监管公共服务平台注册人员查询信息截图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1777,
+      "public_id": "b76508ccdbc9",
+      "key": "material_ffc1c3698b637e591693",
+      "title": "施工组织设计（技术暗标部分）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1778,
+      "public_id": "7024e4a5dd81",
+      "key": "material_737e66682750f0acd8e6",
+      "title": "法定代表人身份证明或授权委托书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1779,
+      "public_id": "33e103948290",
+      "key": "material_11e07fd8b7d1b2f5e5ab",
+      "title": "正在施工和新承接的项目情况表及证明材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1780,
+      "public_id": "c36fd3f4a183",
+      "key": "material_d3d0db9fcbcb021cd1ee",
+      "title": "项目管理机构组成表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1781,
+      "public_id": "f36b08a9635e",
+      "key": "material_540aa265dc53109144c1",
+      "title": "基本账户开户证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1782,
+      "public_id": "1ac616584a12",
+      "key": "material_8be5e94e4aed46070844",
+      "title": "联合体协议书（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1783,
+      "public_id": "39aab2649e1d",
+      "key": "material_679c006a0e6edb65d0c0",
+      "title": "项目章有效证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1784,
+      "public_id": "f82aaa62b772",
+      "key": "material_728dcf7df779f5982d52",
+      "title": "项目经理相关证明材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1785,
+      "public_id": "033e0ab2dd4b",
+      "key": "material_c346432bd7a57720f3fb",
+      "title": "主要项目管理人员注册资格证书、身份证、职称证、学历证、养老保险复印件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1786,
+      "public_id": "4d671f7b2c14",
+      "key": "material_0ec61865b746102723f3",
+      "title": "经会计师事务所或审计机构审计的财务会计报表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1787,
+      "public_id": "36137698e9e4",
+      "key": "material_a75a24794f12a539e980",
+      "title": "正在施工的和新承接的项目中标通知书或合同协议书复印件或扫描件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1788,
+      "public_id": "0f145efebe13",
+      "key": "material_b42c7855aae1b37af54d",
+      "title": "拟派项目主要人员的劳动合同及社保证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1792,
+      "public_id": "1860398d6452",
+      "key": "material_91ccf5de1641603f703d",
+      "title": "信誉查询结果截图",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1793,
+      "public_id": "7f20f379d2be",
+      "key": "material_d40526f61a1eb9591834",
+      "title": "企业未处于被责令停业、投标资格被取消或财产被接管、冻结和破产状态等书面承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1794,
+      "public_id": "5f902f5a4511",
+      "key": "material_d9f5da3e6b758aba1ec9",
+      "title": "拟任项目经理未担任其他在施建设工程项目承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1795,
+      "public_id": "f474f019028d",
+      "key": "material_9b210be3f0020c04fc17",
+      "title": "项目经理主要工作经历",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1796,
+      "public_id": "5389ca6a1674",
+      "key": "material_50dc4ba090b9a4de08ce",
+      "title": "主要项目管理人员简历表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1797,
+      "public_id": "ad4e57759433",
+      "key": "material_8b397a87b6c2065c1e47",
+      "title": "合同条款及格式（第四章）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1798,
+      "public_id": "cc6fc49f192b",
+      "key": "material_67596996b8a38882d339",
+      "title": "信誉要求证明材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1799,
+      "public_id": "7ee6a810a22a",
+      "key": "material_afef2013fb2fbe735359",
+      "title": "无重大偏差及违法违规情形承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1800,
+      "public_id": "57e04d8b6898",
+      "key": "material_15060579e25313a82b7a",
+      "title": "委托代理人身份证复印件或扫描件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1801,
+      "public_id": "d2b64c760ded",
+      "key": "material_6b95b95c67c9e28d351a",
+      "title": "汇款凭证复印件或扫描件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1804,
+      "public_id": "cf5c9f846a04",
+      "key": "material_d8dbe3933c2aaf506112",
+      "title": "投标人资格要求相关证件、证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1805,
+      "public_id": "d2c2d641ea0d",
+      "key": "material_b36f8162b4cf233d5263",
+      "title": "政策要求相关材料（强制节能产品、中小企业声明等，如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1806,
+      "public_id": "6ac92b8cfc6a",
+      "key": "material_dfc50d47ef3b4c867cc2",
+      "title": "保险单",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1807,
+      "public_id": "7c12c1c39b38",
+      "key": "material_ea8d2f363f46cba981d1",
+      "title": "中小企业声明函（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1808,
+      "public_id": "c1ed1232c8ab",
+      "key": "material_cd600f55e2a029fa8b09",
+      "title": "替代材料和工程设备相关文件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1809,
+      "public_id": "bbaf96b181f2",
+      "key": "material_721d175f2383b054cc51",
+      "title": "拟派项目经理注册建造师证书及安全生产考核合格证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1810,
+      "public_id": "e0e5e79ab1be",
+      "key": "material_1f0d06ab85c324a5fb5f",
+      "title": "项目经理姓名、身份证号、建造师执业资格等级、建造师注册证书号、建造师执业印章号、安全生产考核合格证书号、联系电话、电子信箱、通信地址",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1811,
+      "public_id": "1e251825633d",
+      "key": "material_81b001a645533bfeaf4e",
+      "title": "投标总报价",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1812,
+      "public_id": "9a9fe361f79c",
+      "key": "material_a847552a662fc4bd3177",
+      "title": "安全生产措施费、暂列金额、专业工程暂估价、增值税",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1813,
+      "public_id": "906599dea41e",
+      "key": "material_c8d9fc4db580f6a791cb",
+      "title": "法定代表人姓名、性别、年龄、职务",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1814,
+      "public_id": "412b2da7feb2",
+      "key": "material_8adc6744f7b1dcb1d6e6",
+      "title": "委托代理人姓名及身份证号码",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1815,
+      "public_id": "354582613200",
+      "key": "material_1c96b2a93f120aa250a5",
+      "title": "材料样本及有关资料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1816,
+      "public_id": "c7abfcef48b8",
+      "key": "material_dc68193585d3502931f2",
+      "title": "投标人名称及基本信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1817,
+      "public_id": "ec5684beb133",
+      "key": "material_9905d4f63c6c0cdbc631",
+      "title": "项目经理（建造师）注册证书及无在建项目承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1818,
+      "public_id": "2f3ac8e53ef9",
+      "key": "material_93d6e9322b7dc4337960",
+      "title": "工艺试验措施计划",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1819,
+      "public_id": "3553ac003d2e",
+      "key": "material_2946ae0e0f6c5570aadc",
+      "title": "保险凭证",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1820,
+      "public_id": "c6e9b08dec4e",
+      "key": "material_9078d0786b3604e671c2",
+      "title": "项目经理姓名及证书编号",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1821,
+      "public_id": "151e403ef31f",
+      "key": "material_1b01f60d198b406c8f43",
+      "title": "财务状况报告",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1822,
+      "public_id": "199f3fcb26e3",
+      "key": "material_4179562023c7bbae12a3",
+      "title": "项目经理及主要人员资格证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1823,
+      "public_id": "880670ecb714",
+      "key": "material_336980b7db6cacf80459",
+      "title": "工期",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1829,
+      "public_id": "15676e11c33c",
+      "key": "material_7f812cf31dd8a9838ab3",
+      "title": "政策要求相关证明材料（强制节能产品、中小企业等，如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1830,
+      "public_id": "1b5aede6ba0f",
+      "key": "material_0e4760967d777b274b53",
+      "title": "招标文件要求的证件、证明等资料清晰的扫描件或复印件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1831,
+      "public_id": "9f8e86835d32",
+      "key": "material_325d1afb4075f8a4c179",
+      "title": "服务承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1832,
+      "public_id": "211cd6f7be16",
+      "key": "material_3774090907f0be65cce0",
+      "title": "工程付款形象进度工程量报表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1833,
+      "public_id": "6466b9f82f8b",
+      "key": "material_596efb572734fc20c4b3",
+      "title": "正在施工的和新承接的项目情况表及附件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1834,
+      "public_id": "6a7120a0243d",
+      "key": "material_442d1506697fa5354570",
+      "title": "拟派项目经理注册证书及信用信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1835,
+      "public_id": "034cbd756173",
+      "key": "material_9bfde225ac5112704aad",
+      "title": "联合体协议书（如为联合体投标）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1836,
+      "public_id": "55e097c307e3",
+      "key": "material_d73416d9788178f9af54",
+      "title": "强制节能产品、中小企业等政策要求证明材料（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1837,
+      "public_id": "4df81ec796db",
+      "key": "material_c3d644fcc55ab29c20ed",
+      "title": "安全生产措施费、暂列金额、专业工程暂估价具体金额",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1838,
+      "public_id": "0126b95b9b9a",
+      "key": "material_353e2f7a18ecbd6239e2",
+      "title": "招标公告及项目名称、招标人信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1839,
+      "public_id": "26a7c1800c28",
+      "key": "material_afc5afafc4caa7a191f4",
+      "title": "投标项目经理及主要管理人员证书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1840,
+      "public_id": "203b70897f6f",
+      "key": "material_c4a93e2eb8cc68d35e4c",
+      "title": "主要项目管理人员证明材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1841,
+      "public_id": "38e1b439b7e7",
+      "key": "material_5d72df5ecf28319af5e0",
+      "title": "投标联合体共同投标协议（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1842,
+      "public_id": "ef62be583c46",
+      "key": "material_ccdc849e79e99e4d15c7",
+      "title": "强制节能产品相关证明材料（如有）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1843,
+      "public_id": "922aea40f525",
+      "key": "material_ef6a9780aadf94e076de",
+      "title": "招标文件所要求证件、证明的清晰扫描件或复印件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1844,
+      "public_id": "5d7715c15b59",
+      "key": "material_7dbe5da861f994b08b0d",
+      "title": "拟派项目经理注册证书及信用材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1845,
+      "public_id": "6b378b3b67d6",
+      "key": "material_97ce6f6bdd53f198893e",
+      "title": "企业信用相关材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1846,
+      "public_id": "3802c2f1318b",
+      "key": "material_e117a6d8a912d76000a3",
+      "title": "项目经理（建造师）注册证书及无在建项目证明",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1847,
+      "public_id": "0dc19ae599d9",
+      "key": "material_9ce054e2be7c072abb5b",
+      "title": "项目名称及招标编号",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1850,
+      "public_id": "f33e7e9cce28",
+      "key": "material_ce4ed31b38df6d215993",
+      "title": "投标人须知第1.4.1项规定的其他要求证明材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1853,
+      "public_id": "c4e54b7b1f2b",
+      "key": "material_16dd0480d19098c665c7",
+      "title": "替代材料和工程设备书面通知及所附文件",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1854,
+      "public_id": "03e584bb8bf2",
+      "key": "material_ff17be988c32414256b3",
+      "title": "施工组织设计（合同签订后10日内提交）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1855,
+      "public_id": "2452a959da86",
+      "key": "material_83670265c0cfc233384f",
+      "title": "工程开工报审表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1856,
+      "public_id": "8b9f6ec7b5f2",
+      "key": "material_e0d3fdf3673d5561f997",
+      "title": "招标公告3.3业绩要求、3.4财务要求",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1857,
+      "public_id": "f7b42685d817",
+      "key": "material_08352a185eebd15f03e7",
+      "title": "投标文件（含投标报价清单）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1860,
+      "public_id": "45e699d06d25",
+      "key": "material_e0ddabb9abbf0356a4b4",
+      "title": "近年财务状况表及审计财务会计报表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1861,
+      "public_id": "eb6d80af731a",
+      "key": "material_4303663864ccf6e54bef",
+      "title": "投标报价澄清、说明或修正材料",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1862,
+      "public_id": "0a6a724d5a70",
+      "key": "material_a15a109392b4c873494b",
+      "title": "投标报价金额",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1863,
+      "public_id": "97d85ea3d036",
+      "key": "material_1081fe48f64602aa09f2",
+      "title": "质量保修期（缺陷责任期）承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1864,
+      "public_id": "297f3dbb3d19",
+      "key": "material_98ad341abffdd6bfa35f",
+      "title": "资信标",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1865,
+      "public_id": "2e3bf81fee7b",
+      "key": "material_1fc2b45ae4b40985b80a",
+      "title": "承包人主要施工管理人员表",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1866,
+      "public_id": "ff20c4505e7a",
+      "key": "material_08bc94a45932214a736b",
+      "title": "工程质量保修书",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1867,
+      "public_id": "8f0c57b8fc79",
+      "key": "material_b7df246ac18e70645e6b",
+      "title": "农民工工资专用账户设立承诺",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1868,
+      "public_id": "8ee9d9a1b271",
+      "key": "material_cab6be4747d08b9ced9d",
+      "title": "送达地址及联系方式",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1869,
+      "public_id": "fe171eefb990",
+      "key": "material_069c0883cea47046cda3",
+      "title": "承包人指定收款银行账户信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1872,
+      "public_id": "037e0a12e545",
+      "key": "material_ae77fd3034bba48fdf47",
+      "title": "施工组织设计及附表（主要施工设备表、试验和检测仪器设备表、劳动力计划表、施工进度表和网络计划图、施工总平面图、临时用地表）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1880,
+      "public_id": "fe4dd8a7c5cf",
+      "key": "material_6c6a4330886be459b9fd",
+      "title": "异常低价相关证明材料（如适用）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1881,
+      "public_id": "1ddde3fadd0e",
+      "key": "material_9449e05004157633d605",
+      "title": "质疑答复材料（如评标委员会提出质疑）",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    },
+    {
+      "id": 1882,
+      "public_id": "4721259e247f",
+      "key": "material_1ff00b7f87a1f1a0369c",
+      "title": "拟派项目经理人选及证书信息",
+      "children": 0,
+      "files": [],
+      "missingReferences": 0
+    }
+  ]
+}

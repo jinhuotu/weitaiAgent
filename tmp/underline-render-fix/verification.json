@@ -1,0 +1,64 @@
+{
+  "fullRun": {
+    "passed": 1537,
+    "failed": 150,
+    "skipped": 1
+  },
+  "latestFocusedPassed": 262,
+  "rerunResolvedFullFailures": [
+    "tests.test_tender_generic_generation::test_technical_cover_copies_current_company_after_structural_blank_fill[\\u6295\\u6807\\u4eba\\u6216\\u8054\\u5408\\u4f53\\u7275\\u5934\\u4eba\\uff1a\\t\\uff08\\u76d6\\u5355\\u4f4d\\u7ae0\\uff09]"
+  ],
+  "remainingFailures": 149,
+  "newRemainingFailuresComparedToBaseline": [],
+  "historicalFailuresNotChanged": 149,
+  "scopeFile": "scope.json",
+  "renderChecks": {
+    "pagination-source": {
+      "pages": 1
+    },
+    "pagination-old": {
+      "pages": 2
+    },
+    "pagination-fixed": {
+      "pages": 1
+    },
+    "contacts-source": {
+      "pages": 1,
+      "rightLabelX": [
+        342.0,
+        364.0,
+        342.0,
+        364.0
+      ]
+    },
+    "contacts-fixed": {
+      "pages": 1,
+      "rightLabelX": [
+        342.0,
+        364.0,
+        342.0,
+        364.0
+      ]
+    }
+  },
+  "realSampleRendering": {
+    "business": {
+      "pages": 38,
+      "signaturePages": [
+        2,
+        7,
+        8
+      ]
+    },
+    "full": {
+      "pages": 46,
+      "signaturePages": [
+        2,
+        7,
+        8
+      ]
+    }
+  },
+  "sourceDocxUntouched": true,
+  "sourceStandaloneStampParagraphsPreserved": true
+}

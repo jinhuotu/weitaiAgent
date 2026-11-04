@@ -1,0 +1,35 @@
+{
+  "related": {
+    "passed": 303,
+    "failed": 0,
+    "skipped": 0
+  },
+  "full": {
+    "passed": 1589,
+    "failed": 149,
+    "skipped": 1
+  },
+  "newFailures": [],
+  "realDocument": {
+    "business": {
+      "frontFile": "business-front.docx",
+      "pagesThroughAppendixHeading": 4,
+      "labelsSameLine": true,
+      "originalSectionBoundaryRetained": true
+    },
+    "full": {
+      "frontFile": "full-front.docx",
+      "pagesThroughAppendixHeading": 4,
+      "labelsSameLine": true,
+      "originalSectionBoundaryRetained": true
+    },
+    "sourceUnchanged": true,
+    "oldPagesThroughAppendixHeading": 5,
+    "sourcePagesThroughAppendixHeading": 4
+  },
+  "changedBusinessFiles": [
+    "apps/api/services/tenders/pdf_format.py"
+  ],
+  "backendRestarted": false,
+  "sha256": "e24eb3cbafb25a492eab8234ba7c6eeff99ad4b476fa7fdcbf7cc8f67e9adbc1"
+}

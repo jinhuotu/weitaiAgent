@@ -1,0 +1,173 @@
+--- a/backend/apps/api/services/tenders/gen_biz_resp.py
++++ b/backend/apps/api/services/tenders/gen_biz_resp.py
+@@ -11,7 +11,7 @@
+ 
+ from api.services.tenders.assets import load_invitation_text
+ from api.services.tenders.schema import BidBrief, BidRequirement, DeviationLine, OutlineItem
+-from common.errors import AppError, ErrorCode
++from common.errors import AppError
+ from db.models.knowledge import KnowledgeDocument
+ 
+ _BIZ_WORDS = (
+@@ -50,14 +50,21 @@
+     "期限",
+     "比例",
+     "金额",
+-    "评分",
+-    "得分",
+ )
+ _PRIMARY_WORDS = ("付款", "合同条款", "合同条件", "响应期", "有效期", "商务偏离", "商务承诺")
+ _EVIDENCE_WORDS = ("资质", "资格", "信誉", "业绩", "营业执照", "财务", "信用", "承诺")
+ _SECONDARY_WORDS = ("保证金", "交货", "工期", "质保", "保修", "优惠")
+ _SUBSTANTIAL = re.compile(r"不得|必须|应|需提供|须|★|※")
+ _SCORE_WORDS = ("价格", "业绩", "资信", "承诺", "优惠", "商务")
++_REVIEW_RULE = re.compile(
++    r"(?:商务|技术|价格|综合)(?:标|部分)?得分(?:等于|[=＝])"
++    r"|评审(?:的)?业绩规定|评审规则|评审程序|评标办法"
++    r"|评分标准|评分方法|计分方法|分值构成|得分计算|满分|加分|扣分|得\d+(?:\.\d+)?分"
++)
++_RESPONSE_ACTION = re.compile(
++    r"(?:应当|应|须|必须|需|不得).{0,12}(?:提供|提交|具备|满足|符合|承诺|执行|支付|完成|保证)"
++    r"|(?:提供|提交).{0,30}(?:证明|合同|证书|承诺|材料|复印件|扫描件)"
++)
+ logger = logging.getLogger("api.tenders.gen_biz_resp")
+ 
+ 
+@@ -92,6 +99,9 @@
+         if any(w in line for w in ("目录", "装订", "页码", "投标文件格式")):
+             continue
+         if any(w in line for w in ("评标委员会", "评审因素", "电子投标文件制作工具", "定标委员会")):
++            continue
++        # 评分规则留给 _business_scores 作上下文，只有可履行/举证的义务才逐条响应。
++        if (row.category == "scoring" or _REVIEW_RULE.search(key)) and not _RESPONSE_ACTION.search(key):
+             continue
+         priority = (
+             4
+@@ -245,14 +255,19 @@
+     except json.JSONDecodeError:
+         from api.services.layouts.parse import extract_json_object
+ 
+-        payload = extract_json_object(raw, prefer_keys=("clauses", "chapters"))
+-    if (
+-        not isinstance(payload, dict)
+-        or not isinstance(payload.get("clauses"), list)
+-        or not isinstance(payload.get("chapters"), list)
+-    ):
+-        raise AppError(ErrorCode.VALIDATION, "商务响应缺少条款或章节", status_code=422)
+-    return payload
++        try:
++            payload = extract_json_object(raw, prefer_keys=("clauses", "chapters"))
++        except AppError as exc:
++            if exc.status_code != 422:
++                raise
++            payload = {}
++    if not isinstance(payload, dict):
++        payload = {}
++    # 缺哪部分就留空交给后续占位，不丢弃另一部分已返回的有效内容。
++    return {
++        key: payload[key] if isinstance(payload.get(key), list) else []
++        for key in ("clauses", "chapters")
++    }
+ 
+ 
+ def _safe_response(
+@@ -355,29 +370,35 @@
+     ):
+         if role not in roles:
+             notes.append(f"商务标：大纲无「{label}」对应章节，未擅自新增目录项")
++    if not editable:
++        return brief, [
++            *notes,
++            "商务标：没有可自动填写的商务响应章节，需核对的响应【待补充】；已保留人工内容和原大纲",
++        ]
+     if not requirements:
+-        target = next((i for i in editable if _chapter_role(i) == "commitment"), None)
+-        if target is None:
+-            return brief, [*notes, "商务标：未提取到商务要求，核对表【待补充】"]
+         updated = [
+             item.model_copy(
+                 update={
+                     "draftBody": (
+-                        "商务响应完整性核对表\n【待补充】未识别商务条款和评分项，请核对招标商务章"
++                        "商务响应完整性核对表\n【待补充】未识别可逐条响应的商务条款，请核对招标商务章"
+                     ),
+                     "draftStatus": "drafted",
+                 }
+             )
+-            if item is target
++            if item in editable
+             else item
+             for item in brief.outlineItems
+         ]
+-        return brief.model_copy(update={"outlineItems": updated}), [
++        pending_rows = brief.bizDeviationLines
++        if not pending_rows and any(_chapter_role(item) == "deviation" for item in editable):
++            pending_rows = [DeviationLine(
++                seq="1", requirement="【待补充】未识别可逐条响应的商务条款",
++                response="【待补充】请核对招标商务章", deviation="待确认",
++            )]
++        return brief.model_copy(update={"outlineItems": updated, "bizDeviationLines": pending_rows}), [
+             *notes,
+             "商务标：未提取到商务要求，已在核对表标【待补充】",
+         ]
+-    if not editable and (brief.bizDeviationLines or not sections):
+-        return brief, notes
+     evidence = _evidence(brief, library_facts or [])
+     selected_ids = [
+         str(x).strip()
+@@ -415,6 +436,9 @@
+     titles = [i.title for i in editable]
+     by_req: dict[str, dict] = {}
+     body_parts: dict[str, list[str]] = {title: [] for title in titles}
++    chapter_titles = {i.title for i in editable if _chapter_role(i) != "deviation"}
++    chapter_gaps: set[str] = set()
++    clause_gaps = False
+     for offset in range(0, len(requirements), 20):
+         batch = requirements[offset : offset + 20]
+         batch_texts = {row.text for row in batch}
+@@ -462,12 +486,18 @@
+             mode="pro",
+         )
+         payload = _parse(raw)
++        answered = set()
+         for row in payload["clauses"]:
+             if not isinstance(row, dict):
+                 continue
+             key = str(row.get("requirement") or "").strip()
+             if key in batch_texts and key not in by_req:
+                 by_req[key] = row
++                if str(row.get("response") or "").strip():
++                    answered.add(key)
++        if batch_texts - answered:
++            clause_gaps = True
++        returned_chapters = set()
+         for row in payload["chapters"]:
+             if not isinstance(row, dict):
+                 continue
+@@ -475,6 +505,14 @@
+             body = str(row.get("body") or "").strip()
+             if title in body_parts and body:
+                 body_parts[title].append(body)
++                returned_chapters.add(title)
++        chapter_gaps.update(chapter_titles - returned_chapters)
++    if clause_gaps:
++        notes.append("商务标：模型未完整返回逐条响应，缺失条款已标【待补充】，投标文件继续生成")
++    if chapter_gaps:
++        notes.append("商务标：模型未完整返回章节正文，缺失正文已标【待补充】，投标文件继续生成")
++        for title in chapter_gaps:
++            body_parts[title].append("【待补充】商务响应章节正文未完整生成，请核对招标条款后补充。")
+     existing = {re.sub(r"\s+", "", d.requirement) for d in brief.bizDeviationLines}
+     rows = list(brief.bizDeviationLines)
+     for req in requirements:
+--- a/frontend/src/lib/api.ts
++++ b/frontend/src/lib/api.ts
+@@ -59,6 +59,9 @@
+     )
+   }
+   if (status === 422) {
++    if (detail === '商务响应缺少条款或章节') {
++      return '商务响应暂未完整生成。可先关闭「起草商务响应」后重新生成投标文件，缺失内容请按【待补充】人工完善。'
++    }
+     return detail || '提交内容未通过校验，请检查必填项'
+   }
+   // 优先展示后端具体错误（如 MCP stdio 失败原因）

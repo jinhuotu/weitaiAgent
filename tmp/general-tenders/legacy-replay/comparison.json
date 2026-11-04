@@ -1,0 +1,65 @@
+{
+  "sourceUnchanged": true,
+  "cases": [
+    {
+      "volume": "business",
+      "before": {
+        "entries": 20,
+        "firstBodyBlock": 44,
+        "images": 11,
+        "paragraphs": 422
+      },
+      "after": {
+        "entries": 20,
+        "firstBodyBlock": 44,
+        "images": 11,
+        "paragraphs": 422
+      },
+      "tocTitlesEqual": true,
+      "scanCountEqual": true,
+      "changedParts": [
+        "word/document.xml"
+      ]
+    },
+    {
+      "volume": "technical",
+      "before": {
+        "entries": 1,
+        "firstBodyBlock": 26,
+        "images": 4,
+        "paragraphs": 88
+      },
+      "after": {
+        "entries": 1,
+        "firstBodyBlock": 26,
+        "images": 4,
+        "paragraphs": 88
+      },
+      "tocTitlesEqual": true,
+      "scanCountEqual": true,
+      "changedParts": [
+        "word/document.xml"
+      ]
+    },
+    {
+      "volume": "full",
+      "before": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 15,
+        "paragraphs": 485
+      },
+      "after": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 15,
+        "paragraphs": 485
+      },
+      "tocTitlesEqual": true,
+      "scanCountEqual": true,
+      "changedParts": [
+        "word/document.xml"
+      ]
+    }
+  ]
+}

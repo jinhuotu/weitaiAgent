@@ -1,0 +1,16 @@
+{
+  "id": "dc996f8d87974035a63a71961c30a7ae",
+  "name": "module5-upload.zip",
+  "revision": 2,
+  "status": "uploaded",
+  "history": [],
+  "uploads": {},
+  "updated_at": "2026-11-03T13:49:41.336815+00:00",
+  "archive": "e6077c82a2044f88a7f9c8704e1acc9a.zip",
+  "archive_source": {
+    "path": "e6077c82a2044f88a7f9c8704e1acc9a.zip",
+    "name": "module5-upload.zip",
+    "sha256": "d75285039bdfa32e2df907c8e316bf1a714b5b8460c949fc1c0011a4f938c329",
+    "size": 37285
+  }
+}

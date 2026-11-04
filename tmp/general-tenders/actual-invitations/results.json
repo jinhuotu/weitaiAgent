@@ -1,0 +1,122 @@
+[
+  {
+    "industry": "construction",
+    "invitationId": "091a152bd8c7",
+    "volume": "business",
+    "passed": true,
+    "sourceTocEntries": 21,
+    "resultTocEntries": 20,
+    "requirementsDriven": false,
+    "file": "2fbc5c358495.docx"
+  },
+  {
+    "industry": "construction",
+    "invitationId": "091a152bd8c7",
+    "volume": "technical",
+    "passed": true,
+    "sourceTocEntries": 21,
+    "resultTocEntries": 1,
+    "requirementsDriven": false,
+    "file": "e6d40f20cd27.docx"
+  },
+  {
+    "industry": "construction",
+    "invitationId": "091a152bd8c7",
+    "volume": "full",
+    "passed": true,
+    "sourceTocEntries": 21,
+    "resultTocEntries": 21,
+    "requirementsDriven": false,
+    "file": "b841f7ac9d92.docx"
+  },
+  {
+    "industry": "medical",
+    "invitationId": "0f68e2b0514b",
+    "volume": "business",
+    "passed": true,
+    "sourceTocEntries": 0,
+    "resultTocEntries": 34,
+    "requirementsDriven": false,
+    "file": "770fba50a12a.docx"
+  },
+  {
+    "industry": "medical",
+    "invitationId": "0f68e2b0514b",
+    "volume": "technical",
+    "passed": true,
+    "sourceTocEntries": 0,
+    "resultTocEntries": 7,
+    "requirementsDriven": false,
+    "file": "06b25359cf27.docx"
+  },
+  {
+    "industry": "medical",
+    "invitationId": "0f68e2b0514b",
+    "volume": "full",
+    "passed": true,
+    "sourceTocEntries": 0,
+    "resultTocEntries": 44,
+    "requirementsDriven": false,
+    "file": "922f54641aa5.docx"
+  },
+  {
+    "industry": "system",
+    "invitationId": "00b79875a04a",
+    "volume": "business",
+    "passed": true,
+    "sourceTocEntries": 5,
+    "resultTocEntries": 4,
+    "requirementsDriven": false,
+    "file": "4eba437dc614.docx"
+  },
+  {
+    "industry": "system",
+    "invitationId": "00b79875a04a",
+    "volume": "technical",
+    "passed": true,
+    "sourceTocEntries": 5,
+    "resultTocEntries": 1,
+    "requirementsDriven": false,
+    "file": "95046154196b.docx"
+  },
+  {
+    "industry": "system",
+    "invitationId": "00b79875a04a",
+    "volume": "full",
+    "passed": true,
+    "sourceTocEntries": 5,
+    "resultTocEntries": 5,
+    "requirementsDriven": false,
+    "file": "2b2e61e66529.docx"
+  },
+  {
+    "industry": "goods",
+    "invitationId": "18b181e9dbfe",
+    "volume": "business",
+    "passed": true,
+    "sourceTocEntries": 4,
+    "resultTocEntries": 4,
+    "requirementsDriven": false,
+    "file": "2b283ca195a6.docx"
+  },
+  {
+    "industry": "goods",
+    "invitationId": "18b181e9dbfe",
+    "volume": "technical",
+    "passed": true,
+    "sourceTocEntries": 4,
+    "resultTocEntries": 1,
+    "requirementsDriven": false,
+    "file": "334547d3fe25.docx"
+  },
+  {
+    "industry": "goods",
+    "invitationId": "18b181e9dbfe",
+    "volume": "full",
+    "passed": true,
+    "sourceTocEntries": 4,
+    "resultTocEntries": 4,
+    "requirementsDriven": false,
+    "file": "523ef296f53b.docx"
+  }
+]

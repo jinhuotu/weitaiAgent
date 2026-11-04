@@ -537,6 +537,8 @@ async def _prepare_and_generate(
     note = str(status.get("otherVolumeNote") or "")
     if note and note not in warnings:
         warnings.append(note)
+    from api.services.tenders.expiry_check import generation_expiry_warnings
+    warnings.extend(await generation_expiry_warnings(db, attachment_match, media))
     generated["warnings"] = warnings
     return generated, attachment_match
 

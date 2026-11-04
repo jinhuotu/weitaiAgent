@@ -1,0 +1,12 @@
+{
+  "full": {
+    "total": 1635,
+    "failed": 149,
+    "newFailuresComparedToPreTask": [],
+    "resolvedBaselineFailures": []
+  },
+  "targeted": {
+    "total": 197,
+    "tenders": 174
+  }
+}

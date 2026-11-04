@@ -1,0 +1,604 @@
+{
+  "tasks": [
+    {
+      "task": "9949b14743ca",
+      "status": "succeeded",
+      "doc": "ee8bd2c93c0e",
+      "source": "file",
+      "key": "m171d4830fbbe",
+      "parent": "171d4830fbbe",
+      "hasFile": true
+    },
+    {
+      "task": "c971a39a1890",
+      "status": "succeeded",
+      "doc": "b4d68ee65878",
+      "source": "file",
+      "key": "10000",
+      "parent": "7aaa6459b4ed",
+      "hasFile": true
+    },
+    {
+      "task": "852b575ffb90",
+      "status": "succeeded",
+      "doc": "7f283a72bdbe",
+      "source": "file",
+      "key": "m5641425fda52",
+      "parent": "5641425fda52",
+      "hasFile": true
+    },
+    {
+      "task": "f43b4441663e",
+      "status": "succeeded",
+      "doc": "520ce977fa45",
+      "source": "file",
+      "key": "bond",
+      "parent": "31edacd45c69",
+      "hasFile": true
+    },
+    {
+      "task": "894db5722cb8",
+      "status": "succeeded",
+      "doc": "30ade82dd079",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "82b606e4cade",
+      "status": "succeeded",
+      "doc": "c87ce1ef7b1c",
+      "source": "file",
+      "key": "id_agent",
+      "parent": "b925d2ff9be2",
+      "hasFile": true
+    },
+    {
+      "task": "135e4fcb1598",
+      "status": "succeeded",
+      "doc": "75dc677223a5",
+      "source": "file",
+      "key": "mf3e9bb2565a1",
+      "parent": "f3e9bb2565a1",
+      "hasFile": true
+    },
+    {
+      "task": "77dcb0fca105",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "323af2fe018f",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "6128737a215e",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "c0c418f847f2",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "c9c51ae00103",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "add3a864e39f",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "4eee8e229f69",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "430bda2a760c",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "dbd5053b2d1e",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "a2796f2493a1",
+      "status": "succeeded",
+      "doc": "dd085a952dc5",
+      "source": "file",
+      "key": "mb2794e2f1307",
+      "parent": "b2794e2f1307",
+      "hasFile": true
+    },
+    {
+      "task": "e4aeedf96f6c",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "72c566330ec7",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "1b0fa2d9c7ce",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "ec4449055d54",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "fbbdb25f519c",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "428bb4c7fd51",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "9cdd0d19d54a",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "5c91f81be4ca",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "ce885844407f",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "9c27657b77b5",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "c61af2bb8d53",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "d8df70655537",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "3f48f5fa9cea",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "ef7d827b0be1",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "582e1ba39ed4",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "df256da186d3",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "fe6893873061",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "877eb293be31",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "b80a333eb3df",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "0b64a3500a1a",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "672d755d75fd",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "0d440546983b",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "5ad9f9081e4b",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "5366f6c82264",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "f47ecadf7a18",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "91d7306f5183",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "b6b8b05ec65d",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "eafd85fe7ba0",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "484b128550a5",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "a664bd74b01e",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "6344146aaeb2",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "dd2a3db4d0ca",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "dd6be7f3a200",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "1f8fb7e7718e",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "bb46ba16f177",
+      "status": "succeeded",
+      "doc": "75929174bcd0",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    },
+    {
+      "task": "505475bf4ac1",
+      "status": "succeeded",
+      "doc": "4f100041bfc7",
+      "source": "file",
+      "key": "id_legal",
+      "parent": "17c2c6bc6e50",
+      "hasFile": true
+    }
+  ],
+  "disk": [
+    {
+      "path": "storage\\knowledge\\tenderlib01\\30ade82dd079.pdf",
+      "docId": "30ade82dd079",
+      "key": "mb2794e2f1307",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\520ce977fa45.png",
+      "docId": "520ce977fa45",
+      "key": "bond",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\75dc677223a5.pdf",
+      "docId": "75dc677223a5",
+      "key": "mf3e9bb2565a1",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\7f283a72bdbe.png",
+      "docId": "7f283a72bdbe",
+      "key": "m5641425fda52",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\b4d68ee65878.png",
+      "docId": "b4d68ee65878",
+      "key": "10000",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\c87ce1ef7b1c.png",
+      "docId": "c87ce1ef7b1c",
+      "key": "id_agent",
+      "linked": true
+    },
+    {
+      "path": "storage\\knowledge\\tenderlib01\\ee8bd2c93c0e.png",
+      "docId": "ee8bd2c93c0e",
+      "key": "m171d4830fbbe",
+      "linked": true
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\credit_query_print\\新建文本文档_2.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\id_legal\\4f100041bfc7.jpg",
+      "docId": "4f100041bfc7",
+      "key": "id_legal",
+      "linked": true
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\id_legal\\75929174bcd0.jpg",
+      "docId": "75929174bcd0",
+      "key": "id_legal",
+      "linked": true
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\mb2794e2f1307\\dd085a952dc5.pdf",
+      "docId": "dd085a952dc5",
+      "key": "mb2794e2f1307",
+      "linked": true
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\original_factory_commitment\\新建文本文档_3.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\sample_submission\\新建文本文档_3.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\technical_deviation_proof\\新建文本文档_3.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\Snipaste_2026-09-17_10-58-22.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\Snipaste_2026-09-17_11-26-05.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\充电场站图纸.pdf",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\安全生产许可证.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\安全生产许可证_1.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    },
+    {
+      "path": "storage\\tender-assets\\slots\\tech_drawings\\高途智成港_一期_汽车充电桩采购安装项目投标保证金-2026-04-01.png",
+      "docId": "",
+      "key": "",
+      "linked": false
+    }
+  ],
+  "hashRecoveryCandidates": []
+}

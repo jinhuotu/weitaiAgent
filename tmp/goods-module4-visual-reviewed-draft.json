@@ -1,0 +1,1662 @@
+{
+  "structure_only": false,
+  "visual_status": "not_accepted",
+  "documents": [
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\business\\business.docx",
+      "sha256": "dfc55ca45024a2f5966fbe8235ded17cc5dc2409b2fcd5d6feb142918c9e1d3a",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\0\\page-0001.png",
+          "sha256": "8a786185aa5989194c2b7fdf0e72ff02ed19ad3a3df9c47e76c738d92e46bfbb"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\0\\page-0002.png",
+          "sha256": "bf26ca35332c36258eba5756d7a2f13669921e03356b63e68bfef620c79f838a"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-16.docx",
+      "sha256": "56c3c708a2ef544a5eb8daad9c04f184b4e51cb8a81024ca37c9885b40f0205a",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\1\\page-0001.png",
+          "sha256": "f9cbe5e4ae44bf823d4a21ddb56e7690b340f39468834927d06c5107a117fccd"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-17.docx",
+      "sha256": "a3c513058df3a79a702d105a554127da1197a3ab381f5750121523122f31f9d4",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\2\\page-0001.png",
+          "sha256": "553914d02107b8677386245024ef65949ff6197f1950bc72efda30f9079bba22"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-19.docx",
+      "sha256": "14b47d879cdca2de65fd14156a62e55a5822bd6d26d5c49dd7743748748fd83d",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\3\\page-0001.png",
+          "sha256": "a8491c7b6109b570ff791995829d13a884ccca0d13abb7ca054eb18ffe28a281"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-20.docx",
+      "sha256": "021991b8c3f6f47032935b32dbead72b56020debbccfcd76f51fb6363b87b2c8",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\4\\page-0001.png",
+          "sha256": "696e23855a45bfe1df584bfd88aade7d0caf7afc331070688477976dd252ac27"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500107624-00001.docx",
+      "sha256": "b394cddc62ac8cbd4add40188016a84df8b1b066b79da88aff1f5f9abff65db3",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0001.png",
+          "sha256": "9549a6020ffcf9829175a2829c900d18508a2dc70227da2c81fadf0ad4ff8994"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0002.png",
+          "sha256": "2bb900b74f118df0abc3264547b986b55665b7fcf597f87dd62e061a12bcca83"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0003.png",
+          "sha256": "cddd32ac06eb9c7fc5be18c0e2b7c95b9c54691da08b42bb2efb3dbd8a24540e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0004.png",
+          "sha256": "72bc0fe016bc69753060964bb183bdc76a74863c5814c3c55799f4b81fd2f661"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0006.png",
+          "sha256": "99b67a6a588b2b1a48c771159ef379ddbe473a527aea46ed8f48d2c8e75f42ef"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500107868-00001.docx",
+      "sha256": "b0724094fa7b2f7525b7ac25890e40e5709607c0ca91ddd2e9f76b1f2b424237",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0001.png",
+          "sha256": "d32586af64ca81cfe3db1e2dd723caa6d2fd96eedf5f7404e87919f13b572292"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0002.png",
+          "sha256": "08b3318a3dbf748e5ea90ccc47c10ded791eb77e990c74af1434af391a603e1a"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0003.png",
+          "sha256": "030a822b13cc8ae8c2a63386c49456336876baaea05915d937e766e73e06d20f"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0004.png",
+          "sha256": "bf863c32cf252d9924fa11dc63a906214b9590ac339542cdc8c03532a05c76d0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500107869-00001.docx",
+      "sha256": "86bb6fd953ca08f32ab07a275cfdafadd8564d0d1c24482ade502a0b090212eb",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0001.png",
+          "sha256": "fbfaccddaf52a80094cbe070e31775c8946a2e6e15b0737c14c911fac0c21382"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0002.png",
+          "sha256": "c8c419a947dd46ef1ab687bc9d596b1f3a4eb244980e910899eaddece79ba454"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0003.png",
+          "sha256": "e46bf460d32b47b5d93b69a29c4fb909a1e9b101ecaa0f6ac0f55b13177b9895"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0004.png",
+          "sha256": "eb25778836d197a6fd0ccd3cbb4d13f36cc050fe34ceea5de4c241e20bd8eeb3"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108108-00001.docx",
+      "sha256": "ec078fe91943be3123bc2a47341e52ee8063eb515f379f98365ef8acd164782f",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0001.png",
+          "sha256": "573505c4fe8e7d7492d9111aed2a83eb0f9ae008303d129d89240a824b9fa710"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0002.png",
+          "sha256": "0b1dae6868d36aa87851ce43f06183e521222ae3cc05ce6fa15e049204bb3ad1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0003.png",
+          "sha256": "de9891b90d461dc6d6efa4e82dd5a1fb9622f6649bead7a19fdcf809acd8f1f1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0004.png",
+          "sha256": "1e5048d7b9981443bc4e0061ae5dcde15c430166e7f7a0d633c8ef73a1dce5b5"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108211-00001.docx",
+      "sha256": "63836d403897f5cac9ceff9e02351cc192493ccd1e7a14e5281facc38547a80c",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0001.png",
+          "sha256": "0e8c7ff293809b26c0c0d6288f265feca7c18b480db40624216b3a967f6e0f06"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0002.png",
+          "sha256": "e56b4d7509a9ff847a97eb1ae9c362237bbec5397e522601040e765b3b31c842"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0003.png",
+          "sha256": "94108dc9963bdc277f97bbeb6c72811d072455e8f307ccc8d12c7b8f3d76e4dd"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0004.png",
+          "sha256": "6d8e1b3b1fbb11ae98b39ddc1f37514eddabf68aa5dd3d4a30f742a1e6c21209"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108302-00002.docx",
+      "sha256": "e5cc0adf0e6ac2a4ee20d2f6edb5b25703700931830947bfed76fa30fb06e7a0",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0001.png",
+          "sha256": "d458773f8cdfef3420bdcdb01d7ae063bd53e546ccae31647ca5d89722f23cd9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0002.png",
+          "sha256": "85710e8ba757de7a26b23a818a97bb1e4ef260acfe5e1c70f95d19a4ee333f95"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0003.png",
+          "sha256": "20529e5e294c99a373d179949d111e2fbcd0ca5e15e612c5fb18af3b38ed207a"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0004.png",
+          "sha256": "b096475bae69c1227e104d6dbbd07fcc5f5a89aeb5d5ea8bc2e22cf86ceade31"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108449-00001.docx",
+      "sha256": "5b75a86a2a1f85fac9f6ee3c6b8b24f91f9b2381972d83425536595c663c65b9",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0001.png",
+          "sha256": "7098e793cf264d3d034a5c5bf4617e5be70c9a0e3d757c49417e1f69864aabaf"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0002.png",
+          "sha256": "31d1bc6bd6616e0ce0f3a466cb1fc0dab1f555aba9f9f137c916441096c6936d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0003.png",
+          "sha256": "f298f116c49e83195fb7609aa2e1d37aad1ba3c751127521cbde22897f579ca6"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0004.png",
+          "sha256": "eedc0d940021830d402e3c82f824c66d7ea009aaf1207ad5bfdb8d13e06158bc"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108478-00001.docx",
+      "sha256": "ddbff39923900dbb9d49a35ad368a4b63b900f556b3925fdde4a94313b896bd6",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0001.png",
+          "sha256": "c71f3057c8b9136aefc46a68ae4495e23cd9b45dec35d6703ad2b42c7b2ba156"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0002.png",
+          "sha256": "b8c24e51923100ab25dea493afe5d6a7ae27037575a1e248848ea24470f9075b"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0003.png",
+          "sha256": "cda67170004e33d81b43c2f7bf8827cb36501c2c281efa5a78414fbcd5ce3cd3"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0004.png",
+          "sha256": "4741dd67e56b078c9d3f44a9c35fe7e835ca43741e73747b7be19acc4665ad17"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500108651-00001.docx",
+      "sha256": "524e355d88a12de3beeac4c31a4426c177c67ca3695401a8d22c6ca8bcfa2ae8",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0001.png",
+          "sha256": "3398f6a8bcf722d48affb73985a94a9fdbe9126f1a42b5f3d1aa82c98cd95ab1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0002.png",
+          "sha256": "08e05a18492f7bce25ddf0ca7fd61830742419ff6239bfd5fe97fb66dc0c1960"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0003.png",
+          "sha256": "42bc9e769f7c80e825c8c314fe4f67f053895e57cd146cc6e045c88a4bc26e5d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0004.png",
+          "sha256": "c860d7b3534ee241b8369b8aa3225df3ba82600859a6f73eadf417104c466f05"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0005.png",
+          "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0006.png",
+          "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\scope_pending\\technical\\9985-500138466-00001.docx",
+      "sha256": "17206b8dc84a68de327ff77943f1f6d9c1ce35112eff415eba5f353903fee191",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0001.png",
+          "sha256": "01723e3c7d4374ba7069208deabafc6cc54d1af7d10db58e296b01a1f4f32c72"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0002.png",
+          "sha256": "6648ab16b50f93e52e867cff253de042da4453085135eb17b5e43d5f7a72ba1b"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0003.png",
+          "sha256": "74fcf869119c0f6ee5d04248993dbf318bb258dc8bbc75e9b4dd2cf1e5af1e71"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0004.png",
+          "sha256": "9bf2cde755ea7eca3f9243f2654fe74ef1fca0b53011b2ba889c6e7ebae9feaa"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0005.png",
+          "sha256": "f6dade824013255d42856b41647cd3b2bdbc83aa1c032122721f7e8253e07c92"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0006.png",
+          "sha256": "94efb4b5025be6361d50a21483e78c65a9d376362cf0a91890e2e932b679f161"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0007.png",
+          "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    }
+  ],
+  "reviews": [
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\0\\page-0001.png",
+      "sha256": "8a786185aa5989194c2b7fdf0e72ff02ed19ad3a3df9c47e76c738d92e46bfbb",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页核对可读性；商务为补充草稿，未提供已审核的原商务模板，原版格式项不予通过",
+      "checks": {
+        "layout": true,
+        "original_format": false,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.493178+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\0\\page-0002.png",
+      "sha256": "bf26ca35332c36258eba5756d7a2f13669921e03356b63e68bfef620c79f838a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页核对可读性；商务为补充草稿，未提供已审核的原商务模板，原版格式项不予通过",
+      "checks": {
+        "layout": true,
+        "original_format": false,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.494705+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\1\\page-0001.png",
+      "sha256": "f9cbe5e4ae44bf823d4a21ddb56e7690b340f39468834927d06c5107a117fccd",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.518560+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\2\\page-0001.png",
+      "sha256": "553914d02107b8677386245024ef65949ff6197f1950bc72efda30f9079bba22",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.542521+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\3\\page-0001.png",
+      "sha256": "a8491c7b6109b570ff791995829d13a884ccca0d13abb7ca054eb18ffe28a281",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.567313+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\4\\page-0001.png",
+      "sha256": "696e23855a45bfe1df584bfd88aade7d0caf7afc331070688477976dd252ac27",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.592659+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0001.png",
+      "sha256": "9549a6020ffcf9829175a2829c900d18508a2dc70227da2c81fadf0ad4ff8994",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.594170+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0002.png",
+      "sha256": "2bb900b74f118df0abc3264547b986b55665b7fcf597f87dd62e061a12bcca83",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.596685+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0003.png",
+      "sha256": "cddd32ac06eb9c7fc5be18c0e2b7c95b9c54691da08b42bb2efb3dbd8a24540e",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.597909+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0004.png",
+      "sha256": "72bc0fe016bc69753060964bb183bdc76a74863c5814c3c55799f4b81fd2f661",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.599412+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.601482+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0006.png",
+      "sha256": "99b67a6a588b2b1a48c771159ef379ddbe473a527aea46ed8f48d2c8e75f42ef",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.603159+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.605687+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\5\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.606700+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0001.png",
+      "sha256": "d32586af64ca81cfe3db1e2dd723caa6d2fd96eedf5f7404e87919f13b572292",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.608702+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0002.png",
+      "sha256": "08b3318a3dbf748e5ea90ccc47c10ded791eb77e990c74af1434af391a603e1a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.609985+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0003.png",
+      "sha256": "030a822b13cc8ae8c2a63386c49456336876baaea05915d937e766e73e06d20f",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.612030+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0004.png",
+      "sha256": "bf863c32cf252d9924fa11dc63a906214b9590ac339542cdc8c03532a05c76d0",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.613052+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.615579+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.616579+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.617579+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\6\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.619708+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0001.png",
+      "sha256": "fbfaccddaf52a80094cbe070e31775c8946a2e6e15b0737c14c911fac0c21382",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.621725+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0002.png",
+      "sha256": "c8c419a947dd46ef1ab687bc9d596b1f3a4eb244980e910899eaddece79ba454",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.623240+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0003.png",
+      "sha256": "e46bf460d32b47b5d93b69a29c4fb909a1e9b101ecaa0f6ac0f55b13177b9895",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.625715+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0004.png",
+      "sha256": "eb25778836d197a6fd0ccd3cbb4d13f36cc050fe34ceea5de4c241e20bd8eeb3",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.626723+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.627723+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.629718+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.630719+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\7\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.632555+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0001.png",
+      "sha256": "573505c4fe8e7d7492d9111aed2a83eb0f9ae008303d129d89240a824b9fa710",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.634682+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0002.png",
+      "sha256": "0b1dae6868d36aa87851ce43f06183e521222ae3cc05ce6fa15e049204bb3ad1",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.636882+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0003.png",
+      "sha256": "de9891b90d461dc6d6efa4e82dd5a1fb9622f6649bead7a19fdcf809acd8f1f1",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.638899+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0004.png",
+      "sha256": "1e5048d7b9981443bc4e0061ae5dcde15c430166e7f7a0d633c8ef73a1dce5b5",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.639940+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.642359+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.643359+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.645379+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\8\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.647887+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0001.png",
+      "sha256": "0e8c7ff293809b26c0c0d6288f265feca7c18b480db40624216b3a967f6e0f06",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.648885+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0002.png",
+      "sha256": "e56b4d7509a9ff847a97eb1ae9c362237bbec5397e522601040e765b3b31c842",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.650909+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0003.png",
+      "sha256": "94108dc9963bdc277f97bbeb6c72811d072455e8f307ccc8d12c7b8f3d76e4dd",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.653451+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0004.png",
+      "sha256": "6d8e1b3b1fbb11ae98b39ddc1f37514eddabf68aa5dd3d4a30f742a1e6c21209",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.655452+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.656978+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.659504+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.660519+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\9\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.663034+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0001.png",
+      "sha256": "d458773f8cdfef3420bdcdb01d7ae063bd53e546ccae31647ca5d89722f23cd9",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.664544+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0002.png",
+      "sha256": "85710e8ba757de7a26b23a818a97bb1e4ef260acfe5e1c70f95d19a4ee333f95",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.667153+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0003.png",
+      "sha256": "20529e5e294c99a373d179949d111e2fbcd0ca5e15e612c5fb18af3b38ed207a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.668153+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0004.png",
+      "sha256": "b096475bae69c1227e104d6dbbd07fcc5f5a89aeb5d5ea8bc2e22cf86ceade31",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.670675+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.672714+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.673725+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.675753+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\10\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.677273+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0001.png",
+      "sha256": "7098e793cf264d3d034a5c5bf4617e5be70c9a0e3d757c49417e1f69864aabaf",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.678285+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0002.png",
+      "sha256": "31d1bc6bd6616e0ce0f3a466cb1fc0dab1f555aba9f9f137c916441096c6936d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.680806+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0003.png",
+      "sha256": "f298f116c49e83195fb7609aa2e1d37aad1ba3c751127521cbde22897f579ca6",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.683150+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0004.png",
+      "sha256": "eedc0d940021830d402e3c82f824c66d7ea009aaf1207ad5bfdb8d13e06158bc",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.684354+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.686364+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.687893+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.689399+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\11\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.690917+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0001.png",
+      "sha256": "c71f3057c8b9136aefc46a68ae4495e23cd9b45dec35d6703ad2b42c7b2ba156",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.692433+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0002.png",
+      "sha256": "b8c24e51923100ab25dea493afe5d6a7ae27037575a1e248848ea24470f9075b",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.693437+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0003.png",
+      "sha256": "cda67170004e33d81b43c2f7bf8827cb36501c2c281efa5a78414fbcd5ce3cd3",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.694946+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0004.png",
+      "sha256": "4741dd67e56b078c9d3f44a9c35fe7e835ca43741e73747b7be19acc4665ad17",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.698054+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.700332+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.702331+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.704330+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\12\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.706673+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0001.png",
+      "sha256": "3398f6a8bcf722d48affb73985a94a9fdbe9126f1a42b5f3d1aa82c98cd95ab1",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.709590+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0002.png",
+      "sha256": "08e05a18492f7bce25ddf0ca7fd61830742419ff6239bfd5fe97fb66dc0c1960",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.712161+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0003.png",
+      "sha256": "42bc9e769f7c80e825c8c314fe4f67f053895e57cd146cc6e045c88a4bc26e5d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.715698+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0004.png",
+      "sha256": "c860d7b3534ee241b8369b8aa3225df3ba82600859a6f73eadf417104c466f05",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.717981+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0005.png",
+      "sha256": "b11082f958950042cc74c558e494ed35dadcac8f5cfea145ecc6bf894e31a909",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.720009+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0006.png",
+      "sha256": "23e3e448ca1d53a6331b71456f239e3eda82d2beb9de44540369fbe2b2e34ef7",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.723016+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.725014+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\13\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.728058+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0001.png",
+      "sha256": "01723e3c7d4374ba7069208deabafc6cc54d1af7d10db58e296b01a1f4f32c72",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.729602+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0002.png",
+      "sha256": "6648ab16b50f93e52e867cff253de042da4453085135eb17b5e43d5f7a72ba1b",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.731108+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0003.png",
+      "sha256": "74fcf869119c0f6ee5d04248993dbf318bb258dc8bbc75e9b4dd2cf1e5af1e71",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.733118+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0004.png",
+      "sha256": "9bf2cde755ea7eca3f9243f2654fe74ef1fca0b53011b2ba889c6e7ebae9feaa",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.735641+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0005.png",
+      "sha256": "f6dade824013255d42856b41647cd3b2bdbc83aa1c032122721f7e8253e07c92",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.738147+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0006.png",
+      "sha256": "94efb4b5025be6361d50a21483e78c65a9d376362cf0a91890e2e932b679f161",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.740156+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0007.png",
+      "sha256": "5d1271f8a710660d29a463ada0677a390d1eb5ae2994c0d52bfe408aa19c4d1d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.742156+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-reviewable-draft\\visual\\14\\page-0008.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开PNG核对布局、分页、对齐与空白；技术规范与原件同渲染器对照，差异限于指定填入列；价格保持原表结构",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "blank_regions": true,
+        "alignment": true,
+        "pagination": true
+      },
+      "confirmed_at": "2026-11-03T07:45:13.745276+00:00"
+    }
+  ],
+  "message": "已生成的页面仍须逐页人工核对；未渲染页保持未验收"
+}

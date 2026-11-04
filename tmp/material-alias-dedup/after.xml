@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="5" time="5.061" timestamp="2026-10-29T15:31:56.388409+08:00" hostname="awen"><testcase classname="tests.test_tender_material_alias_dedup" name="test_resolver_unifies_alias_files_and_preserves_key_lookups" time="0.061" /><testcase classname="tests.test_tender_material_alias_dedup" name="test_aliases_paste_one_copy_at_same_placeholder_and_stay_idempotent[False]" time="0.097"><failure message="UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value">tests\test_tender_material_alias_dedup.py:57: in test_aliases_paste_one_copy_at_same_placeholder_and_stay_idempotent
+    _, handled = place_library_scans(doc, BidBrief(), media, slots)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:323: in place_library_scans
+    found = matches(text, context=section_context)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:291: in matches
+    result = {aliases.get(key, key) for key in result}
+              ^^^^^^^
+E   UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value</failure></testcase><testcase classname="tests.test_tender_material_alias_dedup" name="test_aliases_paste_one_copy_at_same_placeholder_and_stay_idempotent[True]" time="0.030"><failure message="UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value">tests\test_tender_material_alias_dedup.py:57: in test_aliases_paste_one_copy_at_same_placeholder_and_stay_idempotent
+    _, handled = place_library_scans(doc, BidBrief(), media, slots)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:323: in place_library_scans
+    found = matches(text, context=section_context)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:291: in matches
+    result = {aliases.get(key, key) for key in result}
+              ^^^^^^^
+E   UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value</failure></testcase><testcase classname="tests.test_tender_material_alias_dedup" name="test_identical_content_across_different_keys_at_one_placeholder_is_pasted_once" time="0.037"><failure message="UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value">tests\test_tender_material_alias_dedup.py:70: in test_identical_content_across_different_keys_at_one_placeholder_is_pasted_once
+    place_library_scans(doc, BidBrief(), {
+apps\api\services\tenders\scan_placement.py:323: in place_library_scans
+    found = matches(text, context=section_context)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:291: in matches
+    result = {aliases.get(key, key) for key in result}
+              ^^^^^^^
+E   UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value</failure></testcase><testcase classname="tests.test_tender_material_alias_dedup" name="test_different_placeholders_can_reuse_file_and_distinct_pages_are_kept" time="0.030"><failure message="UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value">tests\test_tender_material_alias_dedup.py:82: in test_different_placeholders_can_reuse_file_and_distinct_pages_are_kept
+    place_library_scans(doc, BidBrief(), {"license": [original, duplicate, other]})
+apps\api\services\tenders\scan_placement.py:323: in place_library_scans
+    found = matches(text, context=section_context)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+apps\api\services\tenders\scan_placement.py:291: in matches
+    result = {aliases.get(key, key) for key in result}
+              ^^^^^^^
+E   UnboundLocalError: cannot access local variable 'aliases' where it is not associated with a value</failure></testcase></testsuite></testsuites>

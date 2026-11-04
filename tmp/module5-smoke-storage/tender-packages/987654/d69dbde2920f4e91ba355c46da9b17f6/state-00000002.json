@@ -1,0 +1,16 @@
+{
+  "id": "d69dbde2920f4e91ba355c46da9b17f6",
+  "name": "recognition-upload.zip",
+  "revision": 2,
+  "status": "uploaded",
+  "history": [],
+  "uploads": {},
+  "updated_at": "2026-11-03T14:52:51.907371+00:00",
+  "archive": "dccd56f66e394fdeb7b2f9552af67481.zip",
+  "archive_source": {
+    "path": "dccd56f66e394fdeb7b2f9552af67481.zip",
+    "name": "recognition-upload.zip",
+    "sha256": "f8eadd017c90b85e841c4a36a1631c439e67d88c2c7e36fe3ecdddb93b6c76e2",
+    "size": 37168
+  }
+}

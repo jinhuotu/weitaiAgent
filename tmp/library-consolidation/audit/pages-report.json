@@ -1,0 +1,75 @@
+{
+  "inventory-materials": {
+    "pages": 8,
+    "emptyTextPages": [
+      4,
+      5,
+      6,
+      7
+    ],
+    "materialPages": [
+      2,
+      8
+    ],
+    "tableHeaderPages": []
+  },
+  "layout-stress": {
+    "pages": 4,
+    "emptyTextPages": [],
+    "materialPages": [
+      4
+    ],
+    "tableHeaderPages": [
+      1,
+      2,
+      3
+    ]
+  },
+  "regenerated-business": {
+    "pages": 34,
+    "emptyTextPages": [],
+    "materialPages": [
+      10,
+      11,
+      13,
+      14,
+      17,
+      18,
+      19,
+      21,
+      22,
+      23,
+      24,
+      30,
+      33,
+      34
+    ],
+    "tableHeaderPages": []
+  },
+  "regenerated-full": {
+    "pages": 59,
+    "emptyTextPages": [],
+    "materialPages": [
+      10,
+      11,
+      13,
+      14,
+      17,
+      18,
+      19,
+      21,
+      22,
+      23,
+      24,
+      30,
+      35,
+      39,
+      42,
+      50,
+      57,
+      58,
+      59
+    ],
+    "tableHeaderPages": []
+  }
+}

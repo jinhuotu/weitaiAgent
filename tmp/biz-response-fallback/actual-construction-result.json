@@ -1,0 +1,14 @@
+{
+  "source": "storage\\tender-invitations\\ff6d6a0b67aa.txt",
+  "formatSourceUnchanged": true,
+  "llmCalls": 0,
+  "businessClausesAfterFiltering": 236,
+  "businessDraftNotes": [
+    "商务标：大纲无「商务偏离表」对应章节，未擅自新增目录项",
+    "商务标：大纲无「商务优惠及特殊承诺」对应章节，未擅自新增目录项",
+    "商务标：大纲无「响应承诺正文」对应章节，未擅自新增目录项",
+    "商务标：没有可自动填写的商务响应章节，需核对的响应【待补充】；已保留人工内容和原大纲"
+  ],
+  "generatedFile": "E:\\code\\python\\weitaiAgent\\tmp\\biz-response-fallback\\actual-construction.business.docx",
+  "generatedBytes": 177763
+}

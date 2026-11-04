@@ -1,0 +1,5064 @@
+{
+  "docs": 281,
+  "files": [
+    {
+      "id": "17c2c6bc6e50",
+      "key": "id_legal",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "须为河南伟泰光电科技有限",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": true
+    },
+    {
+      "id": "b925d2ff9be2",
+      "key": "id_agent",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "法人亲自投标可划掉本项。",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": true
+    },
+    {
+      "id": "489be252914d",
+      "key": "perf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "签约主体必须是河南伟泰光",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "539ef39ece5f",
+      "key": "finance",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "按招标文件资格审查条款提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9cea6c377bdd",
+      "key": "credit",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "截图须含查询日期。",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "44a46b6c7d47",
+      "key": "product",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "功率与招标要求一致；正偏",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "31edacd45c69",
+      "key": "bond",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "按邀请书载明的金额与账户",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "02a573de0219",
+      "key": "seal",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "逐页盖投标人公章；法定代",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b97f6cfae6e1",
+      "key": "mb97f6cfae6e1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "须在有效期内",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5624a51283f1",
+      "key": "m5624a51283f1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标保证金缴纳凭证 / ",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5641425fda52",
+      "key": "m5641425fda52",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "经营范围包含新能源充电、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "157b8881cdcf",
+      "key": "m157b8881cdcf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "电力工程总承包 / 输变",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e17fa97dd752",
+      "key": "me17fa97dd752",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "安全生产许可证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bfbba247160d",
+      "key": "mbfbba247160d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "电力行业 / 变电工程设",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f3e9bb2565a1",
+      "key": "mf3e9bb2565a1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "基本存款账户信息",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b2794e2f1307",
+      "key": "mb2794e2f1307",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "信用中国、政府采购网失信",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "05518b54e4b3",
+      "key": "m05518b54e4b3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "无行贿、不转包分包、无重",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "794139829a9e",
+      "key": "m794139829a9e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "必须附带社保缴纳证明",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e083f41abba0",
+      "key": "me083f41abba0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "近 2‑3 年第三方审计",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "277b69ac78aa",
+      "key": "m277b69ac78aa",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目名称、规格型号、买方",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "eb06c1b6862f",
+      "key": "meb06c1b6862f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "原厂质保承诺函",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4cf0221bc5a5",
+      "key": "m4cf0221bc5a5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "质保年限、故障响应时间、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3a08f97a45fd",
+      "key": "m3a08f97a45fd",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书中明确'技术要求见",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0ea624efc490",
+      "key": "m0ea624efc490",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标内容提及'具体型号及",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "171d4830fbbe",
+      "key": "m171d4830fbbe",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书建议开具银行保函，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8f381d011c4d",
+      "key": "m8f381d011c4d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "报价须单独密封/独立邮件",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7aaa6459b4ed",
+      "key": "10000",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "第三部分明确'未交者按废",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "18292f5ac3cf",
+      "key": "m18292f5ac3cf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "第三部分'资质证明资料（",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "55df7774b315",
+      "key": "m55df7774b315",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "附件十第（4）项'相关企",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ee8bd2c93c0e",
+      "key": "m171d4830fbbe",
+      "parentKey": "m171d4830fbbe",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "单详情发银行上海浦东发展",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b4d68ee65878",
+      "key": "10000",
+      "parentKey": "10000",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "单详情发银行上海浦东发展",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7f283a72bdbe",
+      "key": "m5641425fda52",
+      "parentKey": "m5641425fda52",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "营业执照统一社会信用代码",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "520ce977fa45",
+      "key": "bond",
+      "parentKey": "bond",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "中国建设银行网上银行电子",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1890a61e40e1",
+      "key": "m1890a61e40e1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "若招标范围含安装施工，需",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "30ade82dd079",
+      "key": "mb2794e2f1307",
+      "parentKey": "mb2794e2f1307",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "[第1页]\n法人和非法人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c87ce1ef7b1c",
+      "key": "id_agent",
+      "parentKey": "id_agent",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "姓名魏似草性别女民族汉出",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": true
+    },
+    {
+      "id": "75dc677223a5",
+      "key": "mf3e9bb2565a1",
+      "parentKey": "mf3e9bb2565a1",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "[第1页]\n原厂生产承诺",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "74f981188864",
+      "key": "3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书要求'在制造行业服",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "066f60e3f9bc",
+      "key": "license",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "企业法人营业执照副本扫描",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "a708499230b8",
+      "key": "license",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "企业法人营业执照副本扫描",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "829ecd22b921",
+      "key": "iso",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "按邀请书资质标题一对一提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "305bee6b100b",
+      "key": "bank_permit",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "基本账户开户许可证扫描件",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "beced3e35811",
+      "key": "iso",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "按邀请书资质标题一对一提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bc00d00945c5",
+      "key": "mbc00d00945c5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文仅说明由招标人编制，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "a14120ed7170",
+      "key": "ma14120ed7170",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标须知要求'法定代表人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "05430da167c9",
+      "key": "m05430da167c9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标须知要求'授权代表携",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "474135abd30f",
+      "key": "m474135abd30f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "商务标评审明确要求'每提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "943fdbedc3d5",
+      "key": "m943fdbedc3d5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "近三年财务审计报告或承诺",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d1ed46fd33f2",
+      "key": "md1ed46fd33f2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书第四章明确技术标准",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0a76e2512d6a",
+      "key": "m0a76e2512d6a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文仅说明由招标人编制，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "479c626d8934",
+      "key": "m479c626d8934",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "第五章为示范性内容，招标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d5abd6dd1fd4",
+      "key": "mom",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书正文提及但未提供，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "a21a51a15f79",
+      "key": "ma21a51a15f79",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文仅说明由招标人编制，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b498a58b4118",
+      "key": "1_7_1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "虽有模板格式，但关键字段",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6ebd47c30abc",
+      "key": "m6ebd47c30abc",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文仅说明由招标人编制，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8d0c04185c7c",
+      "key": "m8d0c04185c7c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文目录列有第六章图纸，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e64e62c20890",
+      "key": "me64e62c20890",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文仅见目录及部分页码，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2033c309c0b6",
+      "key": "m2033c309c0b6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文在15.3.2处截断",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "561236871241",
+      "key": "m561236871241",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文未提供投标文件格式章",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "44e06213996b",
+      "key": "m44e06213996b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如委托代理人投标，须提供",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "80774aa2de75",
+      "key": "b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "须提供项目经理机电工程专",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "930e2c166c7d",
+      "key": "m930e2c166c7d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格条款明确要求该许可证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b0faef5caba9",
+      "key": "mb0faef5caba9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "该资料库项要求项目经理机",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b9f13383dc42",
+      "key": "mb9f13383dc42",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "ISO体系证书",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3aab9068b6e0",
+      "key": "m3aab9068b6e0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "需提供项目经理机电工程专",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7f70092a2351",
+      "key": "m7f70092a2351",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书列有附三报价单模板",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f8f9666972cf",
+      "key": "mf8f9666972cf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书要求商务标与技术标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cc23f020beb2",
+      "key": "mcc23f020beb2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理须有机电工程专业",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "76dba673a881",
+      "key": "m76dba673a881",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "拟派项目经理及委托代理人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9dc236723579",
+      "key": "3_2_10_5_b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求3.2及前附表1",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1fbf1e811616",
+      "key": "m1fbf1e811616",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格条款3.2及前附表1",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c3cdf48b3494",
+      "key": "mc3cdf48b3494",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如由委托代理人投标，须提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e3b937279ffc",
+      "key": "me3b937279ffc",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求项目经理机电工程",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "24e2fd11b530",
+      "key": "m24e2fd11b530",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如非法人亲自投标，须提供",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8da71c5a1715",
+      "key": "m8da71c5a1715",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求3.9.7及信誉",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7781bb131533",
+      "key": "m7781bb131533",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格条款3.2及前附表1",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "246d0842b139",
+      "key": "m246d0842b139",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求4.2(3)及资",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "816a22f46d9a",
+      "key": "m816a22f46d9a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求4.2(5)及开",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1a64fd1ff8df",
+      "key": "m1a64fd1ff8df",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求4.2(7)要求",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bf11b5be03a4",
+      "key": "mbf11b5be03a4",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资信响应文件第7项要求提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4b4cce0bfd13",
+      "key": "m4b4cce0bfd13",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资信响应文件第3项要求提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ba1785678d7b",
+      "key": "aaa",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资信响应文件第4项要求提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b5321fcca7a4",
+      "key": "mb5321fcca7a4",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "第三章合同条款仅引用附件",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "81a1c7cfd560",
+      "key": "m81a1c7cfd560",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "第五章分项报价表为空白格",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cbe0f39d9e64",
+      "key": "mcbe0f39d9e64",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理须有机电工程专业",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cf4d4fd3f33d",
+      "key": "mcf4d4fd3f33d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求项目经理具有机电",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bbb22dce324d",
+      "key": "mbbb22dce324d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求3.2及前附表1",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ecf9868b9acc",
+      "key": "mecf9868b9acc",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如委托代理人投标：代理人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b330899c52f1",
+      "key": "mb330899c52f1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格要求项目经理具有机电",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "97dc37ba7064",
+      "key": "b_3_2_10_5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理机电工程专业二级",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e0283b1957fd",
+      "key": "3_9_8",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如委托代理人投标，提供代",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "fd84d50abcc5",
+      "key": "mfd84d50abcc5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格条款3.9.8要求委",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "90be97e890bd",
+      "key": "m90be97e890bd",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本邀请书正文未提供图纸，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "72c36a51ffb7",
+      "key": "m72c36a51ffb7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本邀请书正文未提供评标办",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f3eed657e0dd",
+      "key": "12",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "信誉及业绩要求：提供近三",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "26a07f64f526",
+      "key": "material_84b73452ba6f56118ef2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "根据贵方的采购文件，标段",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "240b0be25101",
+      "key": "material_e3ce0e7cd7620bc28fd5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "供应商参见询价采购文件第",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "a3b1015a3e7e",
+      "key": "material_6ab773c9ff2ab1e9181e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "A.公司简介",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "dab1ba1ab571",
+      "key": "material_75dbaf45e2cd2b66dd5d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "序号 | 设备名称 | ",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8273a3ebe952",
+      "key": "material_22bdc10178ba68dca316",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "序号 | 仪器设备名称 ",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d7ccef760fee",
+      "key": "material_2dc9b302011bf5b6806f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "单位：人；工种 | 按工",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "53423855c4e0",
+      "key": "material_e8eed5d6ed225d6acf5f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人应递交施工进度表和",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e28c80f916fe",
+      "key": "material_2253688c3cc630dcd408",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人应递交一份施工总平",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "dba8c6c6d5f3",
+      "key": "material_07114ab8b7ce92592364",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用途 | 面积（平方米）",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9b6d6db0dbfb",
+      "key": "material_377bd72f5d13e287b500",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本节要求按12项要点编制",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0d8e1669de69",
+      "key": "material_6465c56db796ac9ea65e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未包含项目名称、招标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2261a911f033",
+      "key": "material_f49ad0abcb27e7b6678a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未包含工期、质量标准",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3590491730e4",
+      "key": "material_85648ef8c254348f8adf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于确认项目名称、招标人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f6dcc6ad652d",
+      "key": "material_c99dc597aa10925ac26d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于填写项目经理姓名、证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "06113351c07a",
+      "key": "material_0003c7edaad9e4a923f3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于提取项目名称、招标人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "055fe816b6b1",
+      "key": "material_10e31c2519bf0084a6fe",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于确认投标书表单需响应",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cfc728c106ed",
+      "key": "material_8c4b705c76a0f2345049",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "需确认项目名称、招标人、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "10cc244439b9",
+      "key": "material_63dbc10f179a3efe20ce",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于编制技术方案、施工组",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e2a675928612",
+      "key": "material_fe924fc9bcf36a8e49ed",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于确认项目概况、招标范",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8cb684994a57",
+      "key": "material_cabbc55f8418df685421",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于填写controlP",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b09bbfea1f55",
+      "key": "material_cb9ce04c647146b01be6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "无法填写项目经理姓名、证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "76d13acdb0fe",
+      "key": "material_83c8aac4289d1a25fea9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "表单需填写建造师执业资格",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "af705b9dba5f",
+      "key": "material_4da3433d9cb3dcd57fa5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同条款约定未提交劳动合",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "431152e629ee",
+      "key": "material_c3259a65924c9f88953a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "要求合同签订后5个工作日",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "fb3cc36bed8e",
+      "key": "material_afc56da921f22d53cf8c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未给出，无法填写pr",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "499077ee075c",
+      "key": "material_0023f71b6162c3fbc973",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于施工组织设计和技术方",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "da2329a1e2b9",
+      "key": "material_e6d8a386b2044bdd7cf5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未明确pmName、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "90ac735c6ad5",
+      "key": "material_dbaa497f7ce54e0723cf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函附录投标工期为空，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e26f517e25e1",
+      "key": "material_3921f457ad4ed38c2e44",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函附录投标质量为空，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b393678b22fa",
+      "key": "material_470b66a270df4a51a188",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函附录及项目管理机构",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "548f73c928d9",
+      "key": "material_a4a278e0d48392df49f9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函附录需列明，正文仅",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8de468da1e3b",
+      "key": "material_2561bb9049e80fb90323",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文未明确perfBon",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "08725b87bebd",
+      "key": "material_0e71e481e327e318d46c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未含项目名称、招标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ad28ae133aa0",
+      "key": "material_3c19e636713051873b9d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未出现工期天数、质保年限",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "eca4c19ff789",
+      "key": "material_96d972a1c0c3a95ab6ab",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未载明任何金额类字",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "81afdefde7be",
+      "key": "material_5e1fc61dcf2d3f47a8ec",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未出现项目经理姓名、证书",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d5eee9b268c1",
+      "key": "material_fd6ac8930f5970a8a660",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "填写《中小企业声明函》企",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "61a4c5ccd623",
+      "key": "material_6f9bf69e649ac5efcadf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "10.5要求提供与本单位",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e43b5e4af5ff",
+      "key": "material_4c8749e5f8ecc180155c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "3.1.1要求在投标截止",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b292a274ef3f",
+      "key": "material_2dd9ef43b4b014aaa2a5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件提供格式，符合条",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2ffcaa1a2647",
+      "key": "material_41a1058a3dab2df0c41c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件要求投标人根据招",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9e3caa4e5469",
+      "key": "material_e2f6ee4b5d77caa2dac3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表一，需列",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ab0d12dc67b9",
+      "key": "material_1e86d6604e196b78b43c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表二，需列",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d4329000cff3",
+      "key": "material_4a052aed6664846dc829",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表三，需按",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "67aca2cbb792",
+      "key": "material_5575b07240d41a1708cd",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表四，需说",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2a5d4eea932c",
+      "key": "material_6027acee3fa40a3bbe25",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表五，需绘",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "63b583bbfc74",
+      "key": "material_766ba76b8ea47919adce",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计附表六，需列",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "88310de75730",
+      "key": "material_a4f6a06b27cfa8387327",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "邀请书片段未载明本次投标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "a6d23dc658ee",
+      "key": "material_df38c087ab56ff5b7d3b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含招标公告中的",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8047a8a3c707",
+      "key": "material_31c07e2a528e8c5699b3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "3.2.1仅载明一般计税",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5d6d746688e2",
+      "key": "material_4d9a0a39d477a5b30d7a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "前附表未提供具体人员要求",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8d3994c94e5b",
+      "key": "material_d33e096cc7cd92c9f924",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "所给片段仅为评标办法，未",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "14ce021d1fbb",
+      "key": "material_a584bbd4276a051b4e68",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未包含报价清单及合同",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f8c46204f6f2",
+      "key": "material_b0a8ba39b7e24643dc3a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未提供，无法提取项目名称",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1fff7c67568f",
+      "key": "material_dfd6cfde6cfc942654f5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未提供，无法填写工期、质",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b9f1c8f45c5e",
+      "key": "material_a0f777249b5b562bc387",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未提供，无法填写项目名称",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ec14d9017796",
+      "key": "material_8e0f1d578b028458e1fc",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同协议书要求填写承包人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e8471458a5ce",
+      "key": "material_4ff89dfde2730947a485",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同通用条款提及缺陷责任",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bd026a82ec37",
+      "key": "material_132ab9ea24709cce12ec",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包范围特别要求按供电答",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5ded925b37f6",
+      "key": "material_28c355b047d9d5de7d5a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同约定后期充电桩平台使",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8663a0ac1cc2",
+      "key": "material_9733d0c6724976d80796",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段仅为通用合同条款，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "850ddadfdc6e",
+      "key": "material_cbac3b21e1e672dc4c47",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "controlPrice",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0efc2fdcbfea",
+      "key": "material_2b7bb8541d643cf5a667",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "当前片段仅为合同通用条款",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c7a74b30927d",
+      "key": "material_0f45895db24afc2984f2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "未提供，无法确定报价、工",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "fba4f978b865",
+      "key": "material_da529069d23f817e8093",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "当前片段仅为合同条款，未",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "edd1d6f6f66f",
+      "key": "material_faa4a8ac162b9e673b6b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "缺少招标文件规定的投标书",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "de180aafa802",
+      "key": "material_8a6b4bd7ecf6912bdd88",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未载明bidPric",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3747804a3f59",
+      "key": "material_e825a75a051a444908a8",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段未出现pmName、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f0f9274c884c",
+      "key": "material_59389dcc7bd079ffcf23",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "片段仅提及缺陷责任期概念",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e0e61fcb61dc",
+      "key": "material_5189d5f39100ee605d3c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件约定承包人未提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "16a610e24222",
+      "key": "material_29d1156a9a65d3701ad0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件要求合同签订后5",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9114b9aa7196",
+      "key": "material_1dcc88cd54c1f81a3ab2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件要求承包人应在合",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1e04244d6210",
+      "key": "material_e89542fbb178030cf778",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正文片段未出现投标有效期",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e846087a2e93",
+      "key": "material_a19d3b60f9224c2884cf",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "用于确认项目名称、招标人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "15454ba94648",
+      "key": "material_93f6dee24fda25e0920c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如涉及分包需按格式提供；",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0bc9f2707111",
+      "key": "material_9ea2e657bdc82a863cad",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含投标报价、报",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "310d170cc960",
+      "key": "material_e8c44993e64c3022ae12",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含工期、质保期",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "81dbd072c467",
+      "key": "material_56f6848c79ecae8edee3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含质量目标或验",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b5366e907cf1",
+      "key": "material_86437584cd6604f022b0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含预付款、到货",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1f5de1d11f0b",
+      "key": "material_a432bae2775552437598",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含项目负责人姓",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "700b903a2714",
+      "key": "material_3fefa7c0fb70b3e0b635",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "需确认投标人是否为中小企",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5728b2789695",
+      "key": "material_148bc834ea9f854d4b51",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4fe38cb60c2c",
+      "key": "material_0b134b78b325ea7c4201",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "fa3853b10a65",
+      "key": "material_566ec3e18997b88098b6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b2af2111d8d4",
+      "key": "material_62682620cf69dac19846",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9deb7c7021ba",
+      "key": "material_070cb4ea58e8e0c7a6e9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d7c452090655",
+      "key": "material_69dd8b0a3a39efc9f2ce",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人提交的竣工资料内容",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c8ab61dcd3e5",
+      "key": "material_b980a6f6b03091901be7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "aa446b114d60",
+      "key": "material_d35ada9c6dc0a4c2ab42",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8c21ceeb16a1",
+      "key": "material_02243d048112764c9cb7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "21a1a7ad8cd6",
+      "key": "material_b3cce8367a8db6f755fd",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b6e89a90d53e",
+      "key": "material_4333ba259900a2b01a87",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0c661404c767",
+      "key": "material_f0b54e497722d2f9cd58",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "01ba56a71587",
+      "key": "material_7c592479c12e4829f787",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4a31f0f34c68",
+      "key": "material_bcfa5ad6511a158360e6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "竣工资料清单中列明需提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "609ce455ee04",
+      "key": "material_d6884f1d73b49153e1e9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人应在合同签订后14",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "43a389d3975b",
+      "key": "material_424a01a274d2663792f0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人应在合同签订后14",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "71f52c998868",
+      "key": "material_75380b67ad76469729ba",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "开工后20日内承包人向监",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "436ab5acfea2",
+      "key": "material_5ba5b8220275383918d2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目开工之日起7日内向监",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "df69a1bc66d4",
+      "key": "material_9fe10597d9a73174371f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人派驻本工程项目的管",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "afa82e43156f",
+      "key": "material_d785817c12cef95e37e8",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "开工前3日内提交",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "01bba64d9ba3",
+      "key": "material_8195dd0b07e9cff971ad",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人在开工前应向监理提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9dc11b6cb862",
+      "key": "material_b99a49ea50b4dbd7e1d2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "订购任何材料设备前必须向",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "92ea25f4dacf",
+      "key": "material_720cad92b8b9302133fa",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人需在合同签订后15",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e6ffcfd4f501",
+      "key": "material_4694aaa14a5a8e8e10b7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同签订后20日历天内提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "284cbb7c1db4",
+      "key": "material_c20025d36d246afe0575",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "图纸会审完成后15天内提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "29bd37383e2b",
+      "key": "material_49e3e0b9dd862daee357",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人需保证按月足额发放",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ba649a50b696",
+      "key": "material_68b5e3087b7366ea0a09",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人需预留标准协议接口",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "69ceb2ee2e16",
+      "key": "material_825cb525ec0e71d87407",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人需免费提供充电设施",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "da74e28eabd1",
+      "key": "material_0025d60201224a5002ff",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本段未提及，需按招标文件",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "022cfe5ce2ca",
+      "key": "material_8ddafc73ad43853cd267",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标公告3.9.1要求须",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "853ef6b34bea",
+      "key": "material_4c48752e169503ac9606",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标公告3.9.3要求投",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0b14cbc57dc1",
+      "key": "material_e6e168712a87598b7eab",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标公告3.9.4要求投",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6195d8c5c83e",
+      "key": "material_c2eb1e50da189cba6599",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标公告3.9.6要求提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6df4b3bf8eb7",
+      "key": "material_2c53df5cb187332ca87e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标公告3.9.7要求参",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "fb25d5d5fffa",
+      "key": "material_61a6fcc1211ae392af33",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人须知前附表10.5",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "b76508ccdbc9",
+      "key": "material_ffc1c3698b637e591693",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人须知前附表10.3",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7024e4a5dd81",
+      "key": "material_737e66682750f0acd8e6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标文件应包括法定代表人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "33e103948290",
+      "key": "material_11e07fd8b7d1b2f5e5ab",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正在施工和新承接的项目情",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c36fd3f4a183",
+      "key": "material_d3d0db9fcbcb021cd1ee",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目管理机构组成表应填报",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f36b08a9635e",
+      "key": "material_540aa265dc53109144c1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "境内投标人以现金或者支票",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1ac616584a12",
+      "key": "material_8be5e94e4aed46070844",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标联合体提交共同投标协",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "39aab2649e1d",
+      "key": "material_679c006a0e6edb65d0c0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如加盖项目章，须单位事先",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f82aaa62b772",
+      "key": "material_728dcf7df779f5982d52",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理须附满足第二章第",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "033e0ab2dd4b",
+      "key": "material_c346432bd7a57720f3fb",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "主要项目管理人员应附注册",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4d671f7b2c14",
+      "key": "material_0ec61865b746102723f3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "近年财务状况表要求附经会",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "36137698e9e4",
+      "key": "material_a75a24794f12a539e980",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "正在施工的和新承接的项目",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0f145efebe13",
+      "key": "material_b42c7855aae1b37af54d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同约定承包人未提交劳动",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "dd085a952dc5",
+      "key": "mb2794e2f1307",
+      "parentKey": "mb2794e2f1307",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "[第1页]\n法人和非法人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1860398d6452",
+      "key": "material_91ccf5de1641603f703d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人需提供上述途径查询",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7f20f379d2be",
+      "key": "material_d40526f61a1eb9591834",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "3.9.1企业未处于被责",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5f902f5a4511",
+      "key": "material_d9f5da3e6b758aba1ec9",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "拟任项目经理情况承诺：投",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f474f019028d",
+      "key": "material_9b210be3f0020c04fc17",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标文件格式要求提供项目",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5389ca6a1674",
+      "key": "material_50dc4ba090b9a4de08ce",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "应附注册资格证书（如有）",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ad4e57759433",
+      "key": "material_8b397a87b6c2065c1e47",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "合同条款中的实质性要求详",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cc6fc49f192b",
+      "key": "material_67596996b8a38882d339",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格评审标准信誉要求：符",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7ee6a810a22a",
+      "key": "material_afef2013fb2fbe735359",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "对招标文件的响应情况，是",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "57e04d8b6898",
+      "key": "material_15060579e25313a82b7a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "授权委托书要求附法定代表",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d2b64c760ded",
+      "key": "material_6b95b95c67c9e28d351a",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "若采用现金或支票，投标人",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "cf5c9f846a04",
+      "key": "material_d8dbe3933c2aaf506112",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件中所要求证件、证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "d2c2d641ea0d",
+      "key": "material_b36f8162b4cf233d5263",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "政策要求：强制节能产品招",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6ac92b8cfc6a",
+      "key": "material_dfc50d47ef3b4c867cc2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人负责办理在施工场地",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "7c12c1c39b38",
+      "key": "material_ea8d2f363f46cba981d1",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "中小企业声明函（如有）",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c1ed1232c8ab",
+      "key": "material_cd600f55e2a029fa8b09",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人应在使用替代材料和",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "bbaf96b181f2",
+      "key": "material_721d175f2383b054cc51",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格评审涉及拟派项目经理",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "e0e5e79ab1be",
+      "key": "material_1f0d06ab85c324a5fb5f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理信息栏为空白，需",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1e251825633d",
+      "key": "material_81b001a645533bfeaf4e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函及投标函附录需填写",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9a9fe361f79c",
+      "key": "material_a847552a662fc4bd3177",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标函附录需填写安全生产",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "906599dea41e",
+      "key": "material_c8d9fc4db580f6a791cb",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "法定代表人身份证明需填写",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "412b2da7feb2",
+      "key": "material_8adc6744f7b1dcb1d6e6",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "授权委托书需填写委托代理",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "354582613200",
+      "key": "material_1c96b2a93f120aa250a5",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人进行永久设备、材料",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c7abfcef48b8",
+      "key": "material_dc68193585d3502931f2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段未包含投标人名称、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ec5684beb133",
+      "key": "material_9905d4f63c6c0cdbc631",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理须符合招标文件规",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2f3ac8e53ef9",
+      "key": "material_93d6e9322b7dc4337960",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "大型现场工艺试验时根据监",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3553ac003d2e",
+      "key": "material_2946ae0e0f6c5570aadc",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人负责办理在施工场地",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c6e9b08dec4e",
+      "key": "material_9078d0786b3604e671c2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件要求提供项目经理",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "151e403ef31f",
+      "key": "material_1b01f60d198b406c8f43",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本段未载明财务要求",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "199f3fcb26e3",
+      "key": "material_4179562023c7bbae12a3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本段仅列项目经理信息填写",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "880670ecb714",
+      "key": "material_336980b7db6cacf80459",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本章为格式模板，未载明工",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "75929174bcd0",
+      "key": "id_legal",
+      "parentKey": "id_legal",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "idcard:{\"sid",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": true
+    },
+    {
+      "id": "4f100041bfc7",
+      "key": "id_legal",
+      "parentKey": "id_legal",
+      "readable": true,
+      "hasFileKey": true,
+      "hasStoragePath": true,
+      "status": "ready",
+      "summaryPrefix": "idcard:{\"sid",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": true
+    },
+    {
+      "id": "15676e11c33c",
+      "key": "material_7f812cf31dd8a9838ab3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "强制节能产品招标、专门面",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "1b5aede6ba0f",
+      "key": "material_0e4760967d777b274b53",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件中所要求证件、证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "9f8e86835d32",
+      "key": "material_325d1afb4075f8a4c179",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "投标人承诺能满足该工程所",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "211cd6f7be16",
+      "key": "material_3774090907f0be65cce0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "申请工程付款时须提交完成",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6466b9f82f8b",
+      "key": "material_596efb572734fc20c4b3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本表后附中标通知书或合同",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6a7120a0243d",
+      "key": "material_442d1506697fa5354570",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "综合标含拟派项目经理信用",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "034cbd756173",
+      "key": "material_9bfde225ac5112704aad",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格评审标准要求联合体提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "55e097c307e3",
+      "key": "material_d73416d9788178f9af54",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "政策要求：强制节能产品招",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "4df81ec796db",
+      "key": "material_c3d644fcc55ab29c20ed",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "响应性评审要求暂列金额、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0126b95b9b9a",
+      "key": "material_353e2f7a18ecbd6239e2",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本片段为评标办法前附表，",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "26a7c1800c28",
+      "key": "material_afc5afafc4caa7a191f4",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件要求填报项目经理",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "203b70897f6f",
+      "key": "material_c4a93e2eb8cc68d35e4c",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "应附注册资格证书（如有）",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "38e1b439b7e7",
+      "key": "material_5d72df5ecf28319af5e0",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "如以联合体形式投标，须提",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "ef62be583c46",
+      "key": "material_ccdc849e79e99e4d15c7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "政策要求：强制节能产品招",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "922aea40f525",
+      "key": "material_ef6a9780aadf94e076de",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "招标文件中所要求证件、证",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "5d7715c15b59",
+      "key": "material_7dbe5da861f994b08b0d",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "综合标评审涉及拟派项目经",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "6b378b3b67d6",
+      "key": "material_97ce6f6bdd53f198893e",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "综合标评审涉及企业信用（",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "3802c2f1318b",
+      "key": "material_e117a6d8a912d76000a3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "项目经理须符合专业等级要",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "0dc19ae599d9",
+      "key": "material_9ce054e2be7c072abb5b",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本章格式模板中项目名称、",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f33e7e9cce28",
+      "key": "material_ce4ed31b38df6d215993",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "资格评审标准其他要求：符",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "c4e54b7b1f2b",
+      "key": "material_16dd0480d19098c665c7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "承包人应在使用替代材料和",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "03e584bb8bf2",
+      "key": "material_ff17be988c32414256b3",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "施工组织设计的提交和修改",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "2452a959da86",
+      "key": "material_83670265c0cfc233384f",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "关于承包人提交工程开工报",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "8b9f6ec7b5f2",
+      "key": "material_e0d3fdf3673d5561f997",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "定标核查履约能力依据招标",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    },
+    {
+      "id": "f7b42685d817",
+      "key": "material_08352a185eebd15f03e7",
+      "parentKey": "",
+      "readable": false,
+      "hasFileKey": false,
+      "hasStoragePath": false,
+      "status": "ready",
+      "summaryPrefix": "本段为合同专用条款，未包",
+      "tagPrefixes": [
+        "slot",
+        "投标资料"
+      ],
+      "ownerPresent": false,
+      "codePresent": false,
+      "fields": [],
+      "matches": false
+    }
+  ],
+  "bidderPresent": true
+}

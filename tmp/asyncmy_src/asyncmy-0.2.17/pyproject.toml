@@ -1,0 +1,84 @@
+[project]
+authors = [{ name = "long2ice", email = "long2ice@gmail.com" }]
+description = "The fastest asyncio MySQL/MariaDB driver for Python"
+keywords = ["driver", "asyncio", "mysql"]
+license = "Apache-2.0"
+name = "asyncmy"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = []
+version = "0.2.17"
+
+[project.urls]
+documentation = "https://github.com/long2ice/asyncmy"
+homepage = "https://github.com/long2ice/asyncmy"
+repository = "https://github.com/long2ice/asyncmy.git"
+
+[tool.poetry]
+include = [
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    # PEP 561: without these in the wheel the type information does not ship.
+    { path = "asyncmy/py.typed", format = ["sdist", "wheel"] },
+    { path = "asyncmy/*.pyi", format = ["sdist", "wheel"] },
+]
+packages = [
+    { include = "asyncmy" },
+]
+
+[dependency-groups]
+dev = [
+    "cython>=3.1",
+    "mypy",
+    "rich",
+    "ruff",
+    "stubgen-pyx>=0.2.18",
+]
+test = [
+    "pytest",
+    "mysqlclient",
+    "pymysql >=0.8.1",
+    "aiomysql",
+    # Breaking change in 0.23.*
+    # https://github.com/pytest-dev/pytest-asyncio/issues/706
+    "pytest-asyncio >=0.21.2,<0.22",
+    "pytest-mock",
+    "pytest-xdist",
+    "cryptography",
+    "uvloop; sys_platform != 'win32' and implementation_name == 'cpython'",
+]
+
+[tool.poetry.build]
+generate-setup-file = true
+script = "build_cython.py"
+
+[build-system]
+build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core", "setuptools", "cython>=3.1"]  # freethreading_compatible directive
+
+[tool.pytest.ini_options]
+asyncio_mode = 'auto'
+
+[tool.mypy]
+pretty = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+# TODO: Uncomment next line after type hints improved
+#check_untyped_defs = true
+
+[tool.ruff]
+line-length = 100
+[tool.ruff.lint]
+extend-select = [
+    "FA",     # https://docs.astral.sh/ruff/rules/#flake8-future-annotations-fa
+    "UP",     # https://docs.astral.sh/ruff/rules/#pyupgrade-up
+    "RUF100", # https://docs.astral.sh/ruff/rules/#ruff-specific-rules-ruf
+]
+ignore = ["UP031", "UP032"] # https://docs.astral.sh/ruff/rules/printf-string-formatting/
+
+[tool.ruff.lint.per-file-ignores]
+# Stubs are generated from the .pyx sources by `make stubs`, so they mirror
+# whatever the sources spell, and re-exporting constant modules by star import
+# is how a stub is meant to forward them.
+"*.pyi" = ["F403", "F405", "UP006", "UP035", "UP045"]

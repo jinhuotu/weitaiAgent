@@ -1,0 +1,294 @@
+--- placeholders.before.py
++++ placeholders.py
+@@ -3,9 +3,12 @@
+ from __future__ import annotations
+ 
+ import io
++from copy import deepcopy
+ import hashlib
+ import logging
+ import re
++import unicodedata
++from math import ceil
+ from pathlib import Path
+ 
+ from docx import Document
+@@ -748,8 +751,8 @@
+     return max(heights, default=0.0)
+ 
+ 
+-def _slot_anchor(anchor):
+-    """附件放在本节分页符前；说明后紧接的原范本表格必须先保留。"""
++def _slot_before_boundary(anchor):
++    """Keep a source's empty ending section/page boundary after new material."""
+     anchor = _body_block(anchor)
+     # _span_last/_chapter_last 会包含末尾空白分节段；在它后面插入等于另起一页。
+     while anchor.tag == qn("w:p") and not _para_text(anchor).strip():
+@@ -766,6 +769,12 @@
+         if not boundary or previous is None:
+             break
+         anchor = previous
++    return anchor
++
++
++def _slot_anchor(anchor):
++    """附件放在本节分页符前；说明后紧接的原范本表格必须先保留。"""
++    anchor = _slot_before_boundary(anchor)
+     # Direct placement callers use the same semantic sentence-group boundary as
+     # the section planner, including blank paragraphs before a following table.
+     from api.services.tenders.section_materials import _sentence_boundary
+@@ -797,6 +806,10 @@
+     anchor_el = _body_block(anchor_el)
+     if not at_marker:
+         anchor_el = _slot_anchor(anchor_el)
++    else:
++        # A planned block endpoint still needs to remain before its chapter's
++        # empty ending section break; this does not recompute ownership.
++        anchor_el = _slot_before_boundary(anchor_el)
+     body = doc.element.body
+     if anchor_el is None or anchor_el.getparent() is not body:
+         raise ValueError('Material anchor must be a body paragraph/table boundary')
+@@ -805,6 +818,18 @@
+     next_bookmark_id=max((int(mark.get(qn('w:id'),'0')) for mark in body.iter(qn('w:bookmarkStart'))),default=0)+1
+     if token+'_img' in marks or token+'_box' in marks:
+         return token+'_img' in marks
++    # A chapter-end locator may point to its last empty paragraph. Recover the
++    # whole local blank run, without crossing text, tables or section breaks.
++    while _slot_blank(doc, anchor_el) and anchor_el.getprevious() is not None:
++        previous = anchor_el.getprevious()
++        if previous.tag not in {qn('w:p'), qn('w:tbl')}:
++            break
++        anchor_el = previous
++    blanks = []
++    cursor = anchor_el.getnext()
++    while cursor is not None and _slot_blank(doc, cursor):
++        blanks.append(cursor)
++        cursor = cursor.getnext()
+     nodes = list(body)
+     replace_empty_frame=(anchor_el.tag==qn('w:p') and not _para_text(anchor_el).strip()
+         and anchor_el.find('w:pPr/w:pBdr',anchor_el.nsmap) is not None
+@@ -839,6 +864,25 @@
+         start=OxmlElement('w:bookmarkStart');start.set(qn('w:id'),str(ident));start.set(qn('w:name'),token+('_img' if placed else '_box'))
+         end=OxmlElement('w:bookmarkEnd');end.set(qn('w:id'),str(ident))
+         host.append(start);host.append(end)
++        # Render first, so capacity checks use the actual image/frame blocks.
++        # Ordinary generated half-centimetre spacers must not consume a source
++        # blank region that was already reserved for attachments.
++        material = [node for node in added if not _is_slot_gap(node)]
++        if blanks and _reuse_slot_blanks(doc, blanks, material, previous=anchor_el, following=cursor):
++            for node in added:
++                body.remove(node)
++        else:
++            # Insufficient blanks retain their source order before the material.
++            # Count this prefix, never the following chapter or the material
++            # itself, when estimating the current page's remaining capacity.
++            for node in added:
++                body.remove(node)
++            for blank in blanks:
++                body.insert(len(body) - (1 if body.find(qn('w:sectPr')) is not None else 0), blank)
++                tail.remove(blank)
++            _break_before_slot(doc, sum(_slot_height_cm(doc, node) for node in added))
++            for node in added:
++                body.insert(len(body) - (1 if body.find(qn('w:sectPr')) is not None else 0), node)
+         if replace_empty_frame:
+             body.remove(anchor_el)
+     finally:
+@@ -847,6 +891,134 @@
+             if sect is not None:sect.addprevious(node)
+             else:body.append(node)
+     return placed
++
++
++def _slot_blank(doc, node):
++    """Only reuse genuine body whitespace, never source anchors or boundaries."""
++    if node.tag != qn('w:p') or _para_text(node).strip() or _is_slot_gap(node):
++        return False
++    protected = ('drawing', 'pict', 'object', 'tbl', 'sectPr', 'br', 'lastRenderedPageBreak',
++                 'bookmarkStart', 'bookmarkEnd', 'fldChar', 'instrText', 'sdt', 'pBdr', 'numPr', 'framePr')
++    if any(next(node.iter(qn('w:' + name)), None) is not None for name in protected):
++        return False
++    # Textless is not necessarily empty: symbols, footnote references and
++    # review/permission anchors are source content too.
++    if any(child.tag not in {qn('w:pPr'), qn('w:r')} for child in node):
++        return False
++    if any(child.tag not in {qn('w:rPr'), qn('w:t'), qn('w:tab')}
++           for run in node.findall(qn('w:r')) for child in run):
++        return False
++    from api.services.tenders.word_structure import outline_level
++    if outline_level(doc, node):
++        return False
++    para = Paragraph(node, doc._body)
++    style = para.style
++    while style is not None:
++        if style.paragraph_format.page_break_before:
++            return False
++        style = style.base_style
++    return not para.paragraph_format.page_break_before
++
++
++def _slot_metrics_cm(doc, node):
++    """Content height and spacing, including style/document defaults."""
++    if node.tag == qn('w:tbl'):
++        return _tbl_cm(node), 0.0, 0.0
++    if node.tag != qn('w:p'):
++        return 0.0, 0.0, 0.0
++    para = Paragraph(node, doc._body)
++    formats = [para.paragraph_format]
++    style = para.style
++    while style is not None:
++        formats.append(style.paragraph_format)
++        style = style.base_style
++    defaults = doc.styles.element.find('w:docDefaults/w:pPrDefault/w:pPr', doc.styles.element.nsmap)
++    if defaults is not None:
++        default_para = OxmlElement('w:p')
++        default_para.append(deepcopy(defaults))
++        formats.append(Paragraph(default_para, doc._body).paragraph_format)
++    def value(name, default):
++        return next((getattr(fmt, name) for fmt in formats if getattr(fmt, name) is not None), default)
++    before = value('space_before', Pt(0)).cm
++    after = value('space_after', Pt(0)).cm
++    spacing = value('line_spacing', 1.0)
++    font_pt = max([run.font.size.pt for run in para.runs if run.font.size is not None] or [11.0])
++    text = para.text
++    section = doc.sections[-1]
++    width_pt = (section.page_width - section.left_margin - section.right_margin) / 12700
++    width_pt -= sum(value(name, Cm(0)).pt for name in ('left_indent', 'right_indent'))
++    units_per_line = max(1, width_pt / font_pt)
++    # Full-width scripts and Latin prose occupy different widths. A fixed
++    # character count overestimates short labels and consumes reserved space.
++    lines = sum(max(1, ceil(sum(1.0 if unicodedata.east_asian_width(c) in {'W','F'} else .65
++                              for c in line) / units_per_line))
++                for line in text.split('\n'))
++    line = spacing.cm if hasattr(spacing, 'cm') else font_pt * 2.54 / 72 * 1.2 * float(spacing)
++    drawn = _drawing_cm(node)
++    borders = node.find('w:pPr/w:pBdr', node.nsmap)
++    padding = 0.0
++    if borders is not None:
++        for side in ('top', 'bottom'):
++            edge = borders.find(qn('w:' + side))
++            if edge is not None:
++                padding += (float(edge.get(qn('w:space'),'0')) + float(edge.get(qn('w:sz'),'0')) / 8) * 2.54 / 72
++    return max(line * lines, drawn) + padding, before, after
++
++
++def _slot_height_cm(doc, node):
++    return sum(_slot_metrics_cm(doc, node))
++
++
++def _slot_flow_cm(doc, nodes, previous=None, following=None):
++    """Word collapses adjacent paragraph spacing to their maximum."""
++    after = _slot_metrics_cm(doc, previous)[2] if previous is not None else 0.0
++    height = 0.0
++    for node in nodes:
++        content, before, new_after = _slot_metrics_cm(doc, node)
++        height += max(after, before) + content
++        after = new_after
++    before = _slot_metrics_cm(doc, following)[1] if following is not None else 0.0
++    return height + max(after, before)
++
++
++def _reuse_slot_blanks(doc, blanks, material, *, previous=None, following=None):
++    """Replace blank paragraphs, retaining their total estimated flow height."""
++    if not material or len(material) > len(blanks) or any(node.tag != qn('w:p') for node in material):
++        return False
++    available = _slot_flow_cm(doc, blanks, previous, following)
++    remaining = len(blanks) - len(material)
++    candidates = [deepcopy(node) for node in material]
++    for _ in range(remaining):
++        empty = OxmlElement('w:p')
++        pf = Paragraph(empty, doc._body).paragraph_format
++        pf.line_spacing = Pt(.05)  # one Word twip, not a zero-height paragraph
++        pf.space_before = pf.space_after = Pt(0)
++        pf.keep_with_next = False
++        candidates.append(empty)
++    need = _slot_flow_cm(doc, candidates, previous, following)
++    if available < need:
++        return False
++    for target, source in zip(blanks, candidates):
++        for child in list(target):
++            target.remove(child)
++        for child in source:
++            target.append(deepcopy(child))
++    surplus = available - need
++    if remaining:
++        for node in blanks[len(material):]:
++            for child in list(node):
++                node.remove(child)
++            pf = Paragraph(node, doc._body).paragraph_format
++            pf.line_spacing = Cm(1 / _TWIPS_PER_CM + surplus / remaining)
++            pf.space_before = pf.space_after = Pt(0)
++            pf.keep_with_next = False
++    else:
++        para = Paragraph(blanks[-1], doc._body)
++        trailing = _slot_metrics_cm(doc, blanks[-1])[2]
++        next_before = _slot_metrics_cm(doc, following)[1] if following is not None else 0.0
++        if surplus:
++            para.paragraph_format.space_after = Cm(max(trailing, next_before) + surplus)
++    return True
+ 
+ 
+ def _drop_on_chapter(doc: Document, heading, slot: PlaceholderItem, files: list[Path]) -> bool:
+@@ -1558,14 +1730,17 @@
+ 
+ 
+ def _drawing_cm(el) -> float:
+-    total = 0.0
++    heights = []
+     for node in el.iter():
+         if node.tag.split("}")[-1] != "extent":
+             continue
+         cy = node.get("cy")
+         if cy:
+-            total += int(cy) / _EMU_PER_CM
+-    return total
++            heights.append(int(cy) / _EMU_PER_CM)
++    # The two compact identity faces share one line, not two stacked rows.
++    if el.tag == qn('w:p') and next(el.iter(qn('w:tab')), None) is not None:
++        return max(heights, default=0.0)
++    return sum(heights)
+ 
+ 
+ def _tbl_cm(tbl) -> float:
+@@ -1648,7 +1823,7 @@
+ 
+ 
+ def _break_before_slot(doc: Document, need_cm: float) -> None:
+-    """标题和附件必须同页：剩余高度不够时，标题改到下一页开头。"""
++    """Move only new material to a fresh page when the current page is full."""
+     body_cm = _page_body_cm(doc)
+     used = _used_on_page_cm(doc) % body_cm
+     remain = body_cm - used
+@@ -1766,14 +1941,20 @@
+ ) -> int:
+     original_nodes = set(doc.element.body)
+     if compact_pair:
++        if budget is not None and budget.get('left', 0) <= 0:
++            return 0
+         prepared = _collect_scan_jpegs(
+             files,
+-            budget=budget,
++            # A selected identity is one material result. Its front/back must
++            # not be split by a shared image-count budget ending at one face.
++            budget=None,
+             max_images=_ID_PAIR_MAX_IMAGES,
+             max_pages=max(_SLOT_PDF_MAX_PAGES, _ID_PAIR_MAX_IMAGES),
+             force_landscape=force_landscape,
+         )
+         inserted = _insert_id_cards(doc, prepared)
++        if budget is not None:
++            budget['left'] = max(0, int(budget['left']) - inserted)
+         _space_new_slot_media(doc, original_nodes)
+         return inserted
+ 
+@@ -1991,7 +2172,10 @@
+     pf=para.paragraph_format
+     pf.space_before=Pt(0);pf.space_after=Pt(0)
+     pf.keep_together=True;pf.keep_with_next=False
+-    pf.left_indent=pf.right_indent=Cm(0)
++    pf.left_indent=pf.right_indent=pf.first_line_indent=Cm(0)
++    # A source Normal style may have an exact line height or first-line indent;
++    # neither may clip/wrap the second face of this newly generated card pair.
++    pf.line_spacing=1.0
+     if len(cards)>1:
+         pf.tab_stops.add_tab_stop(Cm(height*aspects[0]+gap))
+     for index,(buffer,w,h) in enumerate(cards):

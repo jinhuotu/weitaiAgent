@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, Field
 from typing import Literal
 
@@ -81,3 +83,9 @@ class ReviewDocumentRequest(BaseModel):
 
 class QdrantApplyRequest(BaseModel):
     confirm: bool = False
+
+
+class UpdateExpiryRequest(BaseModel):
+    baseId: str = Field(min_length=1, max_length=32)
+    expire_at: date | None = None
+    is_perpetual: bool = False

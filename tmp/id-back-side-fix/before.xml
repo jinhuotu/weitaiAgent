@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="9" time="4.792" timestamp="2026-11-01T13:46:27.552028+08:00" hostname="awen"><testcase classname="tests.tenders.test_id_card_back_identity" name="test_back_side_wins_over_cached_id_number[False]" time="0.001" /><testcase classname="tests.tenders.test_id_card_back_identity" name="test_back_side_wins_over_cached_id_number[True]" time="0.002"><failure message="AssertionError: assert ('front' == 'front'&#10;  &#10;    front and 'front' == 'back'&#10;  &#10;  - back&#10;  + front)">with_id = True
+
+    @pytest.mark.parametrize('with_id', [False, True])
+    def test_back_side_wins_over_cached_id_number(with_id):
+        front = assign_person({'side': 'front', 'idNo': ID_NO, 'name': '测试人员'}, [])
+        back = {'side': 'back', 'idNo': ID_NO if with_id else ''}
+        before = deepcopy(back)
+        assigned = assign_person(back, [front])
+&gt;       assert front['side'] == 'front' and assigned['side'] == 'back'
+E       AssertionError: assert ('front' == 'front'
+E         
+E           front and 'front' == 'back'
+E         
+E         - back
+E         + front)
+
+tests\tenders\test_id_card_back_identity.py:26: AssertionError</failure></testcase><testcase classname="tests.tenders.test_id_card_back_identity" name="test_non_back_id_number_keeps_exact_front_completion_behavior[front]" time="0.001" /><testcase classname="tests.tenders.test_id_card_back_identity" name="test_non_back_id_number_keeps_exact_front_completion_behavior[unknown]" time="0.001" /><testcase classname="tests.tenders.test_id_card_back_identity" name="test_non_back_id_number_keeps_exact_front_completion_behavior[]" time="0.001" /><testcase classname="tests.tenders.test_id_card_back_identity" name="test_non_back_id_number_keeps_exact_front_completion_behavior[None]" time="0.001" /><testcase classname="tests.tenders.test_id_card_back_identity" name="test_unpaired_back_with_id_is_not_reclassified" time="0.001"><failure message="AssertionError: assert {'age': '36',...101001X', ...} == {'idNo': '110...side': 'back'}&#10;  &#10;  Omitting 1 identical items, use -vv to show&#10;  Differing items:&#10;  {'side': 'front'} != {'side': 'back'}&#10;  Left contains 3 more items:&#10;  {'age': '36', 'gender': '男', 'personKey': '11010119900101001X'}&#10;  Use -v to get more diff">def test_unpaired_back_with_id_is_not_reclassified():
+        card = {'side': 'back', 'idNo': ID_NO}
+&gt;       assert assign_person(card, []) == card
+E       AssertionError: assert {'age': '36',...101001X', ...} == {'idNo': '110...side': 'back'}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'side': 'front'} != {'side': 'back'}
+E         Left contains 3 more items:
+E         {'age': '36', 'gender': '男', 'personKey': '11010119900101001X'}
+E         Use -v to get more diff
+
+tests\tenders\test_id_card_back_identity.py:42: AssertionError</failure></testcase><testcase classname="tests.tenders.test_id_card_back_identity" name="test_library_groups_filters_and_renders_both_faces_with_cached_back_id[False]" time="0.070"><failure message="AssertionError: assert {'front'} == {'back', 'front'}&#10;  &#10;  Extra items in the right set:&#10;  'back'&#10;  Use -v to get more diff">tmp_path = WindowsPath('E:/code/python/weitaiAgent/tmp/id-back-side-fix/before/test_library_groups_filters_an0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000026E0A52A4E0&gt;
+back_first = False
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('back_first', [False, True])
+    async def test_library_groups_filters_and_renders_both_faces_with_cached_back_id(tmp_path, monkeypatch, back_first):
+        paths = {}
+        for side, color in [('front', 'blue'), ('back', 'red')]:
+            path = tmp_path / (side + '.png')
+            Image.new('RGB', (856, 540), color).save(path)
+            paths[side] = path
+        # Replaying this persisted back used to turn it into a second front.
+        cards = {'front': {'side': 'front', 'idNo': ID_NO, 'personKey': ID_NO, 'name': '测试人员'},
+                 'back': {'side': 'back', 'idNo': ID_NO, 'personKey': ID_NO, 'name': '测试人员'}}
+        order = ['back', 'front'] if back_first else ['front', 'back']
+        originals = [(SimpleNamespace(id=i, public_id=side, summary=dump_id_meta(cards[side])), paths[side])
+                     for i, side in enumerate(order, 1)]
+        monkeypatch.setattr(library_kb, '_get_parent', AsyncMock(return_value=(object(), [])))
+        monkeypatch.setattr(library_kb, '_iter_file_docs', lambda *args: list(originals))
+        people = await library_kb.legal_persons_from_library(None)
+        assert len(people) == 1 and people[0]['key'] == ID_NO
+&gt;       assert set(people[0]['sides']) == {'front', 'back'}
+E       AssertionError: assert {'front'} == {'back', 'front'}
+E         
+E         Extra items in the right set:
+E         'back'
+E         Use -v to get more diff
+
+tests\tenders\test_id_card_back_identity.py:63: AssertionError</failure></testcase><testcase classname="tests.tenders.test_id_card_back_identity" name="test_library_groups_filters_and_renders_both_faces_with_cached_back_id[True]" time="0.028"><failure message="AssertionError: assert {'front'} == {'back', 'front'}&#10;  &#10;  Extra items in the right set:&#10;  'back'&#10;  Use -v to get more diff">tmp_path = WindowsPath('E:/code/python/weitaiAgent/tmp/id-back-side-fix/before/test_library_groups_filters_an1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x0000026E0A78F860&gt;
+back_first = True
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize('back_first', [False, True])
+    async def test_library_groups_filters_and_renders_both_faces_with_cached_back_id(tmp_path, monkeypatch, back_first):
+        paths = {}
+        for side, color in [('front', 'blue'), ('back', 'red')]:
+            path = tmp_path / (side + '.png')
+            Image.new('RGB', (856, 540), color).save(path)
+            paths[side] = path
+        # Replaying this persisted back used to turn it into a second front.
+        cards = {'front': {'side': 'front', 'idNo': ID_NO, 'personKey': ID_NO, 'name': '测试人员'},
+                 'back': {'side': 'back', 'idNo': ID_NO, 'personKey': ID_NO, 'name': '测试人员'}}
+        order = ['back', 'front'] if back_first else ['front', 'back']
+        originals = [(SimpleNamespace(id=i, public_id=side, summary=dump_id_meta(cards[side])), paths[side])
+                     for i, side in enumerate(order, 1)]
+        monkeypatch.setattr(library_kb, '_get_parent', AsyncMock(return_value=(object(), [])))
+        monkeypatch.setattr(library_kb, '_iter_file_docs', lambda *args: list(originals))
+        people = await library_kb.legal_persons_from_library(None)
+        assert len(people) == 1 and people[0]['key'] == ID_NO
+&gt;       assert set(people[0]['sides']) == {'front', 'back'}
+E       AssertionError: assert {'front'} == {'back', 'front'}
+E         
+E         Extra items in the right set:
+E         'back'
+E         Use -v to get more diff
+
+tests\tenders\test_id_card_back_identity.py:63: AssertionError</failure></testcase></testsuite></testsuites>

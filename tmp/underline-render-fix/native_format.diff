@@ -1,0 +1,56 @@
+--- native_format.before.py
++++ native_format.py
+@@ -1575,6 +1575,7 @@
+     from api.services.tenders.pdf_format import (
+         _fill_hints, _replace_span, _swap_tokens, _fill_para_blanks,
+         _fill_label_gap, _fill_mixed_hints, _fill_date_placeholders, _tech_cover_nodes,
++        _blank_text, _write_blank_span, _blank_tokens, _run_under,
+     )
+ 
+     children = _cover_elements(doc, brief)
+@@ -1617,7 +1618,19 @@
+                 _replace_span(p, _text(p), shown)
+                 continue
+             for label, value in values:
+-                if not value or not compact.startswith(label) or value in compact:
++                if not value or not compact.startswith(label):
++                    continue
++                if value in compact:
++                    # Old previews may already contain the right value in a
++                    # separate run beside an untouched underline. Move that
++                    # same value into its slot without replacing source facts.
++                    raw = _blank_text(p)
++                    position = raw.find(value)
++                    gap = re.search(r'[_＿\u3000 \t]+$',raw[:position]) if position >= 0 else None
++                    if gap and (re.search(r'[_＿]',gap.group()) or any(
++                            _run_under(run) and a < gap.end() and b > gap.start()
++                            for run,_,a,b,_ in _blank_tokens(p))):
++                        _write_blank_span(p,gap.start(),gap.end(),value)
+                     continue
+                 # Only blank slots, never replace already populated source facts.
+                 extra = ""
+@@ -1637,19 +1650,16 @@
+                     if nodes:
+                         suffix = match.group(2) or ""
+                         tail = match.group(3) or ""
+-                        text = "".join(n.text or "" for n in nodes)
++                        text = _blank_text(p)
+                         blank = re.search(r"[_＿　 \t]+(?=[（(]|$)", text)
+                         if blank:
+-                            _replace_span(p, blank.group(), value)
++                            _write_blank_span(p, blank.start(), blank.end(), value)
+                         elif suffix and suffix in text:
+-                            _replace_span(p, suffix, value + suffix)
++                            at = text.index(suffix)
++                            _write_blank_span(p, at, at, value)
+                         else:
+-                            nodes[-1].text = (nodes[-1].text or "").rstrip("_＿　 ") + value
++                            _write_blank_span(p, len(text), len(text), value)
+                         if tail and tail in "".join(n.text or "" for n in p.iter(qn("w:t"))):
+                             year, month, day = _ymd(brief.bidDate)
+                             _replace_span(p, tail, f"{year}年{month}月{day}日")
+-                            for tab in list(p.iter(qn("w:tab"))):
+-                                holder = tab.getparent()
+-                                if holder is not None:
+-                                    holder.remove(tab)
+                     break

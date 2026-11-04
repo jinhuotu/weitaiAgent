@@ -1,0 +1,75 @@
+{
+  "id": "7c82be8012694d76bec695d1426b0754",
+  "name": "module5-upload.zip",
+  "revision": 5,
+  "status": "processing",
+  "history": [
+    {
+      "operation": "unpack",
+      "actor": "isolated-page-test",
+      "basis": null,
+      "at": "2026-11-03T13:42:38.804460+00:00"
+    }
+  ],
+  "uploads": {},
+  "updated_at": "2026-11-03T13:42:38.900392+00:00",
+  "archive": "38b69a825ff7452098c7ed204b346600.zip",
+  "archive_source": {
+    "path": "38b69a825ff7452098c7ed204b346600.zip",
+    "name": "module5-upload.zip",
+    "sha256": "d75285039bdfa32e2df907c8e316bf1a714b5b8460c949fc1c0011a4f938c329",
+    "size": 37285
+  },
+  "stage": "classify",
+  "manifest": {
+    "files": [
+      {
+        "logical_path": "nested.zip",
+        "source_chain": [],
+        "depth": 0,
+        "file_type": ".zip",
+        "size": 37167,
+        "sha256": "e14615450bccbaabe2c50d11bb973288b73e50d2d5dec9f3e0cc47d072e4654b",
+        "duplicate_of": null,
+        "storage_path": "0\\nested.zip",
+        "role": "pending"
+      },
+      {
+        "logical_path": "nested.zip/技术规范_1234-123456789-00001.docx",
+        "source_chain": [
+          "nested.zip"
+        ],
+        "depth": 1,
+        "file_type": ".docx",
+        "size": 36993,
+        "sha256": "1693108683e8f2e08cfa14876ce4670851aed191cc81384af9af7dfa626adfac",
+        "duplicate_of": null,
+        "storage_path": "0\\nested\\0\\技术规范_1234-123456789-00001.docx",
+        "role": "pending"
+      }
+    ],
+    "total_bytes": 74160,
+    "file_count": 2,
+    "limits": {
+      "max_files": 2000,
+      "max_bytes": 536870912,
+      "max_ratio": 200,
+      "max_depth": 4,
+      "allowed": [
+        ".docx",
+        ".doc",
+        ".pdf",
+        ".xlsx",
+        ".xls",
+        ".csv",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".zip",
+        ".sign"
+      ]
+    }
+  },
+  "root": "unpacked-34e2ef1f4e7248e4a37bbd08007a842a"
+}

@@ -1,0 +1,396 @@
+{
+  "sourceSha256": "8cf97178e5ea965d0bd2ee4c7e3c5d5d0f8b926bce2ceb59e7203465de00a8e5",
+  "sourceUnchanged": true,
+  "categories": [
+    {
+      "category": "addendum",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "clarification",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "correction",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "survey",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "geology",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "site_plan",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "system_diagram",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "construction_drawing",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "detail_drawing",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "personnel",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "product",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    },
+    {
+      "category": "performance",
+      "off": {
+        "business": {
+          "packagePartsEqual": true,
+          "entries": 20,
+          "firstBodyBlock": 44,
+          "images": 11,
+          "paragraphs": 422
+        },
+        "technical": {
+          "packagePartsEqual": true,
+          "entries": 1,
+          "firstBodyBlock": 26,
+          "images": 4,
+          "paragraphs": 88
+        },
+        "full": {
+          "packagePartsEqual": true,
+          "entries": 21,
+          "firstBodyBlock": 45,
+          "images": 15,
+          "paragraphs": 485
+        }
+      },
+      "on": {
+        "entries": 21,
+        "firstBodyBlock": 45,
+        "images": 16,
+        "paragraphs": 486
+      }
+    }
+  ],
+  "enabledAudit": {
+    "documents": 12,
+    "chapterTitlesEqual": true,
+    "tocLabelsAndTargetsEqual": true,
+    "uniqueBookmarks": true
+  }
+}

@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="4" skipped="0" tests="4" time="7.645" timestamp="2026-10-27T13:48:20.798490+08:00" hostname="awen"><testcase classname="tests.test_layout_plan" name="test_pack_never_puts_stalls_on_factory_or_office" time="0.022"><failure message="assert 0.40000000000000036 &gt;= 22.0">def test_pack_never_puts_stalls_on_factory_or_office() -&gt; None:
+        payload = {
+            "schemaVersion": "1",
+            "kind": "ev_charging_station_plan",
+            "site": {
+                "widthM": 48,
+                "heightM": 40,
+                "gate": {"side": "east", "offsetM": 8, "widthM": 8, "label": "东南出入口"},
+            },
+            "buildings": [
+                {"id": "factory", "label": "厂房", "kind": "factory", "rect": {"x": 0, "y": 18, "w": 22, "h": 20}},
+                {"id": "office", "label": "办公楼", "kind": "building", "rect": {"x": 0, "y": 2, "w": 22, "h": 14}},
+            ],
+            "roads": [
+                {
+                    "polygon": [
+                        {"x": 4, "y": 10},
+                        {"x": 40, "y": 10},
+                        {"x": 40, "y": 22},
+                        {"x": 4, "y": 22},
+                    ],
+                    "label": "重卡车道",
+                }
+            ],
+            "parkingRows": [
+                {
+                    "id": "trucks",
+                    "stalls": 4,
+                    "stallWidthM": 5,
+                    "stallLengthM": 17,
+                    "origin": {"x": 2, "y": 2},
+                    "charger": {"type": "dc_320kw", "startNo": 1, "side": "head"},
+                },
+                {
+                    "id": "cars",
+                    "stalls": 20,
+                    "stallWidthM": 3,
+                    "stallLengthM": 6,
+                    "origin": {"x": 2, "y": 2},
+                    "charger": {"type": "dc_160kw", "startNo": 5, "side": "head"},
+                },
+            ],
+            "equipment": [
+                {"id": "tx1", "type": "box_transformer", "x": 10, "y": 10, "label": "1250kVA", "capacityKva": 1250},
+                {"id": "tx2", "type": "box_transformer", "x": 12, "y": 12, "label": "1250kVA", "capacityKva": 1250},
+            ],
+        }
+        plan = prepare_plan(parse_plan(payload))
+        buildings = []
+        for b in plan.buildings:
+            buildings.append((b.rect.x, b.rect.y, b.rect.x + b.rect.w, b.rect.y + b.rect.h))
+    
+        def overlaps(a: tuple[float, ...], b: tuple[float, ...]) -&gt; bool:
+            return not (a[2] &lt;= b[0] or b[2] &lt;= a[0] or a[3] &lt;= b[1] or b[3] &lt;= a[1])
+    
+        for row in plan.parkingRows:
+            for rect, _ in expand_stalls(row):
+                xs = [p[0] for p in rect_corners(rect)]
+                ys = [p[1] for p in rect_corners(rect)]
+                box = (min(xs), min(ys), max(xs), max(ys))
+&gt;               assert box[0] &gt;= 22.0
+E               assert 0.40000000000000036 &gt;= 22.0
+
+tests\test_layout_plan.py:1280: AssertionError</failure></testcase><testcase classname="tests.test_layout_plan" name="test_road_only_does_not_inflate_site_and_stalls_are_centered" time="0.022"><failure message="assert 0.3999999999999986 &gt;= 5.5&#10; +  where 0.3999999999999986 = min([0.3999999999999986, 5.399999999999999, 5.399999999999999, 0.3999999999999986, 6.199999999999998, 11.2, ...])">def test_road_only_does_not_inflate_site_and_stalls_are_centered() -&gt; None:
+        payload = json.loads(json.dumps(EXAMPLE_PLAN))
+        payload["site"] = {
+            "widthM": 48,
+            "heightM": 48,
+            "gate": {"side": "east", "offsetM": 16, "widthM": 10, "label": "东侧出入口"},
+        }
+        payload["buildings"] = []
+        payload["roads"] = [
+            {
+                "polygon": [
+                    {"x": 0, "y": 0},
+                    {"x": 6, "y": 0},
+                    {"x": 6, "y": 48},
+                    {"x": 0, "y": 48},
+                ],
+                "label": "路",
+            }
+        ]
+        payload["parkingRows"] = [
+            {
+                "id": "trucks",
+                "stalls": 4,
+                "stallWidthM": 5,
+                "stallLengthM": 17,
+                "origin": {"x": 8, "y": 4},
+                "charger": {"type": "dc_320kw", "startNo": 1, "side": "head"},
+            },
+            {
+                "id": "cars",
+                "stalls": 20,
+                "stallWidthM": 3,
+                "stallLengthM": 6,
+                "origin": {"x": 8, "y": 24},
+                "charger": {"type": "dc_160kw", "startNo": 5, "side": "head"},
+            },
+        ]
+        payload["equipment"] = [
+            {"id": "tx1", "type": "box_transformer", "x": 40, "y": 8, "capacityKva": 1250},
+            {"id": "tx2", "type": "box_transformer", "x": 40, "y": 30, "capacityKva": 1250},
+        ]
+        plan = prepare_plan(parse_plan(payload))
+        assert plan.site.widthM &lt;= 52.0
+        xs: list[float] = []
+        for row in plan.parkingRows:
+            for rect, _ in expand_stalls(row):
+                xs.extend(p[0] for p in rect_corners(rect))
+&gt;       assert min(xs) &gt;= 5.5
+E       assert 0.3999999999999986 &gt;= 5.5
+E        +  where 0.3999999999999986 = min([0.3999999999999986, 5.399999999999999, 5.399999999999999, 0.3999999999999986, 6.199999999999998, 11.2, ...])
+
+tests\test_layout_plan.py:1345: AssertionError</failure></testcase><testcase classname="tests.test_layout_plan" name="test_cars_north_trucks_south_leave_center_aisle" time="0.016"><failure message="assert 32.5 &lt; 0.4000000000000057">def test_cars_north_trucks_south_leave_center_aisle() -&gt; None:
+        from api.services.layouts.brief import apply_layout_brief
+    
+        payload = json.loads(json.dumps(EXAMPLE_PLAN))
+        payload["site"] = {
+            "widthM": 110,
+            "heightM": 70,
+            "gate": {"side": "north", "offsetM": 50, "widthM": 10, "label": "出入口"},
+            "gates": [
+                {"side": "north", "offsetM": 50, "widthM": 10, "label": "北出入口"},
+                {"side": "east", "offsetM": 8, "widthM": 10, "label": "东南出入口"},
+            ],
+        }
+        payload["buildings"] = [
+            {"id": "factory", "label": "厂房", "kind": "factory", "rect": {"x": 0, "y": 38, "w": 22, "h": 30}},
+            {"id": "office", "label": "办公楼", "kind": "building", "rect": {"x": 0, "y": 4, "w": 22, "h": 28}},
+        ]
+        payload["roads"] = [
+            {
+                "polygon": [
+                    {"x": 22, "y": 0},
+                    {"x": 28, "y": 0},
+                    {"x": 28, "y": 70},
+                    {"x": 22, "y": 70},
+                ],
+                "label": "路",
+            }
+        ]
+        payload["equipment"] = [
+            {"id": "tx1", "type": "box_transformer", "x": 100, "y": 10, "capacityKva": 1250, "label": "重卡"},
+            {"id": "tx2", "type": "box_transformer", "x": 100, "y": 55, "capacityKva": 1250, "label": "轿车"},
+        ]
+        plan = apply_layout_brief(parse_plan(payload), "两台1250kVA箱变，4个重卡，20个轿车")
+        plan = prepare_plan(plan)
+        truck_rows = [r for r in plan.parkingRows if r.stallLengthM &gt;= 10]
+        car_rows = [r for r in plan.parkingRows if r.stallLengthM &lt; 10]
+        truck_ys = [p[1] for r in truck_rows for rect, _ in expand_stalls(r) for p in rect_corners(rect)]
+        car_ys = [p[1] for r in car_rows for rect, _ in expand_stalls(r) for p in rect_corners(rect)]
+        truck_y0 = min(truck_ys)
+        car_y0 = min(car_ys)
+&gt;       assert truck_y0 &lt; car_y0
+E       assert 32.5 &lt; 0.4000000000000057
+
+tests\test_layout_plan.py:1390: AssertionError</failure></testcase><testcase classname="tests.test_layout_plan" name="test_edge_feeders_for_north_and_east_walls" time="0.061"><failure message="AssertionError: assert (ChargerOnRow(type='dc_160kw', startNo=5, side='left') and 'left' == 'head'&#10; +  where ChargerOnRow(type='dc_160kw', startNo=5, side='left') = ParkingRowSpec(id='north', stalls=4, stallWidthM=3.0, stallLengthM=6.0, angleDeg=0.0, origin=PointM(x=0.8, y=2.8), along='y', pitchM=3.8, charger=ChargerOnRow(type='dc_160kw', startNo=5, side='left'), labelPrefix='160kW直流充电桩').charger&#10;  &#10;  - head&#10;  + left)">def test_edge_feeders_for_north_and_east_walls() -&gt; None:
+        """北墙+东墙车位时，箱变在开口侧端头、不压车位、不进正中央。"""
+        from api.services.layouts.pack import prepare_plan, _row_aabb, _eq_box, _overlap, charger_heads
+    
+        payload = {
+            "schemaVersion": "1",
+            "kind": "ev_charging_station_plan",
+            "site": {
+                "widthM": 30,
+                "heightM": 20,
+                "gate": {"side": "south", "offsetM": 11, "widthM": 8},
+            },
+            "buildings": [],
+            "roads": [],
+            "parkingRows": [
+                {
+                    "id": "north",
+                    "stalls": 4,
+                    "stallWidthM": 3,
+                    "stallLengthM": 6,
+                    "angleDeg": 0,
+                    "origin": {"x": 4, "y": 13.2},
+                    "along": "x",
+                    "charger": {"type": "dc_160kw", "startNo": 5, "side": "head"},
+                },
+                {
+                    "id": "east",
+                    "stalls": 4,
+                    "stallWidthM": 3,
+                    "stallLengthM": 6,
+                    "angleDeg": 0,
+                    "origin": {"x": 26.2, "y": 2},
+                    "along": "y",
+                    "charger": {"type": "dc_160kw", "startNo": 1, "side": "right"},
+                },
+            ],
+            "equipment": [
+                {
+                    "id": "tx1",
+                    "type": "box_transformer",
+                    "x": 15,
+                    "y": 10,
+                    "label": "2000kVA箱变",
+                    "capacityKva": 2000,
+                },
+                {
+                    "id": "tx2",
+                    "type": "box_transformer",
+                    "x": 18,
+                    "y": 10,
+                    "label": "2000kVA箱变",
+                    "capacityKva": 2000,
+                },
+            ],
+        }
+        plan = prepare_plan(parse_plan(payload), gentle=True)
+        feeders = [eq for eq in plan.equipment if "transformer" in eq.type]
+        assert len(feeders) == 2
+        north = next(r for r in plan.parkingRows if r.id == "north")
+        east = next(r for r in plan.parkingRows if r.id == "east")
+&gt;       assert north.charger and north.charger.side == "head"
+E       AssertionError: assert (ChargerOnRow(type='dc_160kw', startNo=5, side='left') and 'left' == 'head'
+E        +  where ChargerOnRow(type='dc_160kw', startNo=5, side='left') = ParkingRowSpec(id='north', stalls=4, stallWidthM=3.0, stallLengthM=6.0, angleDeg=0.0, origin=PointM(x=0.8, y=2.8), along='y', pitchM=3.8, charger=ChargerOnRow(type='dc_160kw', startNo=5, side='left'), labelPrefix='160kW直流充电桩').charger
+E         
+E         - head
+E         + left)
+
+tests\test_layout_plan.py:2088: AssertionError</failure></testcase></testsuite></testsuites>

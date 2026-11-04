@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="10" skipped="0" tests="33" time="7.811" timestamp="2026-10-31T22:59:09.649915+08:00" hostname="awen"><testcase classname="tests.test_tender_section_materials" name="test_append_order_preserves_source_and_is_idempotent" time="0.310"><failure message="assert False&#10; +  where False = all(&lt;generator object test_append_order_preserves_source_and_is_idempotent.&lt;locals&gt;.&lt;genexpr&gt; at 0x00000217D3A118C0&gt;)">tests\test_tender_section_materials.py:32: in test_append_order_preserves_source_and_is_idempotent
+    assert all(f'对应 {c}.' in blob for c in 'ABCDE')
+E   assert False
+E    +  where False = all(&lt;generator object test_append_order_preserves_source_and_is_idempotent.&lt;locals&gt;.&lt;genexpr&gt; at 0x00000217D3A118C0&gt;)</failure></testcase><testcase classname="tests.test_tender_section_materials" name="test_letter_exemption_and_toc_exclusion" time="0.044" /><testcase classname="tests.test_tender_section_materials" name="test_form_only_fills_existing_blank_spans" time="0.063" /><testcase classname="tests.test_tender_section_materials" name="test_all_lettered_items_survive_heading_styles_and_missing_catalog" time="0.079"><failure message="AssertionError: assert 0 == 1&#10; +  where 0 = &lt;built-in method count of str object at 0x00000217D3D1D5F0&gt;('对应 A.')&#10; +    where &lt;built-in method count of str object at 0x00000217D3D1D5F0&gt; = '对应登记证明；所需材料：登记证明'.count">tests\test_tender_section_materials.py:83: in test_all_lettered_items_survive_heading_styles_and_missing_catalog
+    assert blob.count(f'对应 {letter}.') == 1
+E   AssertionError: assert 0 == 1
+E    +  where 0 = &lt;built-in method count of str object at 0x00000217D3D1D5F0&gt;('对应 A.')
+E    +    where &lt;built-in method count of str object at 0x00000217D3D1D5F0&gt; = '对应登记证明；所需材料：登记证明'.count</failure></testcase><testcase classname="tests.test_tender_section_materials" name="test_saved_orphan_items_already_in_parent_do_not_render_twice" time="0.002" /><testcase classname="tests.test_tender_section_materials" name="test_real_slot_files_are_used_when_media_map_is_empty" time="0.106"><failure message="AssertionError: assert []&#10; +  where [] = list(&lt;lxml.etree.ElementDepthFirstIterator object at 0x00000217D4D412C0&gt;)&#10; +    where &lt;lxml.etree.ElementDepthFirstIterator object at 0x00000217D4D412C0&gt; = iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing')&#10; +      where iter = &lt;CT_Body '&lt;w:body&gt;' at 0x217d4d6fd90&gt;.iter&#10; +        where &lt;CT_Body '&lt;w:body&gt;' at 0x217d4d6fd90&gt; = &lt;CT_Document '&lt;w:document&gt;' at 0x217d4d6f890&gt;.body&#10; +          where &lt;CT_Document '&lt;w:document&gt;' at 0x217d4d6f890&gt; = &lt;docx.document.Document object at 0x00000217D3D2C830&gt;.element&#10; +      and   '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing' = qn('w:drawing')">tests\test_tender_section_materials.py:111: in test_real_slot_files_are_used_when_media_map_is_empty
+    assert list(doc.element.body.iter(qn('w:drawing')))
+E   AssertionError: assert []
+E    +  where [] = list(&lt;lxml.etree.ElementDepthFirstIterator object at 0x00000217D4D412C0&gt;)
+E    +    where &lt;lxml.etree.ElementDepthFirstIterator object at 0x00000217D4D412C0&gt; = iter('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing')
+E    +      where iter = &lt;CT_Body '&lt;w:body&gt;' at 0x217d4d6fd90&gt;.iter
+E    +        where &lt;CT_Body '&lt;w:body&gt;' at 0x217d4d6fd90&gt; = &lt;CT_Document '&lt;w:document&gt;' at 0x217d4d6f890&gt;.body
+E    +          where &lt;CT_Document '&lt;w:document&gt;' at 0x217d4d6f890&gt; = &lt;docx.document.Document object at 0x00000217D3D2C830&gt;.element
+E    +      and   '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}drawing' = qn('w:drawing')</failure></testcase><testcase classname="tests.test_tender_section_materials" name="test_child_section_names_and_cross_stage_deduplication" time="0.078"><failure message="AssertionError: assert {'c', 'd', 'request_证明材料'} == {'c', 'd'}&#10;  &#10;  Extra items in the left set:&#10;  'request_证明材料'&#10;  Use -v to get more diff">tests\test_tender_section_materials.py:122: in test_child_section_names_and_cross_stage_deduplication
+    assert handled == {'c', 'd'}
+E   AssertionError: assert {'c', 'd', 'request_证明材料'} == {'c', 'd'}
+E     
+E     Extra items in the left set:
+E     'request_证明材料'
+E     Use -v to get more diff</failure></testcase><testcase classname="tests.test_tender_section_materials" name="test_orphans_after_pricing_are_removed_from_render_outline" time="0.002" /><testcase classname="tests.test_tender_section_materials" name="test_final_validation_rejects_duplicate_orphan_modules" time="0.025" /><testcase classname="tests.test_tender_section_materials" name="test_explicit_empty_scoped_media_never_borrows_other_company_files" time="0.054" /><testcase classname="tests.test_tender_section_materials" name="test_word_upperletter_ilvl_zero_stays_under_parent" time="0.052"><failure message="assert False&#10; +  where False = all(&lt;generator object test_word_upperletter_ilvl_zero_stays_under_parent.&lt;locals&gt;.&lt;genexpr&gt; at 0x00000217D3960E50&gt;)">tests\test_tender_section_materials.py:187: in test_word_upperletter_ilvl_zero_stays_under_parent
+    assert all(body.count(f'对应 {letter}.') == 1 for letter in 'ABCDE')
+E   assert False
+E    +  where False = all(&lt;generator object test_word_upperletter_ilvl_zero_stays_under_parent.&lt;locals&gt;.&lt;genexpr&gt; at 0x00000217D3960E50&gt;)</failure></testcase><testcase classname="tests.test_tender_section_materials" name="test_library_import_uses_slot_path_and_keeps_original_bytes" time="3.314" /><testcase classname="tests.test_tender_section_materials" name="test_short_duplicate_modules_removed_without_touching_full_source" time="0.126" /><testcase classname="tests.test_tender_section_types" name="test_a_has_no_extra_blocks" time="0.057"><failure message="assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'&#10;  &#10;  Skipping 1348 identical leading characters in diff, use -v to show&#10;    w:p&gt;&#10;  -   &lt;w:p&gt;&#10;  -     &lt;w:pPr&gt;&#10;  -       &lt;w:pStyle w:val=&quot;Heading1&quot;/&gt;&#10;  -     &lt;/w:pPr&gt;...&#10;  &#10;  ...Full output truncated (69 lines hidden), use '-vv' to show">tests\test_tender_section_types.py:14: in test_a_has_no_extra_blocks
+    assert before == doc.element.body.xml
+E   assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'
+E     
+E     Skipping 1348 identical leading characters in diff, use -v to show
+E       w:p&gt;
+E     -   &lt;w:p&gt;
+E     -     &lt;w:pPr&gt;
+E     -       &lt;w:pStyle w:val="Heading1"/&gt;
+E     -     &lt;/w:pPr&gt;...
+E     
+E     ...Full output truncated (69 lines hidden), use '-vv' to show</failure></testcase><testcase classname="tests.test_tender_section_types" name="test_b_pastes_real_file_only_at_attachment_site" time="0.513" /><testcase classname="tests.test_tender_section_types" name="test_b_missing_file_preserves_original_without_box" time="0.103"><failure message="assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'&#10;  &#10;  Skipping 1336 identical leading characters in diff, use -v to show&#10;    w:p&gt;&#10;  +   &lt;w:p&gt;&#10;  +     &lt;w:pPr&gt;&#10;  +       &lt;w:pStyle w:val=&quot;TenderAttachmentGap&quot;/&gt;&#10;  +       &lt;w:keepNext/&gt;...&#10;  &#10;  ...Full output truncated (61 lines hidden), use '-vv' to show">tests\test_tender_section_types.py:42: in test_b_missing_file_preserves_original_without_box
+    assert doc.element.body.xml==before
+E   assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'
+E     
+E     Skipping 1336 identical leading characters in diff, use -v to show
+E       w:p&gt;
+E     +   &lt;w:p&gt;
+E     +     &lt;w:pPr&gt;
+E     +       &lt;w:pStyle w:val="TenderAttachmentGap"/&gt;
+E     +       &lt;w:keepNext/&gt;...
+E     
+E     ...Full output truncated (61 lines hidden), use '-vv' to show</failure></testcase><testcase classname="tests.test_tender_section_types" name="test_c_items_are_filled_in_place_not_at_tail" time="0.272" /><testcase classname="tests.test_tender_section_types" name="test_c_table_material_stays_in_its_original_cell" time="0.066" /><testcase classname="tests.test_tender_section_types" name="test_native_supplement_never_creates_lettered_orphan" time="0.065" /><testcase classname="tests.test_tender_section_types" name="test_composition_list_in_pure_letter_never_creates_materials" time="0.054" /><testcase classname="tests.test_tender_section_types" name="test_two_credit_sources_have_real_images_in_their_own_sections" time="0.332" /><testcase classname="tests.test_tender_section_types" name="test_license_number_capital_and_qualification_fill_original_empty_cells" time="0.018" /><testcase classname="tests.test_tender_section_ownership" name="test_numbering_defines_physical_scopes_despite_heading6_and_blank_styles" time="0.243" /><testcase classname="tests.test_tender_section_ownership" name="test_unknown_owner_never_falls_back_to_last_chapter" time="0.061"><failure message="assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'&#10;  &#10;  Skipping 1341 identical leading characters in diff, use -v to show&#10;    w:p&gt;&#10;  +   &lt;w:p&gt;&#10;  +     &lt;w:pPr&gt;&#10;  +       &lt;w:pStyle w:val=&quot;Heading1&quot;/&gt;&#10;  +     &lt;/w:pPr&gt;...&#10;  &#10;  ...Full output truncated (69 lines hidden), use '-vv' to show">tests\test_tender_section_ownership.py:45: in test_unknown_owner_never_falls_back_to_last_chapter
+    assert doc.element.body.xml==before
+E   assert '&lt;w:body xmln...\n&lt;/w:body&gt;\n' == '&lt;w:body xmln...\n&lt;/w:body&gt;\n'
+E     
+E     Skipping 1341 identical leading characters in diff, use -v to show
+E       w:p&gt;
+E     +   &lt;w:p&gt;
+E     +     &lt;w:pPr&gt;
+E     +       &lt;w:pStyle w:val="Heading1"/&gt;
+E     +     &lt;/w:pPr&gt;...
+E     
+E     ...Full output truncated (69 lines hidden), use '-vv' to show</failure></testcase><testcase classname="tests.test_tender_id_bond_pagination" name="test_identity_faces_share_paragraph_and_fit_standard_height[True]" time="0.141" /><testcase classname="tests.test_tender_id_bond_pagination" name="test_identity_faces_share_paragraph_and_fit_standard_height[False]" time="0.130" /><testcase classname="tests.test_tender_id_bond_pagination" name="test_bond_is_required_even_if_catalog_omitted_it" time="0.061"><failure message="AssertionError: assert ('投标保证金' in '对应投标保证金凭证；所需材料：投标保证金凭证' and '此处粘贴' in '对应投标保证金凭证；所需材料：投标保证金凭证')">tests\test_tender_id_bond_pagination.py:39: in test_bond_is_required_even_if_catalog_omitted_it
+    assert '投标保证金' in text and '此处粘贴' in text
+E   AssertionError: assert ('投标保证金' in '对应投标保证金凭证；所需材料：投标保证金凭证' and '此处粘贴' in '对应投标保证金凭证；所需材料：投标保证金凭证')</failure></testcase><testcase classname="tests.test_tender_id_bond_pagination" name="test_bond_with_real_bank_guarantee_has_no_missing_box" time="0.099" /><testcase classname="tests.test_tender_id_bond_pagination" name="test_placeholder_page_break_only_when_current_page_is_full[5-0]" time="0.031" /><testcase classname="tests.test_tender_id_bond_pagination" name="test_placeholder_page_break_only_when_current_page_is_full[28-1]" time="0.041" /><testcase classname="tests.test_tender_material_layout" name="test_media_measures_target_page_without_following_chapters" time="0.016"><failure message="AttributeError: 'str' object has no attribute 'suffix'">tests\test_tender_material_layout.py:20: in test_media_measures_target_page_without_following_chapters
+    insert_material(doc,anchor._p,PlaceholderItem(key='a',title='证明'),['fixture.png'])
+tmp\material-ssot\section_materials.before.py:71: in insert_material
+    result = _drop_after(doc,anchor,slot,files,complete=True,at_marker=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tmp\material-ssot\placeholders.before.py:767: in _drop_after
+    placed = bool(files and _insert_slot_media(doc,files if complete else files[:2],
+tmp\material-ssot\placeholders.before.py:1731: in _insert_slot_media
+    suf = path.suffix.lower()
+          ^^^^^^^^^^^
+E   AttributeError: 'str' object has no attribute 'suffix'</failure></testcase><testcase classname="tests.test_tender_material_layout" name="test_oversized_picture_fits_printable_area_and_retains_ratio" time="0.024" /><testcase classname="tests.test_tender_material_layout" name="test_long_tables_allow_paging_and_repeat_headers" time="0.021" /></testsuite></testsuites>

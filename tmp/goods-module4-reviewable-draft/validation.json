@@ -1,0 +1,33 @@
+{
+  "tests_passed": 504,
+  "technical_files": 10,
+  "parameter_rows": 769,
+  "actual_guarantees_filled": 0,
+  "actual_prices_filled": 0,
+  "package_scope": "pending",
+  "business_files": 1,
+  "price_templates": 4,
+  "visual_status": "仅结构检查通过、视觉未验收",
+  "unrendered_documents": 15,
+  "source_files_verified": 29,
+  "source_warning_paths_preserved": true,
+  "warning_types": {
+    "package_scope_pending": 1,
+    "ssot_pending": 88,
+    "platform_limits_pending": 1,
+    "package_assignment_pending": 1,
+    "business_forms_pending": 1,
+    "business_missing": 8,
+    "business_unresolved": 2,
+    "price_template_selection_pending": 1,
+    "price_values_pending": 5,
+    "visual_not_accepted": 1,
+    "ssot_conflict": 15,
+    "ssot_warning": 2,
+    "technical_pending": 769,
+    "business_selection_pending": 2
+  },
+  "input_session": "tmp/goods-reviewed-inputs-empty.json",
+  "library_candidates": "tmp/goods-library-candidates.json",
+  "ready_for_submission": false
+}

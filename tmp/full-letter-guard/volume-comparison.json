@@ -1,0 +1,10 @@
+{
+  "business": {
+    "partsEqual": true,
+    "warningsEqual": true
+  },
+  "technical": {
+    "partsEqual": true,
+    "warningsEqual": true
+  }
+}

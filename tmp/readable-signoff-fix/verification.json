@@ -1,0 +1,63 @@
+{
+  "focused": {
+    "passed": 281,
+    "failed": 0,
+    "skipped": 0
+  },
+  "full": {
+    "passed": 1561,
+    "failed": 149,
+    "skipped": 1
+  },
+  "baseline": {
+    "passed": 1509,
+    "failed": 149,
+    "skipped": 1
+  },
+  "newFailures": [],
+  "resolvedBaselineFailures": [],
+  "visual": {
+    "contacts-fixed": {
+      "pages": 1,
+      "minFont": 12.0,
+      "chars": 71
+    },
+    "contacts-source": {
+      "pages": 1,
+      "minFont": 12.0,
+      "chars": 23
+    },
+    "gap-fixed": {
+      "pages": 1,
+      "minFont": 12.0,
+      "chars": 161
+    },
+    "gap-source": {
+      "pages": 1,
+      "minFont": 1.0,
+      "chars": 119
+    },
+    "readability-fixed": {
+      "pages": 1,
+      "minFont": 9.0,
+      "chars": 214
+    },
+    "readability-old": {
+      "pages": 1,
+      "minFont": 4.5,
+      "chars": 214
+    },
+    "readability-source": {
+      "pages": 1,
+      "minFont": 12.0,
+      "chars": 40
+    }
+  },
+  "renderFileSha256": {
+    "apps\\api\\services\\tenders\\pdf_format.py": "82305c47d0c05836b0a17b26e0d4b36b3243672ea21972e765f777b0faf000ea",
+    "apps\\api\\services\\tenders\\document.py": "e2cf03903456691d8be98896ce590c40d58fafb831d9af9f457b1359d2408e87",
+    "apps\\api\\services\\tenders\\native_format.py": "a64bf85ec8ba4382cf2a03c1e46a9610e4368393c78999f1def63dfbd1caf9af"
+  },
+  "backendRestarted": false,
+  "scopeDiff": "render-only.diff"
+}

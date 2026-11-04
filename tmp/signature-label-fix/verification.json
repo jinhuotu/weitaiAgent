@@ -1,0 +1,29 @@
+{
+  "related": {
+    "passed": 309,
+    "failed": 0,
+    "skipped": 0
+  },
+  "full": {
+    "passed": 1595,
+    "failed": 149,
+    "skipped": 1
+  },
+  "newFailures": [],
+  "visual": {
+    "business": {
+      "pages": 37,
+      "completeLineLabels": 4,
+      "totalLabels": 4,
+      "contactsNoRegression": true
+    },
+    "full": {
+      "pages": 45,
+      "completeLineLabels": 4,
+      "totalLabels": 4,
+      "contactsNoRegression": true
+    }
+  },
+  "sourceUnchanged": true,
+  "backendRestarted": false
+}

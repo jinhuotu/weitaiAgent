@@ -1,0 +1,178 @@
+--- E:\code\python\weitaiAgentui\src\lib\tenders-api.ts
++++ E:\code\python\weitaiAgentui\src\lib\tenders-api.ts
+@@ -1321,12 +1321,29 @@
+   return apiFetchBlob(`/api/v1/tenders/files/${encodeURIComponent(fileName)}`, { token: token() })
+ }
+ 
+-export async function prepareInvitationFormatDocx(invitationId: string): Promise<string> {
+-  const data = await apiRequest<{ fileName?: string }>(
++export type InvitationFormatPreview = {
++  fileName: string
++  source: 'invitation' | 'builtin' | 'requirements'
++  previewOnly: boolean
++  message: string
++}
++
++export function prepareInvitationFormatDocx(invitationId: string): Promise<string>
++export function prepareInvitationFormatDocx(invitationId: string, brief: BidBrief): Promise<InvitationFormatPreview>
++export async function prepareInvitationFormatDocx(
++  invitationId: string, brief?: BidBrief,
++): Promise<string | InvitationFormatPreview> {
++  const data = await apiRequest<Partial<InvitationFormatPreview>>(
+     `/api/v1/tenders/invitations/${encodeURIComponent(invitationId)}/format-docx`,
+-    { token: token() },
++    { method: brief ? 'POST' : 'GET', body: brief, token: token() },
+   )
+-  return String(data.fileName || '').trim()
++  const preview: InvitationFormatPreview = {
++    fileName: String(data.fileName || '').trim(),
++    source: data.source || 'invitation',
++    previewOnly: Boolean(data.previewOnly),
++    message: String(data.message || ''),
++  }
++  return brief ? preview : preview.fileName
+ }
+ 
+ export async function confirmInvitationFormatDocx(invitationId: string): Promise<string> {
+--- E:\code\python\weitaiAgentui\src\views\TendersView.vue
++++ E:\code\python\weitaiAgentui\src\views\TendersView.vue
+@@ -720,6 +720,8 @@
+ const confirmDateOpen = ref(false)
+ const formatPreviewOpen = ref(false)
+ const formatPreviewFile = ref('')
++const formatPreviewOnly = ref(false)
++const formatPreviewMessage = ref('')
+ const formatPreviewBusy = ref(false)
+ const formatPreviewTick = ref(0)
+ const formatConfirmBusy = ref(false)
+@@ -893,6 +895,10 @@
+ }
+ 
+ async function confirmFormatTemplate() {
++  if (formatPreviewOnly.value) {
++    formatPreviewOpen.value = false
++    return
++  }
+   if (!formatPreviewFile.value) {
+     error.value = '请先点「预览模板」核对截出的格式章'
+     return
+@@ -922,6 +928,11 @@
+     formatPreviewOpen.value = true
+     return
+   }
++  if (formatPreviewOnly.value) {
++    formatPreviewOpen.value = false
++    formatSaveError.value = ''
++    return
++  }
+   if (formatConfirmBusy.value) return
+   formatConfirmBusy.value = true
+   formatSaveError.value = ''
+@@ -941,6 +952,8 @@
+ function clearFormatPreview() {
+   form.formatConfirmed = false
+   formatPreviewFile.value = ''
++  formatPreviewOnly.value = false
++  formatPreviewMessage.value = ''
+   formatPreviewOpen.value = false
+ }
+ 
+@@ -954,9 +967,20 @@
+   formatPreviewBusy.value = true
+   error.value = ''
+   try {
+-    const fileName = await prepareInvitationFormatDocx(invitationId)
+-    if (!fileName) throw new Error('未生成预览文件')
+-    formatPreviewFile.value = fileName
++    const preview = await prepareInvitationFormatDocx(invitationId, {
++      ...form,
++      layoutMode: form.requirementsDriven ? 'requirements' : (form.structureMode === 'outline' ? 'outline' : 'chapter5'),
++      generateVolume: effectiveGenerationMode.value === 'full' ? 'full' : activeVolume.value,
++    })
++    if (!preview.fileName) throw new Error('未生成预览文件')
++    formatPreviewFile.value = preview.fileName
++    formatPreviewOnly.value = preview.previewOnly
++    formatPreviewMessage.value = preview.message
++    if (preview.previewOnly) {
++      form.requirementsDriven = preview.source === 'requirements'
++      form.structureMode = preview.source === 'requirements' ? 'outline' : 'fixed'
++      form.layoutMode = preview.source === 'requirements' ? 'requirements' : 'chapter5'
++    }
+     formatPreviewTick.value += 1
+     if (openDialog) formatPreviewOpen.value = true
+   } catch (e) {
+@@ -2906,6 +2930,8 @@
+     if (!form.structureMode) form.structureMode = form.layoutMode === 'outline' ? 'outline' : 'fixed'
+     form.formatConfirmed = false
+     formatPreviewFile.value = ''
++    formatPreviewOnly.value = false
++    formatPreviewMessage.value = ''
+     formatPreviewOpen.value = false
+     ensureDocumentFormat()
+     ensurePerformanceRequirement()
+@@ -4003,14 +4029,32 @@
+               按本标招标书要求生成
+             </label>
+           </div>
+-          <p v-if="form.requirementsDriven" class="text-muted-foreground leading-relaxed">
+-            已按全文投标要求综合大纲，自动生成封面、目录和完整正文结构。缺少的资料及响应内容会标为【待补充】，请在生成后核对。
+-          </p>
++          <div v-if="form.requirementsDriven" class="space-y-2">
++            <p class="text-muted-foreground leading-relaxed">
++              已按全文投标要求综合大纲，自动生成封面、目录和完整正文结构。缺少的资料及响应内容会标为【待补充】，请在生成后核对。
++            </p>
++            <button
++              type="button"
++              class="h-7 px-2.5 rounded-md border border-border text-[11px] hover:bg-accent disabled:opacity-50"
++              :disabled="formatPreviewBusy || !form.invitationId"
++              @click="loadFormatFile(true)"
++            >
++              {{ formatPreviewBusy ? '打开中…' : '预览模板' }}
++            </button>
++          </div>
+           <div
+             v-else-if="form.structureMode === 'fixed'"
+             class="flex flex-wrap items-center gap-2 text-muted-foreground"
+           >
+             <label>接标模板</label>
++            <button
++              type="button"
++              class="h-7 px-2.5 rounded-md border border-border text-[11px] hover:bg-accent disabled:opacity-50"
++              :disabled="formatPreviewBusy || !form.invitationId"
++              @click="loadFormatFile(true)"
++            >
++              {{ formatPreviewBusy ? '打开中…' : '预览模板' }}
++            </button>
+             <select v-model="form.contentTemplateId" class="h-7 rounded-md border border-border bg-background px-2 text-[11px]">
+               <option
+                 v-for="t in fixedTemplates"
+@@ -5766,7 +5810,7 @@
+     :open="formatPreviewOpen"
+     size="xl"
+     title="预览模板"
+-    :description="`从上传的 Word 里截出的「${form.outlineChapter || '投标文件格式'}」。可直接删改，关闭或确认时写回。生成用这份。`"
++    :description="formatPreviewMessage || `从上传的 Word 里截出的「${form.outlineChapter || '投标文件格式'}」。可直接删改，关闭或确认时写回。生成用这份。`"
+     @update:open="onFormatPreviewOpen"
+   >
+     <div class="flex min-h-0 flex-1 flex-col gap-2">
+@@ -5776,9 +5820,9 @@
+         :key="formatPreviewFile"
+         class="min-h-0 flex-1"
+         :docx-file="formatPreviewFile"
+-        download-name="招标文件格式章.docx"
+-        mode="edit"
+-        engine="onlyoffice"
++        :download-name="formatPreviewOnly ? '模板骨架预览.docx' : '招标文件格式章.docx'"
++        :mode="formatPreviewOnly ? 'view' : 'edit'"
++        :engine="formatPreviewOnly ? 'browser' : 'onlyoffice'"
+         :layout-tick="formatPreviewTick"
+       />
+     </div>
+@@ -5795,6 +5839,7 @@
+         {{ formatConfirmBusy ? '保存中…' : '关闭' }}
+       </button>
+       <button
++        v-if="!formatPreviewOnly"
+         type="button"
+         class="h-8 px-3 text-xs rounded-md bg-foreground text-background hover:opacity-90 disabled:opacity-50"
+         :disabled="!formatPreviewFile || form.formatConfirmed || formatConfirmBusy"

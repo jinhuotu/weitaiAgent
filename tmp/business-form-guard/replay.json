@@ -1,0 +1,18 @@
+[
+  {
+    "entries": 21,
+    "firstBodyBlock": 45,
+    "scenario": "cached-snapshot",
+    "removedDraftParagraphs": 5,
+    "originalDeclarationRetained": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\business-form-guard\\cached-snapshot\\529df3f2457e.docx"
+  },
+  {
+    "entries": 21,
+    "firstBodyBlock": 45,
+    "scenario": "redrafted",
+    "removedDraftParagraphs": 5,
+    "originalDeclarationRetained": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\business-form-guard\\redrafted\\572a3d4c8fe4.docx"
+  }
+]

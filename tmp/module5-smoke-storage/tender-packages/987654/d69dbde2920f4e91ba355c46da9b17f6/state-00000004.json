@@ -1,0 +1,63 @@
+{
+  "id": "d69dbde2920f4e91ba355c46da9b17f6",
+  "name": "recognition-upload.zip",
+  "revision": 4,
+  "status": "review_required",
+  "history": [
+    {
+      "operation": "unpack",
+      "actor": "isolated-page-test",
+      "basis": null,
+      "arguments": {},
+      "at": "2026-11-03T14:52:52.162651+00:00"
+    }
+  ],
+  "uploads": {},
+  "updated_at": "2026-11-03T14:52:52.162651+00:00",
+  "archive": "dccd56f66e394fdeb7b2f9552af67481.zip",
+  "archive_source": {
+    "path": "dccd56f66e394fdeb7b2f9552af67481.zip",
+    "name": "recognition-upload.zip",
+    "sha256": "f8eadd017c90b85e841c4a36a1631c439e67d88c2c7e36fe3ecdddb93b6c76e2",
+    "size": 37168
+  },
+  "stage": "unpack",
+  "manifest": {
+    "files": [
+      {
+        "logical_path": "技术规范_1234-123456789-00001.docx",
+        "source_chain": [],
+        "depth": 0,
+        "file_type": ".docx",
+        "size": 36994,
+        "sha256": "de5d2c8669bc5cc7dafd6ad96017a6b8309d4b158fbabc7ef821ed9a8a603060",
+        "duplicate_of": null,
+        "storage_path": "0\\技术规范_1234-123456789-00001.docx",
+        "role": "pending"
+      }
+    ],
+    "total_bytes": 36994,
+    "file_count": 1,
+    "limits": {
+      "max_files": 2000,
+      "max_bytes": 536870912,
+      "max_ratio": 200,
+      "max_depth": 4,
+      "allowed": [
+        ".docx",
+        ".doc",
+        ".pdf",
+        ".xlsx",
+        ".xls",
+        ".csv",
+        ".txt",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".zip",
+        ".sign"
+      ]
+    }
+  },
+  "root": "unpacked-477a92a43ab240cebc384038b9454552"
+}

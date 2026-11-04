@@ -1,0 +1,1894 @@
+{
+  "structure_only": false,
+  "visual_status": "not_accepted",
+  "documents": [
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\business\\business.docx",
+      "sha256": "e5171dd700b8f72b6d244a7becdc306d4fceadb5152e23dbb0968625a3e603e0",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\0\\page-0001.png",
+          "sha256": "8a786185aa5989194c2b7fdf0e72ff02ed19ad3a3df9c47e76c738d92e46bfbb"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\0\\page-0002.png",
+          "sha256": "bf26ca35332c36258eba5756d7a2f13669921e03356b63e68bfef620c79f838a"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-16.docx",
+      "sha256": "56c3c708a2ef544a5eb8daad9c04f184b4e51cb8a81024ca37c9885b40f0205a",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\1\\page-0001.png",
+          "sha256": "f9cbe5e4ae44bf823d4a21ddb56e7690b340f39468834927d06c5107a117fccd"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-17.docx",
+      "sha256": "a3c513058df3a79a702d105a554127da1197a3ab381f5750121523122f31f9d4",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\2\\page-0001.png",
+          "sha256": "553914d02107b8677386245024ef65949ff6197f1950bc72efda30f9079bba22"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-19.docx",
+      "sha256": "14b47d879cdca2de65fd14156a62e55a5822bd6d26d5c49dd7743748748fd83d",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\3\\page-0001.png",
+          "sha256": "a8491c7b6109b570ff791995829d13a884ccca0d13abb7ca054eb18ffe28a281"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\price\\form-a7b1ad1d7082b4848f995339-20.docx",
+      "sha256": "021991b8c3f6f47032935b32dbead72b56020debbccfcd76f51fb6363b87b2c8",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\4\\page-0001.png",
+          "sha256": "696e23855a45bfe1df584bfd88aade7d0caf7afc331070688477976dd252ac27"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107624-00001.docx",
+      "sha256": "307a7652ba8c1aa4b35dba138f22e1105cbd86c7a4219089306832c3c245fca2",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0001.png",
+          "sha256": "9549a6020ffcf9829175a2829c900d18508a2dc70227da2c81fadf0ad4ff8994"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0002.png",
+          "sha256": "03fd929cb90dba9c26e7c01583b5dd5e95a3c9c37adf56c1cfc0ba489ac724d8"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0003.png",
+          "sha256": "c68f866397879508827daa531a892818ec9e91be4ee8ee664b8696003c4c4a1f"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0004.png",
+          "sha256": "63220c7cd9f846e38862fbf7f3848259efa8357765549f96985aa182376b7429"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0005.png",
+          "sha256": "071d43e5d9d4ff4b2ff1784dc1e2c2dc8b66252804e1c812870ec632d949e327"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0006.png",
+          "sha256": "891dc2062da359c61668afab8d71292c829c76af67e7c880826988b9fde5fb0b"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0007.png",
+          "sha256": "fa5bbfdfbd83656bc2e8b5e82cb92e3b5a391156a3ca42aaa1f9c56fb95b630d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107868-00001.docx",
+      "sha256": "e028e307425bdcdf34a09be5eca05fecf9de6bde04873560ea4219ed8b016d61",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0001.png",
+          "sha256": "d32586af64ca81cfe3db1e2dd723caa6d2fd96eedf5f7404e87919f13b572292"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0002.png",
+          "sha256": "652c1e298b2d49c5c3878fa0573ba0c4af3a7e45497c1d4795ea7628aa2e5453"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0003.png",
+          "sha256": "8a8157c0206304f59b983edf55dd11710e8a02dc5c533a407c6b8447bb427485"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0004.png",
+          "sha256": "402f81e587aba6a4c0e6a95d0dc830ccdd1c6f420552c67d9be48d4b2ab7eeea"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0005.png",
+          "sha256": "eca03fd82c77c35e29e9c41e1984aa8142b808c53fcfe2cfb15a8c93c7b676e0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0007.png",
+          "sha256": "18fe6430030cd97c068de7f42f7f8545f795e0b7ae0a5ca4cc0be40cda8beceb"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107869-00001.docx",
+      "sha256": "8b0b5fde51b25638531772a09b018c6f80bfd47e49b7bf7860eb8783775e0b6a",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0001.png",
+          "sha256": "fbfaccddaf52a80094cbe070e31775c8946a2e6e15b0737c14c911fac0c21382"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0002.png",
+          "sha256": "55739a21c38912717199748a6353e3292b3ab62e38bfd4149bf81191807c9a47"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0003.png",
+          "sha256": "8a8157c0206304f59b983edf55dd11710e8a02dc5c533a407c6b8447bb427485"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0004.png",
+          "sha256": "3dbe43e22ba8bcde650445f0fa9df41674fe3d77c697e8f77b76edca028366d9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0005.png",
+          "sha256": "31140a4ad319b6a584fd6f56b1db1186a96909ad3881b8cc05149534783f1243"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0007.png",
+          "sha256": "c5496d811e5a9b8db3e7d51197c74d48c1c21af2b82116e7156548cd6fac9f8f"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108108-00001.docx",
+      "sha256": "53f0c58afd259f4f7d1cb87b7678593d0b6959a588b61a52da395725ec13d7d5",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0001.png",
+          "sha256": "573505c4fe8e7d7492d9111aed2a83eb0f9ae008303d129d89240a824b9fa710"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0002.png",
+          "sha256": "ce225f30aa3773e96ba2589a95f920cd4347954fa63ab085513749819764dec1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0003.png",
+          "sha256": "30b92bf401ec2c30d2c498f6aeba79a05d0266f144187781520d358a3bf9ffac"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0004.png",
+          "sha256": "9003a980cf3518084fbd9164b19415df09595e1a12c285fe06bf89abae56e861"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0005.png",
+          "sha256": "f5363fd2a2d56aab8e7d8bcb7a7008927d6c9c1fffcc5705e33e9afc5b8828ff"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0007.png",
+          "sha256": "444fab815062384fb62e8082fc3f6e00853738257a29386ef0818ed38621051c"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108211-00001.docx",
+      "sha256": "946b603085ce4f98cabf24c42ab1dd8b8d2578cca1795e26dc08e43f9152bba3",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0001.png",
+          "sha256": "0e8c7ff293809b26c0c0d6288f265feca7c18b480db40624216b3a967f6e0f06"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0002.png",
+          "sha256": "5916aa09b6c1d6fb8fad303aba235c1b53630c1f5cfc61a4be2a3c1851027124"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0003.png",
+          "sha256": "30b92bf401ec2c30d2c498f6aeba79a05d0266f144187781520d358a3bf9ffac"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0004.png",
+          "sha256": "c8167f17fe1d8e52b662d55b29e4a46c7b41ab6372d0e81ec4e2b4cb123215f3"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0005.png",
+          "sha256": "f5363fd2a2d56aab8e7d8bcb7a7008927d6c9c1fffcc5705e33e9afc5b8828ff"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0007.png",
+          "sha256": "70fd785f1860a1cc34c042fa089111e877047a3e543f58e9721ba04533fd9bb4"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108302-00002.docx",
+      "sha256": "8b52a3bdc092d9f668df7f784cf0c8d3e63b45bb2737f182300abb895bfba3d1",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0001.png",
+          "sha256": "d458773f8cdfef3420bdcdb01d7ae063bd53e546ccae31647ca5d89722f23cd9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0002.png",
+          "sha256": "d21a3f706a36367fb29a8285b7f988e24f5e81b4a9392ff33971b403c62f2634"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0003.png",
+          "sha256": "29c0baf751055e9c6cd37131d49c98ffa0832c81665cc1500085c9c4fec6adb5"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0004.png",
+          "sha256": "e75b01f120960e478557db9c33bfddfe99c803707e2154a64db8986665b52604"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0005.png",
+          "sha256": "429f44c011a36b3efe9eb079c91eeb36e8bf9605d4c0852613eaf2d1c45c21a4"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0007.png",
+          "sha256": "4a857550f49fb4281bd4ad2f658635d26029af1a7f42aa507eb77d0bb3cd5963"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108449-00001.docx",
+      "sha256": "1ad7e7a9e8ec7ea833dec3465f1bc5550602a8b318bad0329277f9179e8f936b",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0001.png",
+          "sha256": "7098e793cf264d3d034a5c5bf4617e5be70c9a0e3d757c49417e1f69864aabaf"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0002.png",
+          "sha256": "71e7334d2e8dc2e98aba71f3a0c633444943c31cdf477db93780e4a6aba178a0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0003.png",
+          "sha256": "110e03dbb39d7a03148ba6eda2120a0936d81c6a9095583e1c0f82975a80d55f"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0004.png",
+          "sha256": "3059c31ccb0f32cc8f7c1216d140b978b3749dc586056915bd1310bc9477f183"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0005.png",
+          "sha256": "892d5fa155236bc72ade93c8dffa5f2652f5bd8bcb1485ee4f7618ad6264ed01"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0007.png",
+          "sha256": "8972fb49a93ae88e9892bb33c9768d3efb788b8f3ecb81960b4148ce28fe1cd5"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108478-00001.docx",
+      "sha256": "58662c2a8fda7805addf923453d2f5449866ceb5819322e282088996685a1f4a",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0001.png",
+          "sha256": "c71f3057c8b9136aefc46a68ae4495e23cd9b45dec35d6703ad2b42c7b2ba156"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0002.png",
+          "sha256": "49e986ca754c06e84651a052d8016c1b94f051c6c0e7557166af5b1352ffe5ba"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0003.png",
+          "sha256": "220eb6440f683c83dae906dca78f4a5969c46606abdeb216ccf137299df0d717"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0004.png",
+          "sha256": "fb80f5e84ee78985f5486003702631aaae5ae29c9697759dd3c59d18716bad49"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0005.png",
+          "sha256": "0ebad16920e9c64e03066e3d9029d222602ee0635cbcb94a18292b8145d47e23"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0007.png",
+          "sha256": "f23b672f37df003235fac3dca52d96166d809b3ba641cbb6685baaf70dc68867"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108651-00001.docx",
+      "sha256": "1acd4b0dea57fe32cef2bd09cc3f3c07d2b228a413f60e0ea458d68917d778ee",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0001.png",
+          "sha256": "3398f6a8bcf722d48affb73985a94a9fdbe9126f1a42b5f3d1aa82c98cd95ab1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0002.png",
+          "sha256": "cbed858498151f0fcf0c8694fbe384dedd1f37923953e9605a5f6b17e2aa5dad"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0003.png",
+          "sha256": "39851318b05d0e29a5ee8ed65aff2cfbeefc31606a5693cbba9efb42c214b2ef"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0004.png",
+          "sha256": "20fed7e6ee6f0dd799cfc144b305cbdda070fbbf8ec06eb227e88ff79c913869"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0005.png",
+          "sha256": "a303bbbe49b6f9b856157721456fd6df5b66a60a103ec6dcc2f264bf83af2a79"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0006.png",
+          "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0007.png",
+          "sha256": "ff789cb48c882f60036a13bbb1bc3792f982652a4fc6185c161e98245f2feac4"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0008.png",
+          "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500138466-00001.docx",
+      "sha256": "96f265125870a5ef15f31babe6e415301022c70c83331fb038dff324d1cac654",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0001.png",
+          "sha256": "01723e3c7d4374ba7069208deabafc6cc54d1af7d10db58e296b01a1f4f32c72"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0002.png",
+          "sha256": "49984fc0aeae74e124428c38965065f1082288f69bd362b58ddb5f4df27360bd"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0003.png",
+          "sha256": "2c2629c4d6ec0049dc6350978af7c26810f2f5f38f0961a55e010d9de307e605"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0004.png",
+          "sha256": "5b30cfa2a8f9b52f306cccc22b3fc5d8bc4f6a9d829969d3c4a1761d2f90c676"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0005.png",
+          "sha256": "2bc9042e9d0951c5d0c3f8b48f29f40310861b4140ea3d4a9e8a2484f3a1bc1a"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0006.png",
+          "sha256": "85c1c9c21dc26894d6ef25355697e995a16f9448e0c8b662fb380213c03b416a"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0007.png",
+          "sha256": "9af692c1bc6a7554ba5a982246dba9f933e04a47da762f0f4c978fac9d33dcef"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0008.png",
+          "sha256": "e442111c66f4e7b09d221560f3f6b278bf90a9c6192800df0f3de4db5265aa2c"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0009.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    }
+  ],
+  "reviews": [
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\0\\page-0001.png",
+      "sha256": "8a786185aa5989194c2b7fdf0e72ff02ed19ad3a3df9c47e76c738d92e46bfbb",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同；仅为商务补充草稿，未提供已经审核的原商务模板，不能认可原版格式",
+      "checks": {
+        "layout": true,
+        "original_format": false,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.834988+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\0\\page-0002.png",
+      "sha256": "bf26ca35332c36258eba5756d7a2f13669921e03356b63e68bfef620c79f838a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同；仅为商务补充草稿，未提供已经审核的原商务模板，不能认可原版格式",
+      "checks": {
+        "layout": true,
+        "original_format": false,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.840560+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\1\\page-0001.png",
+      "sha256": "f9cbe5e4ae44bf823d4a21ddb56e7690b340f39468834927d06c5107a117fccd",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.864328+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\2\\page-0001.png",
+      "sha256": "553914d02107b8677386245024ef65949ff6197f1950bc72efda30f9079bba22",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.886996+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\3\\page-0001.png",
+      "sha256": "a8491c7b6109b570ff791995829d13a884ccca0d13abb7ca054eb18ffe28a281",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.909533+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\4\\page-0001.png",
+      "sha256": "696e23855a45bfe1df584bfd88aade7d0caf7afc331070688477976dd252ac27",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.933122+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0001.png",
+      "sha256": "9549a6020ffcf9829175a2829c900d18508a2dc70227da2c81fadf0ad4ff8994",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.934278+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0002.png",
+      "sha256": "03fd929cb90dba9c26e7c01583b5dd5e95a3c9c37adf56c1cfc0ba489ac724d8",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.935678+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0003.png",
+      "sha256": "c68f866397879508827daa531a892818ec9e91be4ee8ee664b8696003c4c4a1f",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.936191+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0004.png",
+      "sha256": "63220c7cd9f846e38862fbf7f3848259efa8357765549f96985aa182376b7429",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.938419+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0005.png",
+      "sha256": "071d43e5d9d4ff4b2ff1784dc1e2c2dc8b66252804e1c812870ec632d949e327",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.938419+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0006.png",
+      "sha256": "891dc2062da359c61668afab8d71292c829c76af67e7c880826988b9fde5fb0b",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.940965+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0007.png",
+      "sha256": "fa5bbfdfbd83656bc2e8b5e82cb92e3b5a391156a3ca42aaa1f9c56fb95b630d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.942969+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:12.944489+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\5\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.945488+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0001.png",
+      "sha256": "d32586af64ca81cfe3db1e2dd723caa6d2fd96eedf5f7404e87919f13b572292",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.947488+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0002.png",
+      "sha256": "652c1e298b2d49c5c3878fa0573ba0c4af3a7e45497c1d4795ea7628aa2e5453",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.949006+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0003.png",
+      "sha256": "8a8157c0206304f59b983edf55dd11710e8a02dc5c533a407c6b8447bb427485",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.950514+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0004.png",
+      "sha256": "402f81e587aba6a4c0e6a95d0dc830ccdd1c6f420552c67d9be48d4b2ab7eeea",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.952031+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0005.png",
+      "sha256": "eca03fd82c77c35e29e9c41e1984aa8142b808c53fcfe2cfb15a8c93c7b676e0",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.954042+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.955058+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0007.png",
+      "sha256": "18fe6430030cd97c068de7f42f7f8545f795e0b7ae0a5ca4cc0be40cda8beceb",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.957071+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:12.959128+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\6\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.960687+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0001.png",
+      "sha256": "fbfaccddaf52a80094cbe070e31775c8946a2e6e15b0737c14c911fac0c21382",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.962739+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0002.png",
+      "sha256": "55739a21c38912717199748a6353e3292b3ab62e38bfd4149bf81191807c9a47",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.964265+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0003.png",
+      "sha256": "8a8157c0206304f59b983edf55dd11710e8a02dc5c533a407c6b8447bb427485",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.966277+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0004.png",
+      "sha256": "3dbe43e22ba8bcde650445f0fa9df41674fe3d77c697e8f77b76edca028366d9",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.966277+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0005.png",
+      "sha256": "31140a4ad319b6a584fd6f56b1db1186a96909ad3881b8cc05149534783f1243",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.968312+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.969323+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0007.png",
+      "sha256": "c5496d811e5a9b8db3e7d51197c74d48c1c21af2b82116e7156548cd6fac9f8f",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.971353+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:12.972365+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\7\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.974892+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0001.png",
+      "sha256": "573505c4fe8e7d7492d9111aed2a83eb0f9ae008303d129d89240a824b9fa710",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.975893+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0002.png",
+      "sha256": "ce225f30aa3773e96ba2589a95f920cd4347954fa63ab085513749819764dec1",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.977892+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0003.png",
+      "sha256": "30b92bf401ec2c30d2c498f6aeba79a05d0266f144187781520d358a3bf9ffac",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.978893+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0004.png",
+      "sha256": "9003a980cf3518084fbd9164b19415df09595e1a12c285fe06bf89abae56e861",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.980405+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0005.png",
+      "sha256": "f5363fd2a2d56aab8e7d8bcb7a7008927d6c9c1fffcc5705e33e9afc5b8828ff",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.981943+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.983473+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0007.png",
+      "sha256": "444fab815062384fb62e8082fc3f6e00853738257a29386ef0818ed38621051c",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.983473+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:12.986000+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\8\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.987000+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0001.png",
+      "sha256": "0e8c7ff293809b26c0c0d6288f265feca7c18b480db40624216b3a967f6e0f06",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.987513+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0002.png",
+      "sha256": "5916aa09b6c1d6fb8fad303aba235c1b53630c1f5cfc61a4be2a3c1851027124",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.990060+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0003.png",
+      "sha256": "30b92bf401ec2c30d2c498f6aeba79a05d0266f144187781520d358a3bf9ffac",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.992571+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0004.png",
+      "sha256": "c8167f17fe1d8e52b662d55b29e4a46c7b41ab6372d0e81ec4e2b4cb123215f3",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.995571+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0005.png",
+      "sha256": "f5363fd2a2d56aab8e7d8bcb7a7008927d6c9c1fffcc5705e33e9afc5b8828ff",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.997572+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:12.999084+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0007.png",
+      "sha256": "70fd785f1860a1cc34c042fa089111e877047a3e543f58e9721ba04533fd9bb4",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.002138+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.004654+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\9\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.006854+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0001.png",
+      "sha256": "d458773f8cdfef3420bdcdb01d7ae063bd53e546ccae31647ca5d89722f23cd9",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.009876+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0002.png",
+      "sha256": "d21a3f706a36367fb29a8285b7f988e24f5e81b4a9392ff33971b403c62f2634",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.011872+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0003.png",
+      "sha256": "29c0baf751055e9c6cd37131d49c98ffa0832c81665cc1500085c9c4fec6adb5",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.014879+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0004.png",
+      "sha256": "e75b01f120960e478557db9c33bfddfe99c803707e2154a64db8986665b52604",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.017391+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0005.png",
+      "sha256": "429f44c011a36b3efe9eb079c91eeb36e8bf9605d4c0852613eaf2d1c45c21a4",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.018925+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.021977+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0007.png",
+      "sha256": "4a857550f49fb4281bd4ad2f658635d26029af1a7f42aa507eb77d0bb3cd5963",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.024043+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.026041+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\10\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.028040+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0001.png",
+      "sha256": "7098e793cf264d3d034a5c5bf4617e5be70c9a0e3d757c49417e1f69864aabaf",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.029041+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0002.png",
+      "sha256": "71e7334d2e8dc2e98aba71f3a0c633444943c31cdf477db93780e4a6aba178a0",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.031040+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0003.png",
+      "sha256": "110e03dbb39d7a03148ba6eda2120a0936d81c6a9095583e1c0f82975a80d55f",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.033040+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0004.png",
+      "sha256": "3059c31ccb0f32cc8f7c1216d140b978b3749dc586056915bd1310bc9477f183",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.034547+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0005.png",
+      "sha256": "892d5fa155236bc72ade93c8dffa5f2652f5bd8bcb1485ee4f7618ad6264ed01",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.035560+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.038082+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0007.png",
+      "sha256": "8972fb49a93ae88e9892bb33c9768d3efb788b8f3ecb81960b4148ce28fe1cd5",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.040082+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.041379+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\11\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.043445+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0001.png",
+      "sha256": "c71f3057c8b9136aefc46a68ae4495e23cd9b45dec35d6703ad2b42c7b2ba156",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.045976+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0002.png",
+      "sha256": "49e986ca754c06e84651a052d8016c1b94f051c6c0e7557166af5b1352ffe5ba",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.048981+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0003.png",
+      "sha256": "220eb6440f683c83dae906dca78f4a5969c46606abdeb216ccf137299df0d717",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.051489+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0004.png",
+      "sha256": "fb80f5e84ee78985f5486003702631aaae5ae29c9697759dd3c59d18716bad49",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.054503+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0005.png",
+      "sha256": "0ebad16920e9c64e03066e3d9029d222602ee0635cbcb94a18292b8145d47e23",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.058027+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.060594+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0007.png",
+      "sha256": "f23b672f37df003235fac3dca52d96166d809b3ba641cbb6685baaf70dc68867",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.062592+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.065660+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\12\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.068187+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0001.png",
+      "sha256": "3398f6a8bcf722d48affb73985a94a9fdbe9126f1a42b5f3d1aa82c98cd95ab1",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.070187+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0002.png",
+      "sha256": "cbed858498151f0fcf0c8694fbe384dedd1f37923953e9605a5f6b17e2aa5dad",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.073188+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0003.png",
+      "sha256": "39851318b05d0e29a5ee8ed65aff2cfbeefc31606a5693cbba9efb42c214b2ef",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.075714+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0004.png",
+      "sha256": "20fed7e6ee6f0dd799cfc144b305cbdda070fbbf8ec06eb227e88ff79c913869",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.078540+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0005.png",
+      "sha256": "a303bbbe49b6f9b856157721456fd6df5b66a60a103ec6dcc2f264bf83af2a79",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.081063+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0006.png",
+      "sha256": "f19c0b31e5b7e66db99b6b3eeae572f811e6354d1d1b0a8f6acca031e744b103",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.084291+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0007.png",
+      "sha256": "ff789cb48c882f60036a13bbb1bc3792f982652a4fc6185c161e98245f2feac4",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.086818+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0008.png",
+      "sha256": "835f1b30900961495b499cc4bea559a351fe716651b48a4d7c3bbb3bc5dbb857",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.088819+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\13\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.091331+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0001.png",
+      "sha256": "01723e3c7d4374ba7069208deabafc6cc54d1af7d10db58e296b01a1f4f32c72",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.093875+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0002.png",
+      "sha256": "49984fc0aeae74e124428c38965065f1082288f69bd362b58ddb5f4df27360bd",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.096404+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0003.png",
+      "sha256": "2c2629c4d6ec0049dc6350978af7c26810f2f5f38f0961a55e010d9de307e605",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.099918+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0004.png",
+      "sha256": "5b30cfa2a8f9b52f306cccc22b3fc5d8bc4f6a9d829969d3c4a1761d2f90c676",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.102077+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0005.png",
+      "sha256": "2bc9042e9d0951c5d0c3f8b48f29f40310861b4140ea3d4a9e8a2484f3a1bc1a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.104601+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0006.png",
+      "sha256": "85c1c9c21dc26894d6ef25355697e995a16f9448e0c8b662fb380213c03b416a",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.108619+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0007.png",
+      "sha256": "9af692c1bc6a7554ba5a982246dba9f933e04a47da762f0f4c978fac9d33dcef",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.110621+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0008.png",
+      "sha256": "e442111c66f4e7b09d221560f3f6b278bf90a9c6192800df0f3de4db5265aa2c",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；长保证值改变原表分页位置或产生续行，不认定分页保持原样；组件表少量续行独占页面，明显留白尚未解决，未调整原格式",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": false,
+        "alignment": true,
+        "blank_regions": false
+      },
+      "confirmed_at": "2026-11-03T07:57:13.113688+00:00"
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\visual\\14\\page-0009.png",
+      "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d",
+      "actor": "Codex（图像核对，非投标人业务确认）",
+      "basis": "已逐页打开本轮PNG核对布局、对齐、空白与分页；表格结构和样式检查通过；仅引用用户文件中的保证值；该页PNG与本会话已打开核对的页面SHA-256相同",
+      "checks": {
+        "layout": true,
+        "original_format": true,
+        "pagination": true,
+        "alignment": true,
+        "blank_regions": true
+      },
+      "confirmed_at": "2026-11-03T07:57:13.115211+00:00"
+    }
+  ],
+  "message": "已生成的页面仍须逐页人工核对；未渲染页保持未验收",
+  "baseline_comparison": [
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107624-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107868-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500107869-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108108-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108211-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108302-00002.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108449-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108478-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500108651-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-real-values-draft\\scope_pending\\technical\\9985-500138466-00001.docx",
+      "original_pages": 8,
+      "filled_pages": 9
+    }
+  ]
+}

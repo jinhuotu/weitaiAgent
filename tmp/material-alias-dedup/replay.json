@@ -1,0 +1,16 @@
+[
+  {
+    "entries": 20,
+    "firstBodyBlock": 44,
+    "volume": "business",
+    "licenseImages": 1,
+    "repeatStable": true
+  },
+  {
+    "entries": 21,
+    "firstBodyBlock": 45,
+    "volume": "full",
+    "licenseImages": 1,
+    "repeatStable": true
+  }
+]

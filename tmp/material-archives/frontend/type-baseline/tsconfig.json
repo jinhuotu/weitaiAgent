@@ -1,0 +1,27 @@
+{
+  "extends": "E:/code/python/weitaiAgentui/tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "E:\\code\\python\\weitaiAgent\\tmp\\material-archives\\frontend\\type-baseline\\baseline.tsbuildinfo",
+    "baseUrl": "E:/code/python/weitaiAgentui",
+    "types": [
+      "E:/code/python/weitaiAgentui/node_modules/vite/client"
+    ],
+    "paths": {
+      "@/*": [
+        "E:/code/python/weitaiAgentui/src/*"
+      ],
+      "vue": [
+        "E:/code/python/weitaiAgentui/node_modules/vue"
+      ],
+      "vue-router": [
+        "E:/code/python/weitaiAgentui/node_modules/vue-router"
+      ],
+      "lucide-vue-next": [
+        "E:/code/python/weitaiAgentui/node_modules/lucide-vue-next"
+      ]
+    }
+  },
+  "include": [
+    "TendersView.vue"
+  ]
+}

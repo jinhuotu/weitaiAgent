@@ -1,0 +1,18 @@
+{
+  "business": {
+    "pages": 38,
+    "signaturePages": [
+      2,
+      7,
+      8
+    ]
+  },
+  "full": {
+    "pages": 46,
+    "signaturePages": [
+      2,
+      7,
+      8
+    ]
+  }
+}

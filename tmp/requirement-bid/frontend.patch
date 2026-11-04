@@ -1,0 +1,80 @@
+--- E:\code\python\weitaiAgentui\src\lib\tenders-api.ts
++++ E:\code\python\weitaiAgentui\src\lib\tenders-api.ts
+@@ -523,6 +523,7 @@
+   techPlanKbIds?: string[]
+   bizRespKbIds?: string[]
+   layoutMode: string
++  requirementsDriven?: boolean
+   contentTemplateId?: string
+   structureMode?: StructureMode | string
+   copyPolicy?: CopyPolicy | string
+--- E:\code\python\weitaiAgentui\src\views\TendersView.vue
++++ E:\code\python\weitaiAgentui\src\views\TendersView.vue
+@@ -538,6 +538,7 @@
+     next[key] = value
+   }
+   if (junkPmName(String(next.pmName || ''))) next.pmName = ''
++  if (brief.requirementsDriven) next.structureMode = 'outline'
+   Object.assign(form, next)
+   ensureCompanyDefaults(form)
+   if (brief.authEnabled === undefined) {
+@@ -1008,7 +1009,9 @@
+   const volLabel = activeVolume.value === 'technical' ? '技术标' : '商务标'
+   if (!items.length) return `${volLabel}无对应条目`
+   const parts = [`${volLabel} ${items.length} 条`]
+-  if (form.structureMode === 'outline') {
++  if (form.requirementsDriven) {
++    parts.push('按招标要求综合组卷')
++  } else if (form.structureMode === 'outline') {
+     parts.push(form.formatConfirmed ? '模板已确认' : '模板待确认')
+   } else {
+     parts.push(fixedTemplateLabel.value || '固定模板')
+@@ -1211,7 +1214,7 @@
+   if (isBlank(form.tenderer)) issues.push('招标人')
+   if (isBlank(form.bidderName)) issues.push('投标人全称')
+   if (legalPickMissing.value) issues.push('本标法定代表人')
+-  if (form.structureMode === 'outline' && !form.formatConfirmed) issues.push('确认格式章模板')
++  if (form.structureMode === 'outline' && !form.requirementsDriven && !form.formatConfirmed) issues.push('确认格式章模板')
+   if (activeVolume.value === 'technical') return issues
+   if (!(Number(form.bidPriceYuan) > 0)) issues.push('投标总价')
+   if (isBlank(form.bidderAddress)) issues.push('地址')
+@@ -3116,7 +3119,7 @@
+     return
+   }
+   // 轨道B：按本标生成前必须先确认大纲，避免抽取错了照样出稿
+-  if (form.structureMode === 'outline' && !form.formatConfirmed) {
++  if (form.structureMode === 'outline' && !form.requirementsDriven && !form.formatConfirmed) {
+     error.value = '按本标生成前请先预览并确认使用这份模板'
+     return
+   }
+@@ -3136,7 +3139,7 @@
+       generateBoth: effectiveGenerationMode.value === 'split' || pendingBoth.value,
+       splitSlice: effectiveGenerationMode.value === 'split' || pendingBoth.value,
+       structureMode: form.structureMode,
+-      layoutMode: form.structureMode === 'outline' ? 'outline' : 'chapter5',
++      layoutMode: form.requirementsDriven ? 'requirements' : (form.structureMode === 'outline' ? 'outline' : 'chapter5'),
+       contentTemplateId: form.contentTemplateId,
+     }
+     if (result.value?.id) {
+@@ -3978,7 +3981,7 @@
+           本标识别到格式章：{{ form.outlineChapter }}
+         </p>
+         <div class="mb-3 space-y-2 text-[11px]">
+-          <div class="flex flex-wrap gap-3">
++          <div v-if="!form.requirementsDriven" class="flex flex-wrap gap-3">
+             <label class="inline-flex items-center gap-1.5">
+               <input
+                 type="radio"
+@@ -4000,8 +4003,11 @@
+               按本标招标书要求生成
+             </label>
+           </div>
++          <p v-if="form.requirementsDriven" class="text-muted-foreground leading-relaxed">
++            已按全文投标要求综合大纲，自动生成封面、目录和完整正文结构。缺少的资料及响应内容会标为【待补充】，请在生成后核对。
++          </p>
+           <div
+-            v-if="form.structureMode === 'fixed'"
++            v-else-if="form.structureMode === 'fixed'"
+             class="flex flex-wrap items-center gap-2 text-muted-foreground"
+           >
+             <label>接标模板</label>

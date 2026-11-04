@@ -1,0 +1,170 @@
+[
+  {
+    "key": "bond",
+    "id": "ee8bd2c93c0e",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 388,
+    "ownerLabels": [
+      "账户名称",
+      "账户名称"
+    ],
+    "candidateHashes": [
+      "5eaaa568",
+      "edbbd154"
+    ]
+  },
+  {
+    "key": "bond",
+    "id": "b4d68ee65878",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 388,
+    "ownerLabels": [
+      "账户名称",
+      "账户名称"
+    ],
+    "candidateHashes": [
+      "5eaaa568",
+      "edbbd154"
+    ]
+  },
+  {
+    "key": "id_agent",
+    "id": "c87ce1ef7b1c",
+    "status": "ready",
+    "summaryChars": 77,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 77,
+    "ownerLabels": [],
+    "candidateHashes": []
+  },
+  {
+    "key": "bank_permit",
+    "id": "75dc677223a5",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 747,
+    "ownerLabels": [],
+    "candidateHashes": [
+      "d5d00af9",
+      "e11f56fe",
+      "e11f56fe"
+    ]
+  },
+  {
+    "key": "id_legal",
+    "id": "75929174bcd0",
+    "status": "ready",
+    "summaryChars": 132,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 70,
+    "ownerLabels": [],
+    "candidateHashes": []
+  },
+  {
+    "key": "id_legal",
+    "id": "4f100041bfc7",
+    "status": "ready",
+    "summaryChars": 131,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": false,
+    "rawChars": 51,
+    "ownerLabels": [],
+    "candidateHashes": []
+  },
+  {
+    "key": "license",
+    "id": "0dfcd2e6f229",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": true,
+    "rawChars": 370,
+    "ownerLabels": [],
+    "candidateHashes": [
+      "e9e33f77"
+    ]
+  },
+  {
+    "key": "credit",
+    "id": "31f661180e4d",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": true,
+    "rawChars": 7720,
+    "ownerLabels": [
+      "企业名称"
+    ],
+    "candidateHashes": [
+      "e9e33f77",
+      "e9e33f77",
+      "7b7072ef",
+      "e9e33f77",
+      "e9e33f77",
+      "e9e33f77",
+      "e9e33f77",
+      "e9e33f77"
+    ]
+  },
+  {
+    "key": "bond",
+    "id": "1fa15ebc1c1e",
+    "status": "ready",
+    "summaryChars": 200,
+    "facts": false,
+    "fieldNames": [],
+    "owner": false,
+    "code": false,
+    "bidderTag": false,
+    "error": true,
+    "rawChars": 352,
+    "ownerLabels": [],
+    "candidateHashes": [
+      "e9e33f77",
+      "5bb03cfd",
+      "0f3b3604"
+    ]
+  }
+]

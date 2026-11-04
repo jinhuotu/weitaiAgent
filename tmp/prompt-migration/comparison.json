@@ -1,0 +1,22 @@
+{
+  "promptFiles": 11,
+  "exactTexts": true,
+  "technicalRoutes": 3,
+  "replays": {
+    "business": {
+      "calls": 1,
+      "messagesIdentical": true,
+      "outputIdentical": true
+    },
+    "technical": {
+      "calls": 1,
+      "messagesIdentical": true,
+      "outputIdentical": true
+    },
+    "qa": {
+      "calls": 1,
+      "messagesIdentical": true,
+      "outputIdentical": true
+    }
+  }
+}

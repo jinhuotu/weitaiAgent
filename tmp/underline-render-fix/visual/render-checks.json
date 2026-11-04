@@ -1,0 +1,29 @@
+{
+  "pagination-source": {
+    "pages": 1
+  },
+  "pagination-old": {
+    "pages": 2
+  },
+  "pagination-fixed": {
+    "pages": 1
+  },
+  "contacts-source": {
+    "pages": 1,
+    "rightLabelX": [
+      342.0,
+      364.0,
+      342.0,
+      364.0
+    ]
+  },
+  "contacts-fixed": {
+    "pages": 1,
+    "rightLabelX": [
+      342.0,
+      364.0,
+      342.0,
+      364.0
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "changedFunctions": [
+    "_write_blank_span",
+    "_fit_filled_run"
+  ],
+  "finalTargetedRun": {
+    "passed": 300,
+    "failed": 0,
+    "skipped": 0
+  },
+  "fullRun": {
+    "passed": 1577,
+    "failed": 149,
+    "skipped": 1
+  },
+  "newFailuresVsBaseline": [],
+  "renderedColumnMaxDeltaPt": 0.00103759765625,
+  "renderedPages": 1,
+  "renderedMinimumFontPt": 12.0,
+  "backendRestarted": false,
+  "fullRunNote": "Full run preceded the final additional underlined-label variant; final 300-test targeted run covers that variant and all modified rendering branches."
+}

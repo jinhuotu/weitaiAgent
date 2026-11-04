@@ -1,0 +1,348 @@
+--- tmp\readable-signoff-fix\pdf_format.before.py
++++ apps\api\services\tenders\pdf_format.py
+@@ -6,6 +6,7 @@
+ import re
+ import shutil
+ from copy import deepcopy
++from math import ceil
+ from pathlib import Path
+ 
+ from docx import Document
+@@ -3432,6 +3433,11 @@
+ 
+ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
+     notes: list[str] = []
++    doc.element._fill_styles = doc.styles.element
++    note = _self_sign_note(brief)
++    if note:
++        logger.info(note)
++        notes.append(note)
+     for el in doc.element.body.iter(qn("w:p")):
+         _fill_date_placeholders(el, brief)
+         _fill_mixed_hints(el, brief)
+@@ -3439,7 +3445,7 @@
+         _swap_tokens(el, brief)
+         _fill_para_blanks(el, brief)
+         _fill_label_gap(el, brief)
+-        _relax_signature_flow(el)
++        _relax_signature_flow(el, doc)
+     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
+         _swap_tokens(tbl, brief)
+         _fill_amount_pairs(tbl, brief)
+@@ -3450,7 +3456,15 @@
+         # Preserve source row heights while filling only existing blanks.
+     from api.services.tenders.section_materials import fill_form_gaps
+     fill_form_gaps(doc, brief)
++    _compact_signature_flow(doc)
+     return notes
++
++
++def _self_sign_note(brief):
++    """Rendering diagnostics only; never change the supplied names or roles."""
++    if not (getattr(brief,'agentName','') or '').strip() and (getattr(brief,'legalPersonName','') or '').strip():
++        return '当前为法人亲自签署、未另设代理人；代理人姓名按现有规则沿用法人姓名'
++    return ''
+ 
+ 
+ def _date_value(brief) -> str:
+@@ -3764,6 +3778,7 @@
+                 rpr.append(underline)
+             underline.set(qn('w:val'),'none')
+             carrier.append(rpr)
++            carrier._fill_alignment_carrier = True
+             for tab in saved_tabs:
+                 carrier.append(tab)
+             host.addnext(carrier)
+@@ -3771,9 +3786,31 @@
+ 
+ 
+ def _fill_font_half(run, para):
+-    for source in [run, para.find(qn('w:pPr')), *para.findall(qn('w:r'))]:
++    for source in [run, para.find(qn('w:pPr'))]:
+         size = source.find('w:rPr/w:sz', source.nsmap) if source is not None else None
+         if size is not None and size.get(qn('w:val'), '').isdigit():
++            return int(size.get(qn('w:val')))
++    styles = getattr(para.getroottree().getroot(),'_fill_styles',None)
++    if styles is not None:
++        references = [ref for ref in (run.find('w:rPr/w:rStyle',run.nsmap),para.find('w:pPr/w:pStyle',para.nsmap)) if ref is not None]
++        for reference in references + [None]:
++            key = reference.get(qn('w:val')) if reference is not None else 'Normal'
++            visited = set()
++            while key and key not in visited:
++                visited.add(key)
++                style = next((s for s in styles.findall(qn('w:style')) if s.get(qn('w:styleId'))==key),None)
++                if style is None:break
++                size = style.find('w:rPr/w:sz',style.nsmap)
++                if size is not None and size.get(qn('w:val'),'').isdigit():
++                    return int(size.get(qn('w:val')))
++                parent = style.find(qn('w:basedOn'))
++                key = parent.get(qn('w:val')) if parent is not None else ''
++        size = styles.find('w:docDefaults/w:rPrDefault/w:rPr/w:sz',styles.nsmap)
++        if size is not None and size.get(qn('w:val'),'').isdigit():
++            return int(size.get(qn('w:val')))
++    for source in para.findall(qn('w:r')):
++        size = source.find('w:rPr/w:sz',source.nsmap)
++        if size is not None and size.get(qn('w:val'),'').isdigit():
+             return int(size.get(qn('w:val')))
+     return 24
+ 
+@@ -3807,12 +3844,17 @@
+ 
+ 
+ def _fit_filled_run(el, filled):
+-    """Shrink only a value run to the next layout tab or the line's right edge."""
++    """Use readable type, then remaining line width and natural wrapping."""
+     tokens = list(_blank_tokens(el))
+     index = next((i for i,t in enumerate(tokens) if t[0] is filled), None)
+     if index is None:
+         return
+-    half = _fill_font_half(filled, el)
++    root = el.getroottree().getroot()
++    original_sizes = getattr(root,'_original_fill_sizes',None)
++    if original_sizes is None:
++        original_sizes = {};root._original_fill_sizes = original_sizes
++    half = max(2,original_sizes.setdefault(filled,_fill_font_half(filled,el)))
++    lower = max(18,ceil(half*.75))
+     indent = el.find('w:pPr/w:ind', el.nsmap)
+     left = int(indent.get(qn('w:left'),'0')) if indent is not None else 0
+     first = (int(indent.get(qn('w:firstLine'),'0')) - int(indent.get(qn('w:hanging'),'0'))) if indent is not None else 0
+@@ -3829,7 +3871,8 @@
+         else:
+             x = 0.0
+     suffix = 0.0
+-    edge = _fill_line_width(el)
++    line_edge = _fill_line_width(el)
++    edge = line_edge
+     for run,node,_,_,text in tokens[index+1:]:
+         if run is filled:
+             continue
+@@ -3841,10 +3884,31 @@
+         suffix += _vis_width(text) * _fill_font_half(run, el) * 5
+     needed = _vis_width(_run_text(filled)) * half * 5
+     room = max(10, edge - x - suffix - 40)
+-    if needed <= room or needed <= 0:
+-        return
+-    size = max(2, min(half, int(half * room / needed)))
++    if needed <= 0:
++        return
++    size = max(lower,min(max(half,lower),int(half*room/needed)))
++    if needed*size/half > room:
++        # Recycled underline tabs are padding, not another labelled column.
++        # Remove only this renderer's adjacent carrier; original layout tabs
++        # and their tab-stop definitions stay intact.
++        following = filled.getnext()
++        if following is not None and getattr(following,'_fill_alignment_carrier',False):
++            following.getparent().remove(following)
++            _fit_filled_run(el,filled)
++            return
++        wide_room = max(10,line_edge-x-suffix-40)
++        size = max(lower,min(max(half,lower),int(half*wide_room/needed)))
++        # OOXML has paragraph-level word wrapping, not a per-run wrap flag.
++        # Enable it only for an overflowing value, without inserting text,
++        # line breaks, page breaks or changing the labels' font sizes.
++        if needed*size/half > room:
++            props = el.get_or_add_pPr()
++            wrap = props.find(qn('w:wordWrap'))
++            if wrap is None:
++                wrap = OxmlElement('w:wordWrap');props.append(wrap)
++            wrap.set(qn('w:val'),'1')
+     rpr = filled.get_or_add_rPr()
++    for fit in list(rpr.findall(qn('w:fitText'))):rpr.remove(fit)
+     for name in ('sz','szCs'):
+         node = rpr.find(qn('w:' + name))
+         if node is None:
+@@ -3853,16 +3917,33 @@
+         node.set(qn('w:val'), str(size))
+ 
+ 
+-def _relax_signature_flow(el):
++def _signature_flow_field(el):
++    """Recognize signature/contact fields consistently for spacing and flow."""
++    if el.tag != qn('w:p'):
++        return False
++    text = re.sub(r'\s+', '', _el_text(el))
++    labelled = re.match(
++        r'^(?:投标人(?:名称|或联合体牵头人)?|法定代表人(?:或其?委托代理人)?|委托代理人|地址|网址|电话|传真|邮政编码|邮编|电子邮箱|邮箱|日期|身份证号码)'
++        r'(?:[（(](?:盖单位(?:公)?章|盖章|签字(?:或盖章)?)[）)])?[:：]', text)
++    dated = re.fullmatch(r'(?:日期[:：]?)?\d{4}年\d{1,2}月\d{1,2}日', text)
++    return bool(dated or (labelled and '。' not in text))
++
++
++def _relax_signature_flow(el, doc=None):
+     """A signature/contact line may flow naturally; never glue the whole block."""
+-    text = re.sub(r'\s+', '', _el_text(el))
+-    labelled = re.match(r'^(?:投标人(?:名称|或联合体牵头人)?|法定代表人(?:或其?委托代理人)?|委托代理人|地址|网址|电话|传真|邮政编码|邮箱|日期)[:：]', text)
+-    dated = re.fullmatch(r'(?:日期[:：]?)?\d{4}年\d{1,2}月\d{1,2}日', text)
+-    if not dated and (not labelled or '。' in text):
++    if not _signature_flow_field(el):
+         return
+     props = el.find(qn('w:pPr'))
+-    if props is None or all(props.find(qn('w:' + name)) is None for name in ('keepLines','keepNext')):
+-        return
++    direct = props is not None and any(props.find(qn('w:'+name)) is not None for name in ('keepLines','keepNext'))
++    inherited = False
++    if doc is not None:
++        from docx.text.paragraph import Paragraph
++        style = Paragraph(el,doc._body).style
++        while style is not None:
++            inherited |= bool(style.paragraph_format.keep_together or style.paragraph_format.keep_with_next)
++            style = style.base_style
++    if not direct and not inherited:return
++    props = el.get_or_add_pPr()
+     following = el.getnext()
+     suffix = (following is not None and following.tag == qn('w:p')
+               and re.fullmatch(r'[（(](?:盖单位(?:公)?章|签字(?:或盖章)?)[）)]', re.sub(r'\s+','',_el_text(following))))
+@@ -3879,6 +3960,43 @@
+                 node = OxmlElement('w:' + name)
+                 following.get_or_add_pPr().append(node)
+             node.set(qn('w:val'),'0')
++
++
++def _compact_signature_flow(doc):
++    """Remove only safe whitespace between signature/contact fields."""
++    from docx.text.paragraph import Paragraph
++    from docx.shared import Pt
++    def blank(node):
++        if node.tag!=qn('w:p') or _el_text(node).replace('\u200b','').replace('\ufeff','').strip():return False
++        protected=('drawing','pict','object','tbl','sectPr','br','lastRenderedPageBreak','bookmarkStart','bookmarkEnd','fldChar','instrText','pBdr','numPr','framePr')
++        if any(next(node.iter(qn('w:'+name)),None) is not None for name in protected):return False
++        if any(child.tag not in {qn('w:pPr'),qn('w:r')} for child in node):return False
++        if any(child.tag not in {qn('w:rPr'),qn('w:t'),qn('w:tab')} for run in node.findall(qn('w:r')) for child in run):return False
++        para=Paragraph(node,doc._body)
++        if para.paragraph_format.page_break_before:return False
++        style=para.style
++        while style is not None:
++            if style.paragraph_format.page_break_before or style.element.find('w:pPr/w:outlineLvl',style.element.nsmap) is not None:return False
++            style=style.base_style
++        return True
++    def generated(node):
++        return '\u200b' in _el_text(node) and node.find('w:pPr/w:spacing',node.nsmap) is not None
++    previous_field=False;pending=[]
++    for node in list(doc.element.body):
++        if blank(node):pending.append(node);continue
++        current=_signature_flow_field(node)
++        if current and pending:
++            keep=next((p for p in pending if previous_field and not generated(p)),None)
++            for gap in pending:
++                if (previous_field or generated(gap)) and gap is not keep:
++                    gap.getparent().remove(gap)
++            if keep is not None:
++                para=Paragraph(keep,doc._body);pf=para.paragraph_format
++                pf.space_before=pf.space_after=Pt(0);pf.line_spacing=Pt(12)
++                pf.keep_together=pf.keep_with_next=False
++        previous_field=current;pending=[]
++    for node in doc.element.body.iter(qn('w:p')):
++        _relax_signature_flow(node,doc)
+ 
+ 
+ def _replace_span_at(el, start: int, end: int, value: str) -> None:
+--- tmp\readable-signoff-fix\document.before.py
++++ apps\api\services\tenders\document.py
+@@ -250,6 +250,9 @@
+ def _put_on_line(run, text: str, *, para: Paragraph | None = None) -> None:
+     """把文字写进原有下划线空白：跟相邻正文字体字号一致，不加粗、不放大。"""
+     from api.services.tenders.pdf_format import _blank_tokens, _write_blank_span
++    para = para or getattr(run,'_parent',None)
++    if para is not None:
++        para.part.document.element._fill_styles = para.part.document.styles.element
+     el = para._p if para is not None else run._element.getparent()
+     owned = [token for token in _blank_tokens(el) if token[0] is run._element]
+     if owned and (text or '').strip():
+@@ -258,6 +261,7 @@
+ 
+ def _fill_blanks(para: Paragraph, *values: str) -> int:
+     from api.services.tenders.pdf_format import _blank_ranges, _blank_tokens, _run_under, _write_blank_span
++    para.part.document.element._fill_styles = para.part.document.styles.element
+     tokens = list(_blank_tokens(para._p))
+     blanks = [span for span in _blank_ranges(para._p)
+               if any(_run_under(run) and a < span.end() and b > span.start() for run,_,a,b,_ in tokens)]
+@@ -815,17 +819,19 @@
+     reserve_cm: float = 0.0,
+     max_cm: float = 10.0,
+ ) -> float:
++    """No automatic signature padding; retain explicitly configured cover spacing."""
++    if bottom_pad_cm is None:
++        return 0.0
++    # The cover renderer explicitly supplies its lower-page spacing. Ordinary
++    # signature callers use the default and must not gain elastic blank space.
+     used = _estimate_cm_on_current_page(doc, stop_el=stop_el)
+-    pad = _SIGN_BOTTOM_PAD_CM if bottom_pad_cm is None else bottom_pad_cm
+     page = _page_body_cm(doc)
+     remain = page - used
+     reserve = max(0.0, float(reserve_cm or 0.0))
+     cap = max(0.35, float(max_cm or 10.0))
+-    # 本页已经放不下落后落款时不要再垫空白，否则整块签字会翻到下一页独页
+     if remain < sign_cm + _SIGN_MIN_GAP_CM + reserve:
+         return 0.0
+-    budget = remain - sign_cm - pad - reserve
+-    # 正文未过满页时尽量垫空白，把落款压到右下（原先 0.55 阈值太严，附录半页就贴正文）
++    budget = remain - sign_cm - bottom_pad_cm - reserve
+     if used > page * 0.78 or budget < 0.35:
+         return 0.0
+     return min(budget, cap)
+@@ -2097,6 +2103,10 @@
+     media: dict | None = None,
+     inlined: set[str] | None = None,
+ ) -> Paragraph | None:
++    from api.services.tenders.pdf_format import _self_sign_note, _compact_signature_flow
++    doc.element._fill_styles = doc.styles.element
++    note = _self_sign_note(brief)
++    if note:logger.info(note)
+     price_cn = rmb_uppercase(brief.bidPriceYuan)
+     price_en = rmb_figure(brief.bidPriceYuan)
+     extra = (brief.extraNote or "").strip() or "无"
+@@ -2483,6 +2493,7 @@
+ 
+     for para in drop:
+         _drop_para(para)
++    _compact_signature_flow(doc)
+     return quote_anchor
+ 
+ 
+@@ -3583,33 +3594,9 @@
+ 
+ 
+ def _pad_signature_blocks(doc: Document, *, blanks: int = 3) -> None:
+-    """签字盖章行前插入空段，避免正文顶住签章区。投标函不够高时不再垫。"""
+-    for para in list(doc.paragraphs):
+-        if not _is_signature_block_start(para.text):
+-            continue
+-        if _sign_follows_letter_body(para):
+-            continue
+-        have = _count_blank_paras_before(para)
+-        missing = max(0, blanks - have)
+-        # Rendering must not add decorative blank lines that push an otherwise
+-        # fitting signature/date block onto another page.
+-        following = [para]
+-        cursor = para._p.getnext()
+-        while cursor is not None and cursor.tag == qn('w:p') and len(following) < 6:
+-            text = _compact(_el_plain_text(cursor))
+-            if _p_has_page_br(cursor) or _p_sectpr(cursor) is not None:
+-                break
+-            if text and not (re.match(r'^(?:法定代表人(?:或其?委托代理人)?|委托代理人|姓名|日期)[:：]', text)
+-                             or re.fullmatch(r'\d{4}年\d{1,2}月\d{1,2}日',text)):
+-                break
+-            following.append(Paragraph(cursor,doc._body))
+-            cursor = cursor.getnext()
+-        reserve = sum(_para_height_cm(line) for line in following) + missing * 0.35
+-        if _estimate_cm_on_current_page(doc, stop_el=para._p) + reserve > _page_body_cm(doc):
+-            continue
+-        for _ in range(missing):
+-            blank = OxmlElement("w:p")
+-            para._p.addprevious(blank)
++    """Compatibility entry: compact existing gaps, never add signature blanks."""
++    from api.services.tenders.pdf_format import _compact_signature_flow
++    _compact_signature_flow(doc)
+ 
+ 
+ def _drawing_height_cm(el) -> float:
+--- tmp\readable-signoff-fix\native_format.before.py
++++ apps\api\services\tenders\native_format.py
+@@ -1571,6 +1571,7 @@
+ 
+ def fill_native_cover(doc, brief: BidBrief) -> None:
+     """Fill cover fields within existing runs, retaining their fonts and paragraph XML."""
++    doc.element._fill_styles = doc.styles.element
+     from api.services.tenders.document import _ymd
+     from api.services.tenders.pdf_format import (
+         _fill_hints, _replace_span, _swap_tokens, _fill_para_blanks,

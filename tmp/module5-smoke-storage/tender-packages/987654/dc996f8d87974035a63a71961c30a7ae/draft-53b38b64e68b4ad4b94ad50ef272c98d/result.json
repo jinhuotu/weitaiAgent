@@ -1,0 +1,578 @@
+{
+  "visual_validation": {
+    "structure_only": true,
+    "visual_status": "not_accepted",
+    "documents": [
+      {
+        "file": "E:\\code\\python\\weitaiAgent\\tmp\\module5-smoke-storage\\tender-packages\\987654\\dc996f8d87974035a63a71961c30a7ae\\draft-53b38b64e68b4ad4b94ad50ef272c98d\\scope_pending\\business\\business.docx",
+        "sha256": "908d6957e8e5c0adda47064c59a5c26f7bfe4362ddd71da7d5a9e784cfccb8c2",
+        "pages": [],
+        "status": "not_rendered"
+      },
+      {
+        "file": "E:\\code\\python\\weitaiAgent\\tmp\\module5-smoke-storage\\tender-packages\\987654\\dc996f8d87974035a63a71961c30a7ae\\draft-53b38b64e68b4ad4b94ad50ef272c98d\\scope_pending\\technical\\1234-123456789-00001.docx",
+        "sha256": "b6a7799c523629ba466382dd26b622d7645138d843e72d585726b512b5c12417",
+        "pages": [],
+        "status": "not_rendered"
+      }
+    ],
+    "reviews": [],
+    "message": "仅结构检查通过、视觉未验收：没有可用的已配置渲染器"
+  },
+  "input_provenance": {
+    "price_templates": [],
+    "schema_version": "goods-reviewed-inputs/1",
+    "ssot_sha256": "19b2a39a52556db82a6d92db70b5dca4d30cccdb673333e3689ac5d7639d9739",
+    "targets": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+        "source": {
+          "document_id": "68d4816ed8ff256669b8f837",
+          "locator": "table:1/row:2",
+          "quote": "1.1 | 产品型号规格 | 无 | YJV22 | "
+        },
+        "cells": [
+          "1.1",
+          "产品型号规格",
+          "无",
+          "YJV22",
+          ""
+        ]
+      },
+      {
+        "solidified_id": "1234-123456789-00001",
+        "target": "68d4816ed8ff256669b8f837:table:1/row:3",
+        "source": {
+          "document_id": "68d4816ed8ff256669b8f837",
+          "locator": "table:1/row:3",
+          "quote": "1.2 | 导体材料 | 无 | 铜 | "
+        },
+        "cells": [
+          "1.2",
+          "导体材料",
+          "无",
+          "铜",
+          ""
+        ]
+      },
+      {
+        "solidified_id": "1234-123456789-00001",
+        "target": "68d4816ed8ff256669b8f837:table:1/row:4",
+        "source": {
+          "document_id": "68d4816ed8ff256669b8f837",
+          "locator": "table:1/row:4",
+          "quote": "1.3 | 导体芯数×标称截面 | 芯数×mm2 | 3×120 | "
+        },
+        "cells": [
+          "1.3",
+          "导体芯数×标称截面",
+          "芯数×mm2",
+          "3×120",
+          ""
+        ]
+      },
+      {
+        "solidified_id": "1234-123456789-00001",
+        "target": "68d4816ed8ff256669b8f837:table:1/row:5",
+        "source": {
+          "document_id": "68d4816ed8ff256669b8f837",
+          "locator": "table:1/row:5",
+          "quote": "1.4 | 绝缘平均厚度 | mm | 大于等于4.5(10kV) | "
+        },
+        "cells": [
+          "1.4",
+          "绝缘平均厚度",
+          "mm",
+          "大于等于4.5(10kV)",
+          ""
+        ]
+      }
+    ],
+    "offer_history": [
+      {
+        "solidified_id": "1234-123456789-00001",
+        "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+        "guarantee": "YJV22",
+        "actor": "isolated-page-test",
+        "basis": "隔离测试参数来源",
+        "status": "响应",
+        "source_type": "manual",
+        "confirmed_at": "2026-11-03T13:49:42.384023+00:00"
+      }
+    ],
+    "price_history": [],
+    "package_history": [],
+    "warnings": [],
+    "review_history": [
+      {
+        "actor": "isolated-page-test",
+        "basis": "隔离测试参数来源",
+        "decisions": [
+          {
+            "solidified_id": "1234-123456789-00001",
+            "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+            "prior": {
+              "solidified_id": "1234-123456789-00001",
+              "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+              "label": "产品型号规格",
+              "unit": "无",
+              "requirement": "YJV22",
+              "guarantee": null,
+              "status": "待确认",
+              "reason": "未提供有依据的实际保证值",
+              "source": {
+                "document_id": "68d4816ed8ff256669b8f837",
+                "locator": "table:1/row:2",
+                "quote": "1.1 | 产品型号规格 | 无 | YJV22 | "
+              },
+              "raw_cells": [
+                "1.1",
+                "产品型号规格",
+                "无",
+                "YJV22",
+                ""
+              ],
+              "offer": null,
+              "source_document": {
+                "document_id": "68d4816ed8ff256669b8f837",
+                "logical_path": "nested.zip/技术规范_1234-123456789-00001.docx",
+                "storage_path": "0\\nested\\0\\技术规范_1234-123456789-00001.docx",
+                "sha256": "1693108683e8f2e08cfa14876ce4670851aed191cc81384af9af7dfa626adfac"
+              },
+              "parameter_type": "缺失保证值",
+              "review_reason": "缺少可采用的有依据保证值"
+            },
+            "decision": {
+              "solidified_id": "1234-123456789-00001",
+              "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+              "guarantee": "YJV22",
+              "actor": "isolated-page-test",
+              "basis": "隔离测试参数来源",
+              "status": "响应",
+              "source_type": "manual",
+              "confirmed_at": "2026-11-03T13:49:42.384023+00:00"
+            }
+          }
+        ],
+        "confirmed_at": "2026-11-03T13:49:42.384023+00:00"
+      }
+    ]
+  },
+  "schema_version": "goods-package-result/1",
+  "ssot_sha256": "19b2a39a52556db82a6d92db70b5dca4d30cccdb673333e3689ac5d7639d9739",
+  "rules": {
+    "version": "goods-adapter/1",
+    "guarantee_header": "^(?:投标人|供应商)?(?:保证值|响应值|应答值|承诺值)$",
+    "requirement_header": "需求值|要求值|规定值|要求表述",
+    "status_header": "^(?:响应[/／或与]偏离|偏离情况|响应情况|备注)$",
+    "price_header": "单价|合价|总价|报价",
+    "price_quantity_header": "^(?:数量|采购数量|需求数量)$",
+    "price_columns": "单价|合价|总价|报价|税率",
+    "pending_text": "待确认",
+    "critical_pattern": "资格|否决|废标|限价|price_ceiling|qualification|rejection",
+    "business_title": "商务资料附件",
+    "missing_business_title": "资格及承诺资料",
+    "business_image_max_pages": 100,
+    "platform_max_file_bytes": null,
+    "platform_max_package_bytes": null,
+    "allowed_formats": [
+      ".docx"
+    ],
+    "business_context": "资格|商务|投标文件格式|响应文件格式|资质|授权|证明|承诺",
+    "business_unknown_title": "(?:证|证书|报告|报表|证明材料|说明|承诺书|声明|截图|回单|发票)$"
+  },
+  "packages": [
+    {
+      "key": "scope_pending",
+      "lot_key": null,
+      "package_code": null,
+      "material_ids": [
+        "1234-123456789-00001"
+      ]
+    }
+  ],
+  "technical": [
+    {
+      "solidified_id": "1234-123456789-00001",
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\module5-smoke-storage\\tender-packages\\987654\\dc996f8d87974035a63a71961c30a7ae\\draft-53b38b64e68b4ad4b94ad50ef272c98d\\scope_pending\\technical\\1234-123456789-00001.docx",
+      "rows": [
+        {
+          "solidified_id": "1234-123456789-00001",
+          "source": {
+            "document_id": "68d4816ed8ff256669b8f837",
+            "locator": "table:1/row:2",
+            "quote": "1.1 | 产品型号规格 | 无 | YJV22 | "
+          },
+          "requirement": "YJV22",
+          "guarantee": "YJV22",
+          "status": "响应",
+          "basis": "参数比较或具名人工依据",
+          "offer": {
+            "solidified_id": "1234-123456789-00001",
+            "target": "68d4816ed8ff256669b8f837:table:1/row:2",
+            "guarantee": "YJV22",
+            "actor": "isolated-page-test",
+            "basis": "隔离测试参数来源",
+            "status": "响应",
+            "source_type": "manual",
+            "confirmed_at": "2026-11-03T13:49:42.384023+00:00"
+          },
+          "written": true,
+          "target": {
+            "table": 1,
+            "row": 2,
+            "column": 5
+          }
+        },
+        {
+          "solidified_id": "1234-123456789-00001",
+          "source": {
+            "document_id": "68d4816ed8ff256669b8f837",
+            "locator": "table:1/row:3",
+            "quote": "1.2 | 导体材料 | 无 | 铜 | "
+          },
+          "requirement": "铜",
+          "guarantee": null,
+          "status": "待确认",
+          "basis": "未提供有依据的实际保证值",
+          "offer": null,
+          "written": true,
+          "target": {
+            "table": 1,
+            "row": 3,
+            "column": 5
+          }
+        },
+        {
+          "solidified_id": "1234-123456789-00001",
+          "source": {
+            "document_id": "68d4816ed8ff256669b8f837",
+            "locator": "table:1/row:4",
+            "quote": "1.3 | 导体芯数×标称截面 | 芯数×mm2 | 3×120 | "
+          },
+          "requirement": "3×120",
+          "guarantee": null,
+          "status": "待确认",
+          "basis": "未提供有依据的实际保证值",
+          "offer": null,
+          "written": true,
+          "target": {
+            "table": 1,
+            "row": 4,
+            "column": 5
+          }
+        },
+        {
+          "solidified_id": "1234-123456789-00001",
+          "source": {
+            "document_id": "68d4816ed8ff256669b8f837",
+            "locator": "table:1/row:5",
+            "quote": "1.4 | 绝缘平均厚度 | mm | 大于等于4.5(10kV) | "
+          },
+          "requirement": "大于等于4.5(10kV)",
+          "guarantee": null,
+          "status": "待确认",
+          "basis": "未提供有依据的实际保证值",
+          "offer": null,
+          "written": true,
+          "target": {
+            "table": 1,
+            "row": 5,
+            "column": 5
+          }
+        }
+      ],
+      "proof": {
+        "applied": [
+          {
+            "table": 1,
+            "row": 2,
+            "column": 5,
+            "text": "YJV22（响应）"
+          },
+          {
+            "table": 1,
+            "row": 3,
+            "column": 5,
+            "text": "待确认"
+          },
+          {
+            "table": 1,
+            "row": 4,
+            "column": 5,
+            "text": "待确认"
+          },
+          {
+            "table": 1,
+            "row": 5,
+            "column": 5,
+            "text": "待确认"
+          }
+        ],
+        "rejected": [],
+        "unchanged_other_members": true,
+        "structure_verified": true,
+        "table_fragment": null
+      },
+      "package_key": "scope_pending"
+    }
+  ],
+  "business": [
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\module5-smoke-storage\\tender-packages\\987654\\dc996f8d87974035a63a71961c30a7ae\\draft-53b38b64e68b4ad4b94ad50ef272c98d\\scope_pending\\business\\business.docx",
+      "outcomes": [
+        {
+          "key": "pending_business",
+          "files": [],
+          "kind": "selection_pending",
+          "request_title": "资格及承诺资料",
+          "request_hint": "",
+          "ssot_sources": []
+        }
+      ],
+      "warnings": [
+        {
+          "type": "library_not_loaded",
+          "message": "本次未提供资料库实际选用结果，不能视作资料库中不存在；请加载资料库后核对",
+          "level": "critical",
+          "source": null
+        },
+        {
+          "type": "business_unresolved",
+          "message": "资料尚未选定或无法读取，未以缺失占位代替",
+          "level": "critical",
+          "source": "资格及承诺资料"
+        }
+      ],
+      "package_key": "scope_pending",
+      "forms": [],
+      "reviewed_texts": [],
+      "library_selection_history": []
+    }
+  ],
+  "price": [],
+  "artifacts": [
+    {
+      "path": "scope_pending\\business\\business.docx",
+      "size": 36770,
+      "sha256": "908d6957e8e5c0adda47064c59a5c26f7bfe4362ddd71da7d5a9e784cfccb8c2"
+    },
+    {
+      "path": "scope_pending\\technical\\1234-123456789-00001.docx",
+      "size": 37017,
+      "sha256": "b6a7799c523629ba466382dd26b622d7645138d843e72d585726b512b5c12417"
+    }
+  ],
+  "warnings": [
+    {
+      "type": "package_scope_pending",
+      "message": "实际分标/包号未确认，产物放入待分配目录；未把目录中所有分标当作已选包",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "subject_type_pending",
+      "message": "标的类型未确认，当前仅生成货物应答草稿",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.price_ceiling",
+      "level": "critical",
+      "source": "fields.price_ceiling"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.qualification_general",
+      "level": "critical",
+      "source": "requirements.qualification_general"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.qualification_special",
+      "level": "critical",
+      "source": "requirements.qualification_special"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.rejection",
+      "level": "critical",
+      "source": "requirements.rejection"
+    },
+    {
+      "type": "critical_field_missing",
+      "message": "缺少需优先核对的关键条款：qualification_general",
+      "level": "critical",
+      "source": "qualification_general"
+    },
+    {
+      "type": "critical_field_missing",
+      "message": "缺少需优先核对的关键条款：qualification_special",
+      "level": "critical",
+      "source": "qualification_special"
+    },
+    {
+      "type": "critical_field_missing",
+      "message": "缺少需优先核对的关键条款：rejection",
+      "level": "critical",
+      "source": "rejection"
+    },
+    {
+      "type": "platform_limits_pending",
+      "message": "未提供本次平台容量限制；不能宣称已符合平台要求，请核对后配置上限",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "package_assignment_pending",
+      "message": "当前输出目录尚未形成已确认的分标/包号绑定",
+      "level": "critical",
+      "source": "scope_pending"
+    },
+    {
+      "type": "business_forms_pending",
+      "message": "未提供已核对的商务原表填充或承诺正文；当前仅为资料附件，不视作完整商务全卷",
+      "level": "critical",
+      "source": "scope_pending"
+    },
+    {
+      "type": "library_not_loaded",
+      "message": "本次未提供资料库实际选用结果，不能视作资料库中不存在；请加载资料库后核对",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "business_unresolved",
+      "message": "资料尚未选定或无法读取，未以缺失占位代替",
+      "level": "critical",
+      "source": "资格及承诺资料"
+    },
+    {
+      "type": "price_template_missing",
+      "message": "未识别到可复用的原报价表，未编造报价表；请提供原格式",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "visual_not_accepted",
+      "message": "仅结构检查通过、视觉未验收：没有可用的已配置渲染器",
+      "level": "critical",
+      "source": null
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.delivery_period",
+      "level": "warning",
+      "source": "fields.delivery_period"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.procurement_method",
+      "level": "warning",
+      "source": "fields.procurement_method"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.procurement_mode",
+      "level": "warning",
+      "source": "fields.procurement_mode"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.project_name",
+      "level": "warning",
+      "source": "fields.project_name"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.selected_lots",
+      "level": "warning",
+      "source": "fields.selected_lots"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.subject_type",
+      "level": "warning",
+      "source": "fields.subject_type"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：fields.tender_number",
+      "level": "warning",
+      "source": "fields.tender_number"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：lots",
+      "level": "warning",
+      "source": "lots"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.contract_agreement",
+      "level": "warning",
+      "source": "requirements.contract_agreement"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.contract_general",
+      "level": "warning",
+      "source": "requirements.contract_general"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.contract_special",
+      "level": "warning",
+      "source": "requirements.contract_special"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.delivery",
+      "level": "warning",
+      "source": "requirements.delivery"
+    },
+    {
+      "type": "ssot_pending",
+      "message": "SSOT待确认：requirements.pricing",
+      "level": "warning",
+      "source": "requirements.pricing"
+    },
+    {
+      "type": "technical_pending",
+      "message": "未提供有依据的实际保证值",
+      "level": "warning",
+      "source": {
+        "document_id": "68d4816ed8ff256669b8f837",
+        "locator": "table:1/row:3",
+        "quote": "1.2 | 导体材料 | 无 | 铜 | "
+      },
+      "solidified_id": "1234-123456789-00001"
+    },
+    {
+      "type": "technical_pending",
+      "message": "未提供有依据的实际保证值",
+      "level": "warning",
+      "source": {
+        "document_id": "68d4816ed8ff256669b8f837",
+        "locator": "table:1/row:4",
+        "quote": "1.3 | 导体芯数×标称截面 | 芯数×mm2 | 3×120 | "
+      },
+      "solidified_id": "1234-123456789-00001"
+    },
+    {
+      "type": "technical_pending",
+      "message": "未提供有依据的实际保证值",
+      "level": "warning",
+      "source": {
+        "document_id": "68d4816ed8ff256669b8f837",
+        "locator": "table:1/row:5",
+        "quote": "1.4 | 绝缘平均厚度 | mm | 大于等于4.5(10kV) | "
+      },
+      "solidified_id": "1234-123456789-00001"
+    }
+  ],
+  "status": "draft_review_required",
+  "ready_for_submission": false
+}

@@ -1,0 +1,139 @@
+{
+  "actualProject": {
+    "named": {
+      "points": 13,
+      "bodyChars": [
+        2446,
+        1042,
+        1325,
+        1049,
+        1045,
+        1874,
+        1110,
+        1479,
+        1630,
+        1170,
+        1206,
+        1547,
+        1022
+      ],
+      "filledRows": [
+        22,
+        15,
+        9,
+        5
+      ],
+      "diagrams": 2,
+      "boxes": 0,
+      "retainedMedia": 2,
+      "identityMatches": {
+        "bidderName": 1,
+        "legalPersonName": 1,
+        "legalPersonIdNo": 0
+      },
+      "toc": {
+        "entries": 14,
+        "firstBodyBlock": 39
+      },
+      "originalHeadingPropertiesAndOrderPreserved": true
+    },
+    "anonymous": {
+      "points": 13,
+      "bodyChars": [
+        2446,
+        1042,
+        1325,
+        1049,
+        1045,
+        1874,
+        1110,
+        1479,
+        1630,
+        1170,
+        1206,
+        1547,
+        1022
+      ],
+      "filledRows": [
+        22,
+        15,
+        9,
+        5
+      ],
+      "diagrams": 2,
+      "boxes": 0,
+      "retainedMedia": 2,
+      "identityMatches": {
+        "bidderName": 0,
+        "legalPersonName": 0,
+        "legalPersonIdNo": 0
+      },
+      "toc": {
+        "entries": 14,
+        "firstBodyBlock": 23
+      },
+      "originalHeadingPropertiesAndOrderPreserved": true
+    }
+  },
+  "liveModelCases": {
+    "actualProject": 1,
+    "syntheticUnseenProjects": [
+      "goods-delivery",
+      "service-migration",
+      "medical-maintenance",
+      "unseen-mapping"
+    ]
+  },
+  "testsTendersAndDrawingRegression": {
+    "passed": 300,
+    "failed": 0,
+    "skipped": 0
+  },
+  "fullRegression": {
+    "passed": 1619,
+    "failed": 144,
+    "skipped": 1
+  },
+  "newFailures": [],
+  "resolvedHistoricalFailures": [
+    "tests.test_tender_generic_generation::test_multisector_native_toc_scans_blanks_and_download[technical-\\u661f\\u6cb3\\u670d\\u52a1\\u6709\\u9650\\u516c\\u53f8-\\u6863\\u6848\\u6570\\u5b57\\u5316\\u670d\\u52a1-\\u6863\\u6848\\u6570\\u5b57\\u5316-450000-4]",
+    "tests.test_tender_generic_generation::test_multisector_native_toc_scans_blanks_and_download[technical-\\u674f\\u6797\\u533b\\u7597\\u6709\\u9650\\u516c\\u53f8-\\u5185\\u955c\\u6e05\\u6d17\\u8bbe\\u5907\\u91c7\\u8d2d-\\u5185\\u955c\\u6e05\\u6d17-260000-3]",
+    "tests.test_tender_generic_generation::test_multisector_native_toc_scans_blanks_and_download[technical-\\u6d77\\u98ce\\u8bbe\\u5907\\u6709\\u9650\\u516c\\u53f8-\\u51b7\\u94fe\\u51b7\\u85cf\\u67dc\\u91c7\\u8d2d-\\u51b7\\u94fe\\u51b7\\u85cf\\u67dc-87000-1]",
+    "tests.test_tender_generic_generation::test_multisector_native_toc_scans_blanks_and_download[technical-\\u9752\\u5c71\\u5efa\\u8bbe\\u6709\\u9650\\u516c\\u53f8-\\u6865\\u6881\\u52a0\\u56fa\\u5de5\\u7a0b-\\u6865\\u6881\\u52a0\\u56fa-350000-2]",
+    "tests.test_tender_scan_anchor::test_native_volume_assembly_uses_the_same_scan_anchors[technical]"
+  ],
+  "businessBaseline": {
+    "wordPartsIdentical": true,
+    "parts": 44
+  },
+  "backendRestarted": false,
+  "changedFunctions": {
+    "technical_package.py": [
+      "structure",
+      "draft_package",
+      "validate",
+      "scoped_inputs"
+    ],
+    "technical_render.py": [
+      "render",
+      "sync_toc",
+      "anonymous_text",
+      "prune_unreferenced_images"
+    ],
+    "records.py": [
+      "_prepare_and_generate"
+    ],
+    "assemble.py": [
+      "assemble_bid_docx"
+    ],
+    "schema.py": [
+      "BidBrief.technicalPackage"
+    ],
+    "material_intents.py": [
+      "coverage"
+    ],
+    "pdf_format.py": [
+      "scrub_anonymous_docx"
+    ]
+  }
+}

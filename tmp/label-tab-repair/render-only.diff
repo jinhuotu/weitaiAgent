@@ -1,0 +1,183 @@
+--- before/pdf_format.py
++++ apps/api/services/tenders/pdf_format.py
+@@ -3635,14 +3635,38 @@
+     return "".join(token[4] for token in _blank_tokens(el))
+ 
+ 
+-def _layout_tab(token, blob):
+-    run,node,_,end,_ = token
++def _tab_role(token, blob, tokens):
++    """Classify tabs by their position inside a label, slot or field boundary."""
++    run,node,start,end,_ = token
++    if node.tag != qn('w:tab'):
++        return None
++    if _run_under(run):
++        return 'slot'
++    previous = next((t for t in reversed(tokens) if t[3] <= start and t[4].strip()), None)
++    # A label's literal prefix and suffix may have an alignment tab between
++    # them. Unlike a field separator, neither side is an underline slot/value.
++    if previous and previous[1].tag == qn('w:t') and not _run_under(previous[0]):
++        prefix = previous[4].strip()
++        suffix = ''
++        for following in tokens:
++            if following[2] < end:
++                continue
++            if following[1].tag != qn('w:t') or _run_under(following[0]):
++                break
++            suffix += following[4]
++            if re.search(r'[:：]', suffix):
++                if prefix and not re.search(r'[:：。；;!?！？]', prefix):
++                    return 'label'
++                break
+     tail = blob[end:].split('\n',1)[0].lstrip(' \t\u3000')
+     # Tabs embedded in one blank span (or before date-unit glyphs) are slot
+     # padding, not a boundary between two labelled columns.
+     padding = tail.startswith(('_','＿')) or bool(re.match(r'^[年月日](?:[\d年月日 _＿\t\u3000]|$)',tail))
+-    return (node.tag == qn('w:tab') and not _run_under(run)
+-            and bool(tail) and not padding)
++    return 'boundary' if tail and not padding else 'slot'
++
++
++def _layout_tab(token, blob):
++    return _tab_role(token, blob, list(_blank_tokens(token[0].getparent()))) in {'label','boundary'}
+ 
+ 
+ def _write_blank_span(el, start: int, end: int, value: str) -> None:
+@@ -3684,10 +3708,13 @@
+     for run, node, a, b, text in tokens:
+         if b <= end:
+             continue
++        if node.tag == qn('w:tab') and _tab_role((run,node,a,b,text),blob,tokens) == 'label':
++            fixed_parts.append(' ')
++            continue
+         if node.tag != qn('w:t'):
+             break
+         part = text[max(0, end-a):]
+-        if not part.strip(_BLANK_CHARS) or run in filled_sizes:
++        if run in filled_sizes:
+             break
+         fixed_parts.append(part)
+         if re.search(r'[:：]', part):
+@@ -3706,6 +3733,12 @@
+         # One dual-purpose tab restores the next column. Other blank tabs are
+         # underline padding, not additional column jumps.
+         saved_tabs = saved_tabs[-1:]
++    boundary_wrap = False
++    if saved_tabs and column_boundary:
++        x, advance, line_edge = _fill_line_cursor(el, [t for t in tokens if t[3] <= start])
++        label_half = _fill_font_half(saved_tabs[-1].getparent(), el)
++        label_width = _vis_width(fixed_label) * label_half * 5
++        boundary_wrap = advance(x) + label_width > line_edge
+     host = next((t[0] for t in selected if _run_under(t[0])),
+                 selected[0][0] if selected else None)
+     if host is None:
+@@ -3804,8 +3837,14 @@
+             carrier.append(rpr)
+             carrier._fill_alignment_carrier = True
+             carrier._fill_layout_boundary = bool(column_boundary)
+-            for tab in saved_tabs:
+-                carrier.append(tab)
++            if boundary_wrap:
++                # The source tab leaves no room for the complete next label.
++                # Restore its natural next-line position, rather than letting
++                # Word wrap the tab itself and advance a second time there.
++                carrier.append(OxmlElement('w:br'))
++            else:
++                for tab in saved_tabs:
++                    carrier.append(tab)
+             host.addnext(carrier)
+         _fit_filled_run(el, host)
+ 
+@@ -3868,18 +3907,8 @@
+     return max(20, width)
+ 
+ 
+-def _fit_filled_run(el, filled):
+-    """Use readable type, then remaining line width and natural wrapping."""
+-    tokens = list(_blank_tokens(el))
+-    index = next((i for i,t in enumerate(tokens) if t[0] is filled), None)
+-    if index is None:
+-        return
+-    root = el.getroottree().getroot()
+-    original_sizes = getattr(root,'_original_fill_sizes',None)
+-    if original_sizes is None:
+-        original_sizes = {};root._original_fill_sizes = original_sizes
+-    half = max(2,original_sizes.setdefault(filled,_fill_font_half(filled,el)))
+-    lower = max(18,ceil(half*.75))
++def _fill_line_cursor(el, tokens):
++    """Shared tab stops and natural-wrap budget in paragraph coordinates."""
+     indent = el.find('w:pPr/w:ind', el.nsmap)
+     left = int(indent.get(qn('w:left'),'0')) if indent is not None else 0
+     first = (int(indent.get(qn('w:firstLine'),'0')) - int(indent.get(qn('w:hanging'),'0'))) if indent is not None else 0
+@@ -3887,16 +3916,39 @@
+                   if tab.get(qn('w:val'),'left') != 'clear')
+     def advance(x):
+         return next((stop for stop in tabs if stop > x + 1), (int(x+left)//720 + 1)*720-left)
++    line_edge = _fill_line_width(el)
+     x = float(first)
+-    for run, node, _, _, text in tokens[:index]:
++    for run, node, _, _, text in tokens:
+         if node.tag == qn('w:tab'):
+             x = advance(x)
++            if x > line_edge:
++                x = 0.0
+         elif node.tag == qn('w:t'):
+-            x += _vis_width(text) * _fill_font_half(run, el) * 5
++            width = _vis_width(text) * _fill_font_half(run, el) * 5
++            if x + width > line_edge:
++                x = 0.0
++            x += width
++            if x > line_edge:
++                x = (x-1) % line_edge + 1
+         else:
+             x = 0.0
++    return x, advance, line_edge
++
++
++def _fit_filled_run(el, filled):
++    """Use readable type, then remaining line width and natural wrapping."""
++    tokens = list(_blank_tokens(el))
++    index = next((i for i,t in enumerate(tokens) if t[0] is filled), None)
++    if index is None:
++        return
++    root = el.getroottree().getroot()
++    original_sizes = getattr(root,'_original_fill_sizes',None)
++    if original_sizes is None:
++        original_sizes = {};root._original_fill_sizes = original_sizes
++    half = max(2,original_sizes.setdefault(filled,_fill_font_half(filled,el)))
++    lower = max(18,ceil(half*.75))
++    x, advance, line_edge = _fill_line_cursor(el, tokens[:index])
+     suffix = 0.0
+-    line_edge = _fill_line_width(el)
+     edge = line_edge
+     for run,node,_,_,text in tokens[index+1:]:
+         if run is filled:
+@@ -4007,20 +4059,24 @@
+         return True
+     def generated(node):
+         return '\u200b' in _el_text(node) and node.find('w:pPr/w:spacing',node.nsmap) is not None
+-    previous_field=False;pending=[]
++    previous_field=False;previous_text='';pending=[]
+     for node in list(doc.element.body):
+         if blank(node):pending.append(node);continue
+         current=_signature_flow_field(node)
+         if current and pending:
+-            keep=next((p for p in pending if previous_field and not generated(p)),None)
++            # Consecutive empty paragraphs after completed prose are spare
++            # signature space. Compact that space rather than letting the last
++            # contact line spill in front of an original next-page section.
++            signature_gap = previous_field or (len(pending)>1 and bool(re.search(r'[。；;!?！？][\s）)]*$',previous_text)))
++            keep=next((p for p in pending if signature_gap and not generated(p)),None)
+             for gap in pending:
+-                if (previous_field or generated(gap)) and gap is not keep:
++                if (signature_gap or generated(gap)) and gap is not keep:
+                     gap.getparent().remove(gap)
+             if keep is not None:
+                 para=Paragraph(keep,doc._body);pf=para.paragraph_format
+                 pf.space_before=pf.space_after=Pt(0);pf.line_spacing=Pt(12)
+                 pf.keep_together=pf.keep_with_next=False
+-        previous_field=current;pending=[]
++        previous_field=current;previous_text=_el_text(node);pending=[]
+     for node in doc.element.body.iter(qn('w:p')):
+         _relax_signature_flow(node,doc)
+ 

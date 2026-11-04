@@ -1,0 +1,79 @@
+{
+  "hash": "638278ab",
+  "configHash": "2126de6b",
+  "lockfileHash": "b3babd5f",
+  "browserHash": "a8a79037",
+  "optimized": {
+    "@vue-flow/background": {
+      "src": "../../../../weitaiAgentui/node_modules/@vue-flow/background/dist/vue-flow-background.mjs",
+      "file": "@vue-flow_background.js",
+      "fileHash": "b0e3d538",
+      "needsInterop": false
+    },
+    "@vue-flow/controls": {
+      "src": "../../../../weitaiAgentui/node_modules/@vue-flow/controls/dist/vue-flow-controls.mjs",
+      "file": "@vue-flow_controls.js",
+      "fileHash": "6591a0dd",
+      "needsInterop": false
+    },
+    "@vue-flow/core": {
+      "src": "../../../../weitaiAgentui/node_modules/@vue-flow/core/dist/vue-flow-core.mjs",
+      "file": "@vue-flow_core.js",
+      "fileHash": "91707631",
+      "needsInterop": false
+    },
+    "clsx": {
+      "src": "../../../../weitaiAgentui/node_modules/clsx/dist/clsx.mjs",
+      "file": "clsx.js",
+      "fileHash": "e57e10c6",
+      "needsInterop": false
+    },
+    "docx-preview": {
+      "src": "../../../../weitaiAgentui/node_modules/docx-preview/dist/docx-preview.mjs",
+      "file": "docx-preview.js",
+      "fileHash": "c57a9f8e",
+      "needsInterop": false
+    },
+    "lucide-vue-next": {
+      "src": "../../../../weitaiAgentui/node_modules/lucide-vue-next/dist/esm/lucide-vue-next.js",
+      "file": "lucide-vue-next.js",
+      "fileHash": "f049697b",
+      "needsInterop": false
+    },
+    "pinia": {
+      "src": "../../../../weitaiAgentui/node_modules/pinia/dist/pinia.js",
+      "file": "pinia.js",
+      "fileHash": "c04f2d18",
+      "needsInterop": false
+    },
+    "tailwind-merge": {
+      "src": "../../../../weitaiAgentui/node_modules/tailwind-merge/dist/bundle-mjs.mjs",
+      "file": "tailwind-merge.js",
+      "fileHash": "06ee5663",
+      "needsInterop": false
+    },
+    "vue": {
+      "src": "../../../../weitaiAgentui/node_modules/vue/dist/vue.runtime.esm-bundler.js",
+      "file": "vue.js",
+      "fileHash": "bac8b312",
+      "needsInterop": false
+    },
+    "vue-router": {
+      "src": "../../../../weitaiAgentui/node_modules/vue-router/dist/vue-router.mjs",
+      "file": "vue-router.js",
+      "fileHash": "be118d39",
+      "needsInterop": false
+    }
+  },
+  "chunks": {
+    "chunk-AVEWOCFM": {
+      "file": "chunk-AVEWOCFM.js"
+    },
+    "chunk-7F4RQ5TM": {
+      "file": "chunk-7F4RQ5TM.js"
+    },
+    "chunk-2TUXWMP5": {
+      "file": "chunk-2TUXWMP5.js"
+    }
+  }
+}

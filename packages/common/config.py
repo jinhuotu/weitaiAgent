@@ -53,6 +53,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    expire_unknown_warn: bool = False
+    expire_warn_days: int = Field(default=90, ge=0)
+    expire_danger_days: int = Field(default=30, ge=0)
+
     app_name: str = "weitai-agent"
     app_env: str = "dev"
     debug: bool = True

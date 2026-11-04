@@ -28,6 +28,7 @@ from api.routers import (
     roles,
     quotes,
     tenders,
+    tender_package,
     users,
     workflows,
 )
@@ -167,6 +168,7 @@ def create_app() -> FastAPI:
     app.include_router(knowledge.router, prefix=settings.api_prefix)
     app.include_router(layouts.router, prefix=settings.api_prefix)
     app.include_router(tenders.router, prefix=settings.api_prefix)
+    app.include_router(tender_package.router, prefix=settings.api_prefix)
     app.include_router(quotes.router, prefix=settings.api_prefix)
     app.include_router(workflows.router, prefix=settings.api_prefix)
     app.include_router(ai.router, prefix=settings.api_prefix)

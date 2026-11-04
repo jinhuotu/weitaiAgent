@@ -1,0 +1,156 @@
+{
+  "library": {
+    "parents": 6,
+    "rows": 14,
+    "keys": [
+      "bank_permit",
+      "bond",
+      "credit",
+      "id_agent",
+      "id_legal",
+      "license"
+    ],
+    "resolvedFiles": {
+      "bank_permit": 1,
+      "bond": 2,
+      "credit": 1,
+      "id_agent": 1,
+      "id_legal": 2,
+      "license": 1
+    },
+    "companyMatchedFiles": {
+      "bank_permit": 0,
+      "bond": 1,
+      "credit": 1,
+      "id_agent": 1,
+      "id_legal": 2,
+      "license": 1
+    },
+    "ownershipWarnings": [
+      "资料「ee8bd2c93c0e.png」所属公司不符或尚未核验，未采用；请在资料库标明所属投标人",
+      "资料「75dc677223a5.pdf」正文类型与资料槽位不符，未采用；请上传对应原件"
+    ],
+    "hasAgentIdentifier": true
+  },
+  "inventory": {
+    "coverage": {
+      "expected": 7,
+      "outputs": 7,
+      "unmet": 0,
+      "duplicates": 0,
+      "wrong_chapter": 0,
+      "chapters": {
+        "法定代表人身份证明": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "授权委托书": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "营业执照": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "基本账户开户证明": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "投标保证金": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "国家企业信用信息公示系统网站查询": {
+          "expected": 1,
+          "outputs": 1
+        },
+        "专项佐证资料": {
+          "expected": 1,
+          "outputs": 1
+        }
+      },
+      "rows": [
+        {
+          "key": "id_legal",
+          "chapter": "法定代表人身份证明",
+          "count": 1,
+          "occurrences": 1,
+          "img": 1,
+          "box": 0,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "id_agent",
+          "chapter": "授权委托书",
+          "count": 1,
+          "occurrences": 1,
+          "img": 1,
+          "box": 0,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "license",
+          "chapter": "营业执照",
+          "count": 1,
+          "occurrences": 1,
+          "img": 1,
+          "box": 0,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "bank_permit",
+          "chapter": "基本账户开户证明",
+          "count": 1,
+          "occurrences": 1,
+          "img": 0,
+          "box": 1,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "bond",
+          "chapter": "投标保证金",
+          "count": 1,
+          "occurrences": 1,
+          "img": 1,
+          "box": 0,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "credit",
+          "chapter": "国家企业信用信息公示系统网站查询",
+          "count": 1,
+          "occurrences": 1,
+          "img": 1,
+          "box": 0,
+          "wrong_chapter": 0
+        },
+        {
+          "key": "proof_missing",
+          "chapter": "专项佐证资料",
+          "count": 1,
+          "occurrences": 1,
+          "img": 0,
+          "box": 1,
+          "wrong_chapter": 0
+        }
+      ]
+    },
+    "drawings": 15,
+    "fallback": 0
+  },
+  "regenerated": {
+    "business": {
+      "tables": 17,
+      "headerRows": 13,
+      "drawings": 25,
+      "warningCount": 98
+    },
+    "full": {
+      "tables": 22,
+      "headerRows": 15,
+      "drawings": 29,
+      "warningCount": 96
+    },
+    "sourceUntouched": true
+  }
+}

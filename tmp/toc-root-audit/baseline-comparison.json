@@ -1,0 +1,16 @@
+{
+  "newFailures": [],
+  "resolvedOldFailures": [],
+  "unchangedFailures": [
+    "tests.test_layout_plan::test_cars_north_trucks_south_leave_center_aisle",
+    "tests.test_layout_plan::test_edge_feeders_for_north_and_east_walls",
+    "tests.test_layout_plan::test_pack_never_puts_stalls_on_factory_or_office",
+    "tests.test_layout_plan::test_road_only_does_not_inflate_site_and_stalls_are_centered",
+    "tests.test_tender_kb_format::test_kb_format_skips_when_invite_has_format_chapter",
+    "tests.test_tender_native_format::test_original_volume_preserves_forms_and_supplements_only_missing[technical-True]",
+    "tests.test_tender_volume_format::test_anon_clause_hides_tech_chain_and_open_bid_signs",
+    "tests.test_tender_volume_format::test_anonymous_tech_cover_omits_bidder",
+    "tests.test_tender_volume_format::test_technical_slice_keeps_tech_and_repaints_body",
+    "tests.test_tender_volume_format::test_technical_slice_rebuilds_cover_toc_and_page"
+  ]
+}

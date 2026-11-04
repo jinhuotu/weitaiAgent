@@ -1,0 +1,17 @@
+{
+  "id": "8eccec1622c24907948c7be2d496e04b",
+  "name": "module5-upload.zip",
+  "revision": 3,
+  "status": "processing",
+  "history": [],
+  "uploads": {},
+  "updated_at": "2026-11-03T13:40:58.023534+00:00",
+  "archive": "15068333d15e496a9572368191ceb7e3.zip",
+  "archive_source": {
+    "path": "15068333d15e496a9572368191ceb7e3.zip",
+    "name": "module5-upload.zip",
+    "sha256": "d75285039bdfa32e2df907c8e316bf1a714b5b8460c949fc1c0011a4f938c329",
+    "size": 37285
+  },
+  "stage": "unpack"
+}

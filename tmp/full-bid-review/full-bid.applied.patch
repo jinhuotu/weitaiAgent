@@ -1,0 +1,920 @@
+--- a/backend/apps/api/routers/tenders.py
++++ b/backend/apps/api/routers/tenders.py
+@@ -729,8 +729,8 @@
+ ):
+     _require_qa_menu(user)
+     vol = (volume or "").strip().lower()
+-    if vol and vol not in {"business", "technical"}:
+-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
++    if vol and vol not in {"business", "technical", "full"}:
++        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
+     return ok(await get_record_qa(db, record_id, volume=vol or None))
+ 
+ 
+@@ -744,8 +744,8 @@
+     """生成后对照邀请书做 AI 质检：符合度与缺失项。"""
+     _require_qa_menu(user)
+     vol = (volume or "").strip().lower()
+-    if vol and vol not in {"business", "technical"}:
+-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
++    if vol and vol not in {"business", "technical", "full"}:
++        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
+     return ok(await inspect_record_qa(db, record_id, volume=vol or None))
+ 
+ 
+@@ -763,8 +763,8 @@
+     if not name.lower().endswith(".docx"):
+         raise AppError(ErrorCode.VALIDATION, "请上传 Word（.docx）", status_code=422)
+     vol = (volume or "").strip().lower()
+-    if vol and vol not in {"business", "technical"}:
+-        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business 或 technical", status_code=422)
++    if vol and vol not in {"business", "technical", "full"}:
++        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
+     data = await file.read()
+     return ok(
+         await inspect_record_qa_upload(
+--- a/backend/apps/api/services/tenders/assemble.py
++++ b/backend/apps/api/services/tenders/assemble.py
+@@ -366,6 +366,10 @@
+ 
+     def finish(path: Path, notes: list[str]) -> tuple[Path, list[str]]:
+         out = list(notes or [])
++        if vol == "full":
++            from api.services.tenders.pdf_format import unify_full_docx
++
++            unify_full_docx(path, brief, link_toc=(brief.layoutMode or "").strip() == "outline")
+         if not anon:
+             return path, out
+         from api.services.tenders.classifier import ANON_DEFER_NOTE
+--- a/backend/apps/api/services/tenders/generate.py
++++ b/backend/apps/api/services/tenders/generate.py
+@@ -132,14 +132,14 @@
+     catalog_media: dict[str, list[Path]] | None = None,
+     catalog_facts: list | None = None,
+ ) -> dict[str, object]:
+-    """先出商务卷，再出技术卷。未建议分册时，商务卷与单卷调用相同。"""
++    """先出商务卷，再出技术卷。显式分册或建议分册时裁分商务卷。"""
+     kw = dict(
+         catalog_slots=catalog_slots,
+         catalog_media=catalog_media,
+         catalog_facts=catalog_facts,
+     )
+-    # 报价留在商务卷，不另出一册。只有建议分册时，这次商务卷才裁技术部分。
+-    slice_biz = (getattr(brief, "volumeAdvice", None) or "").strip() == "split"
++    # 报价留在商务卷，不另出一册。显式分册优先于识别建议，普通单卷调用保持原样。
++    slice_biz = bool(brief.splitSlice) or (getattr(brief, "volumeAdvice", None) or "").strip() == "split"
+     biz = brief.model_copy(
+         update={"generateVolume": "business", "generateBoth": False, "splitSlice": slice_biz}
+     )
+--- a/backend/apps/api/services/tenders/pdf_format.py
++++ b/backend/apps/api/services/tenders/pdf_format.py
+@@ -883,6 +883,55 @@
+         if note and "失败" not in note and "没有抽到" not in note and _usable_format(dest):
+             return dest
+     return None
++
++
++def unify_full_docx(path: Path, brief, *, link_toc: bool = True) -> None:
++    """完整标填完商务、技术正文后，共用目录书签和连续页码。"""
++    from api.services.tenders.categories import is_volume_label
++    from api.services.tenders.document import _ensure_header
++    from api.services.tenders.format_rules import apply_footer_page_number
++    from api.services.tenders.schema import DocumentFormat
++
++    doc = Document(str(path))
++    in_front = True
++    cover_named = False
++    for para in list(doc.paragraphs):
++        text = para.text.strip()
++        if _is_toc_heading(text):
++            in_front = False
++        title = text.split("\t", 1)[0].strip()
++        if not is_volume_label(title):
++            continue
++        if in_front and not cover_named:
++            # 保留封面原有段落和字体，只更换卷名。
++            runs = list(para.runs)
++            if runs:
++                runs[0].text = "投标文件"
++                for run in runs[1:]:
++                    run.text = ""
++            else:
++                para.add_run("投标文件")
++            cover_named = True
++        elif para._p.find("w:pPr/w:sectPr", doc.element.nsmap) is not None:
++            # 节属性承载原范本纸张/边距，清卷名时保留这些属性。
++            for run in list(para.runs):
++                run.text = ""
++        else:
++            para._p.getparent().remove(para._p)
++
++    fmt = getattr(brief, "documentFormat", None) or DocumentFormat()
++    sections = list(doc.sections)
++    # 沿用既有正文起编位置，清除技术部分及后续附件里的重启页码。
++    start = next((i for i, sec in enumerate(sections)
++                  if sec._sectPr.find("w:pgNumType", doc.element.nsmap) is not None
++                  and sec._sectPr.find("w:pgNumType", doc.element.nsmap).get(qn("w:start")) is not None), 0)
++    for i, sec in enumerate(sections):
++        _ensure_header(sec, (getattr(brief, "projectName", "") or "").strip(), cover=(i == 0))
++        apply_footer_page_number(sec, fmt, numbered=i >= start, restart=i == start)
++    if link_toc:
++        _link_toc_body(doc, brief, preserve_existing=True)
++        _repair_format_table_toc(doc, brief)
++    doc.save(str(path))
+ 
+ 
+ def assemble_from_word_format(
+@@ -955,9 +1004,10 @@
+     project = "" if anon else (getattr(brief, "projectName", "") or "").strip()
+     for i, section in enumerate(doc.sections):
+         _ensure_header(section, project, cover=(i == 0))
+-    # 仅新建的技术子集目录使用直接锚点；原格式章目录继续走原路径。
+-    linked = 0 if tech_front else _link_toc_body(doc, brief)
+-    if not tech_front:
++    # full 在商务和技术正文都填完后，由 unify_full_docx 统一处理一次目录。
++    # 单卷继续沿用既有目录处理路径。
++    linked = 0 if tech_front or vol == "full" else _link_toc_body(doc, brief)
++    if not tech_front and vol != "full":
+         linked += _repair_format_table_toc(doc, brief)
+     if tech_front:
+         _arm_tech_pages(doc, brief)
+@@ -986,7 +1036,7 @@
+         notes.append(f"对不上的空保持原样：{shown}{tail}")
+     if linked:
+         notes.append(f"目录 {linked} 条已按后文位置写上页码，从正文第 1 页起")
+-    elif not tech_front:
++    elif not tech_front and vol != "full":
+         notes.append("目录未定位条目已保留点线和待更新页码占位")
+     return dest, notes
+ 
+@@ -2212,7 +2262,7 @@
+     return written
+ 
+ 
+-def _link_toc_body(doc: Document, brief=None) -> int:
++def _link_toc_body(doc: Document, brief=None, *, preserve_existing: bool = False) -> int:
+     """目录条目按后文标题所在页写页码。正文第一处从 1 起，封面和目录不占号。"""
+     block = toc_block_ids(doc)
+     if len(block) < 2:
+@@ -2236,6 +2286,16 @@
+     from api.services.tenders.schema import OutlineItem
+ 
+     cursor = block[-1].getnext()
++    existing_anchors = {}
++    if preserve_existing:
++        # 表格目录已由修复器落位后，重复归一化应复用其正文锚点，
++        # 避免用文本扫描覆盖已修好的 PAGEREF 并再造一份书签。
++        host = cursor
++        while host is not None:
++            if host.tag == qn("w:p"):
++                for mark in host.iter(qn("w:bookmarkStart")):
++                    existing_anchors[mark.get(qn("w:name"))] = host
++            host = host.getnext()
+     pairs: list[tuple] = []
+     for ent in entries:
+         title = Paragraph(ent, doc).text.split("\t", 1)[0].strip()
+@@ -2248,6 +2308,8 @@
+                 found = el
+                 break
+             el = el.getnext()
++        if found is None and preserve_existing:
++            found = existing_anchors.get(_pageref_bookmark(Paragraph(ent, doc)))
+         source = next((item for item in getattr(brief, "outlineItems", [])
+                        if not item.skipped and toc_title_key(item.title) == toc_title_key(title)), None)
+         pairs.append((ent, found, source or OutlineItem(id=f"fmt_{len(pairs):02d}", title=title)))
+--- a/backend/apps/api/services/tenders/qa.py
++++ b/backend/apps/api/services/tenders/qa.py
+@@ -29,7 +29,7 @@
+ _MAX_QA_UPLOAD = 40 * 1024 * 1024
+ _SOURCE_GENERATED = "generated"
+ _SOURCE_UPLOAD = "upload"
+-QA_VOLUMES = ("business", "technical")
++QA_VOLUMES = ("business", "technical", "full")
+ 
+ _QA_JSON_KEYS = ("similarityScore", "missing", "summary")
+ 
+@@ -465,9 +465,9 @@
+     if vol not in QA_VOLUMES:
+         vol = ""
+     if vol:
+-        from api.services.tenders.outline import items_for_volume
+-
+-        outline_items = items_for_volume(brief, vol)
++        from api.services.tenders.outline import items_for_full, items_for_volume
++
++        outline_items = items_for_full(brief) if vol == "full" else items_for_volume(brief, vol)
+     else:
+         outline_items = brief.outlineItems or []
+     outline_found = outline_total = 0
+@@ -966,20 +966,21 @@
+         outline_src = brief.outlineItems or []
+         vol = (volume or "").strip().lower()
+         if vol in QA_VOLUMES:
+-            from api.services.tenders.outline import items_for_volume
+-
+-            outline_src = items_for_volume(brief, vol)
++            from api.services.tenders.outline import items_for_full, items_for_volume
++
++            outline_src = items_for_full(brief) if vol == "full" else items_for_volume(brief, vol)
+         outline = "、".join(
+             (item.title or "").strip()
+             for item in outline_src
+             if (item.title or "").strip() and not item.skipped
+         )[:800]
+-        vol_label = "技术标 Word" if vol == "technical" else "商务标 Word"
++        vol_label = "完整投标文件（综合标）" if vol == "full" else "技术标 Word" if vol == "technical" else "商务标 Word"
++        scope = "同时检查商务响应和技术方案正文。" if vol == "full" else "只评这一卷该有的内容。"
+         user = "\n".join(
+             [
+                 f"项目：{(brief.projectName or '').strip() or '（未填）'}",
+                 f"招标人：{(brief.tenderer or '').strip() or '（未填）'}",
+-                f"当前质检对象：{vol_label}。只评这一卷该有的内容。",
++                f"当前质检对象：{vol_label}。{scope}",
+                 f"组卷目录：{outline or '（未抽出）'}",
+                 "",
+                 "【邀请书正文】",
+@@ -1027,7 +1028,7 @@
+         missing: list[str] = []
+         for key in required_keys:
+             title = titles.get(key) or key
+-            if vol in QA_VOLUMES and slot_volume(key, title) != vol:
++            if vol in {"business", "technical"} and slot_volume(key, title) != vol:
+                 continue
+             files = media.get(key) if isinstance(media, dict) else None
+             if not files:
+--- a/backend/apps/api/services/tenders/records.py
++++ b/backend/apps/api/services/tenders/records.py
+@@ -465,6 +465,9 @@
+     if biz_file:
+         row.docx_file = str(biz_file)
+         row.download_name = str(generated.get("downloadName") or "")
++    if vol == "full" and not both:
++        row.tech_docx_file = None
++        row.tech_download_name = None
+     tech_file = generated.get("techDocxFile")
+     if tech_file:
+         row.tech_docx_file = str(tech_file)
+@@ -1031,6 +1034,19 @@
+         raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
+ 
+ 
++def _record_qa_volume(brief: BidBrief, volume: str | None = None) -> str:
++    """综合标始终按完整标检查，兼容仍发送 business 的旧前端。"""
++    from api.services.tenders.qa import normalize_qa_volume
++
++    generated = generate_volume(brief)
++    if generated == "full" and not brief.generateBoth:
++        return "full"
++    want = (volume or "").strip().lower()
++    if want == "full":
++        raise AppError(ErrorCode.VALIDATION, "该记录不是综合标，请选择商务标或技术标", status_code=422)
++    return normalize_qa_volume(want or generated)
++
++
+ def _qa_generated_file(
+     row: TenderRecord,
+     brief: BidBrief,
+@@ -1038,6 +1054,11 @@
+ ) -> str:
+     biz = (row.docx_file or "").strip()
+     tech = (getattr(row, "tech_docx_file", None) or "").strip()
++    resolved = _record_qa_volume(brief, volume)
++    if resolved == "full":
++        if biz:
++            return biz
++        raise AppError(ErrorCode.VALIDATION, "该记录没有完整投标文件 Word，无法自检", status_code=422)
+     want = (volume or "").strip().lower()
+     if want == "technical":
+         if tech:
+@@ -1069,8 +1090,7 @@
+     row = await _get_row(db, public_id)
+     brief = _qa_brief(row)
+     target = _qa_generated_file(row, brief, volume)
+-    want = (volume or "").strip().lower()
+-    vol = want if want in {"business", "technical"} else generate_volume(brief)
++    vol = _record_qa_volume(brief, volume)
+     return await inspect_bid(
+         db,
+         public_id=row.public_id,
+@@ -1095,8 +1115,7 @@
+     row = await _get_row(db, public_id)
+     brief = _qa_brief(row)
+     path = save_qa_upload(row.public_id, data)
+-    want = (volume or "").strip().lower()
+-    vol = want if want in {"business", "technical"} else generate_volume(brief)
++    vol = _record_qa_volume(brief, volume)
+     vol = normalize_qa_volume(vol)
+     biz = (row.docx_file or "").strip()
+     tech = (getattr(row, "tech_docx_file", None) or "").strip()
+@@ -1143,6 +1162,11 @@
+     row = await _get_row(db, public_id)
+     want = (volume or "").strip().lower()
+     vol = normalize_qa_volume(want) if want else None
++    brief = _qa_brief(row)
++    if generate_volume(brief) == "full" and not brief.generateBoth:
++        vol = "full"
++    elif vol == "full":
++        _record_qa_volume(brief, vol)
+     if not vol:
+         latest = load_qa_report(row.public_id)
+         vol = normalize_qa_volume(str((latest or {}).get("volume") or ""))
+--- a/frontend/src/lib/tenders-api.ts
++++ b/frontend/src/lib/tenders-api.ts
+@@ -539,6 +539,7 @@
+   generateVolume?: 'business' | 'technical' | 'full'
+   /** 为 true 时同时出商务标和技术标。默认 false，只出当前卷。 */
+   generateBoth?: boolean
++  splitSlice?: boolean
+   /** 解析结果：full 不强制分卷，split 分商务/技术。 */
+   volumeAdvice?: 'full' | 'split' | ''
+   techAnonymous?: boolean
+@@ -1168,7 +1169,7 @@
+ 
+ export async function inspectTenderQa(
+   recordId: string,
+-  opts?: { volume?: 'business' | 'technical' },
++  opts?: { volume?: BidVolume | 'full' },
+ ): Promise<QaReport> {
+   const q = new URLSearchParams()
+   if (opts?.volume) q.set('volume', opts.volume)
+@@ -1185,7 +1186,7 @@
+ export async function inspectTenderQaUpload(
+   recordId: string,
+   file: File,
+-  opts?: { volume?: 'business' | 'technical' },
++  opts?: { volume?: BidVolume | 'full' },
+ ): Promise<QaReport> {
+   const form = new FormData()
+   form.append('file', file)
+@@ -1204,7 +1205,7 @@
+ 
+ export async function fetchTenderQa(
+   recordId: string,
+-  opts?: { volume?: 'business' | 'technical' },
++  opts?: { volume?: BidVolume | 'full' },
+ ): Promise<{ report: QaReport | null }> {
+   const q = new URLSearchParams()
+   if (opts?.volume) q.set('volume', opts.volume)
+--- a/frontend/src/views/TendersView.vue
++++ b/frontend/src/views/TendersView.vue
+@@ -587,6 +587,27 @@
+ const generating = ref(false)
+ const pendingBoth = ref(false)
+ const followAdvice = ref(false)
++type GenerationMode = 'full' | 'split' | 'single'
++const generationMode = ref<GenerationMode | null>(null)
++const effectiveGenerationMode = computed<GenerationMode>(() => {
++  if (generationMode.value) return generationMode.value
++  if (followAdvice.value && form.volumeAdvice === 'full') return 'full'
++  if (followAdvice.value && form.volumeAdvice === 'split') return 'split'
++  return 'single'
++})
++const draftPreference = reactive<{ business?: boolean; technical?: boolean }>({})
++
++function syncFullDrafts() {
++  if (effectiveGenerationMode.value !== 'full') return
++  form.autoDraftBizResp = draftPreference.business ?? true
++  form.autoDraftTechPlan = draftPreference.technical ?? true
++}
++
++function selectGenerationMode(event: Event) {
++  generationMode.value = (event.target as HTMLSelectElement).value as GenerationMode
++  followAdvice.value = false
++  syncFullDrafts()
++}
+ const parsing = ref(false)
+ const parseElapsed = ref(0)
+ let parseClock = 0
+@@ -1280,10 +1301,10 @@
+ const formStepNextLabel = computed(() => {
+   if (generating.value) return '正在生成…'
+   if (workflowLocked.value) return '当前任务只读'
+-  if (followAdvice.value && form.volumeAdvice === 'full') {
+-    return result.value?.docxFile ? '覆盖生成投标文件' : '生成投标文件并预览'
+-  }
+-  if (followAdvice.value && form.volumeAdvice === 'split') return '按分册生成两卷'
++  if (effectiveGenerationMode.value === 'full') {
++    return result.value?.docxFile ? '覆盖生成完整投标文件（综合标）' : '生成完整投标文件（综合标）'
++  }
++  if (effectiveGenerationMode.value === 'split') return '按分册生成两卷'
+   const volLabel = activeVolume.value === 'technical' ? '技术标' : '商务标'
+   const hasThis =
+     activeVolume.value === 'technical' ? Boolean(result.value?.techDocxFile) : Boolean(result.value?.docxFile)
+@@ -1291,6 +1312,8 @@
+ })
+ 
+ const volumeStatusHint = computed(() => {
++  if (effectiveGenerationMode.value === 'full') return '将生成一本综合标，包含商务响应和技术方案，使用连续目录。'
++  if (effectiveGenerationMode.value === 'split') return '将分别生成商务标、技术标两本 Word。'
+   if (followAdvice.value && form.volumeNote) return form.volumeNote
+   if (result.value?.generateVolume === 'full') return '本次生成的是完整投标文件。'
+   const cur = activeVolume.value === 'technical' ? '技术标' : '商务标'
+@@ -1549,7 +1572,11 @@
+ }
+ 
+ async function selectVolume(volume: BidVolume) {
+-  followAdvice.value = false
++  // 顶部卷别切换用于编辑；输出方式由生成模式控制。
++  if (effectiveGenerationMode.value === 'single') {
++    generationMode.value = 'single'
++    followAdvice.value = false
++  }
+   activeVolume.value = volume
+   volumeHint.value = ''
+   if (showRecords.value) closeRecords()
+@@ -1796,10 +1823,11 @@
+       workflowLocked: item.workflowLocked,
+       deadline: item.deadline,
+       currentStep: item.currentStep,
++      generateVolume: item.generateVolume,
+     }
+     closeRecords()
+     previewVolume.value =
+-      activeVolume.value === 'technical' && item.techDocxFile
++      item.generateVolume !== 'full' && activeVolume.value === 'technical' && item.techDocxFile
+         ? 'technical'
+         : item.docxFile
+           ? 'business'
+@@ -1853,10 +1881,11 @@
+       workflowLocked: detail.workflowLocked,
+       deadline: detail.deadline,
+       currentStep: detail.currentStep,
++      generateVolume: detail.generateVolume,
+     }
+     closeRecords()
+     previewVolume.value =
+-      activeVolume.value === 'technical' && detail.techDocxFile
++      detail.generateVolume !== 'full' && activeVolume.value === 'technical' && detail.techDocxFile
+         ? 'technical'
+         : detail.docxFile
+           ? 'business'
+@@ -1979,6 +2008,10 @@
+       return
+     }
+     applyBriefToForm(detail.brief)
++    generationMode.value = detail.brief.generateBoth ? 'split' : detail.brief.generateVolume === 'full' ? 'full' : 'single'
++    activeVolume.value = detail.brief.generateVolume === 'technical' ? 'technical' : 'business'
++    draftPreference.business = form.autoDraftBizResp
++    draftPreference.technical = form.autoDraftTechPlan
+     knownFiles.value = { docx: Boolean(detail.docxFile), tech: Boolean(detail.techDocxFile) }
+     followAdvice.value = false
+     hasParsed.value = true
+@@ -2859,7 +2892,8 @@
+     await refreshLibrary()
+     refreshAttachmentMatch()
+     hasParsed.value = true
+-    followAdvice.value = true
++    followAdvice.value = generationMode.value === null
++    syncFullDrafts()
+     volumeHint.value = ''
+     techDrawingSlot.value = blankTechDrawings()
+     drawingFill.value = ''
+@@ -3023,7 +3057,7 @@
+ 
+ function withDrawingNote(items: typeof form.outlineItems) {
+   const note = drawingFill.value.trim()
+-  if (activeVolume.value !== 'technical' || !note) return items
++  if ((effectiveGenerationMode.value === 'single' && activeVolume.value !== 'technical') || !note) return items
+   if (items.some((item) => (item.draftBody || '').includes(note.slice(0, 40)))) return items
+   return [
+     ...items,
+@@ -3057,7 +3091,8 @@
+   }
+   generating.value = true
+   try {
+-    const payload = {
++    syncFullDrafts()
++    const payload: BidBrief = {
+       ...form,
+       includeCommitment: true,
+       includePlaceholders: false,
+@@ -3066,15 +3101,12 @@
+       outlineItems: withDrawingNote(pruneUnknownOutline(form.outlineItems)),
+       techPlanKbIds: form.autoDraftTechPlan ? selectedKbIds.value : (form.techPlanKbIds || []),
+       bizRespKbIds: form.autoDraftBizResp ? selectedKbIds.value : (form.bizRespKbIds || []),
+-      generateVolume: activeVolume.value as string,
+-      generateBoth: pendingBoth.value,
++      generateVolume: effectiveGenerationMode.value === 'full' ? 'full' : activeVolume.value,
++      generateBoth: effectiveGenerationMode.value === 'split' || pendingBoth.value,
++      splitSlice: effectiveGenerationMode.value === 'split' || pendingBoth.value,
+       structureMode: form.structureMode,
+       layoutMode: form.structureMode === 'outline' ? 'outline' : 'chapter5',
+       contentTemplateId: form.contentTemplateId,
+-    }
+-    if (followAdvice.value && !payload.generateBoth) {
+-      if (form.volumeAdvice === 'full') payload.generateVolume = 'full'
+-      else if (form.volumeAdvice === 'split') payload.generateBoth = true
+     }
+     if (result.value?.id) {
+       result.value = await regenerateTenderRecord(result.value.id, payload)
+@@ -3084,7 +3116,7 @@
+     if (result.value.attachmentMatch) {
+       attachmentMatch.value = result.value.attachmentMatch
+     }
+-    previewVolume.value = activeVolume.value
++    previewVolume.value = payload.generateVolume === 'technical' ? 'technical' : 'business'
+     void loadRecords()
+     advanceStep(2)
+   } catch (e) {
+@@ -3095,9 +3127,11 @@
+   }
+ }
+ 
++const qaVolume = computed(() => result.value?.generateVolume === 'full' ? 'full' : previewVolume.value)
++
+ async function loadSavedQa(recordId: string) {
+   try {
+-    const data = await fetchTenderQa(recordId, { volume: previewVolume.value })
++    const data = await fetchTenderQa(recordId, { volume: qaVolume.value })
+     qaReport.value = data.report || null
+   } catch {
+     qaReport.value = null
+@@ -3113,7 +3147,7 @@
+   qaLoading.value = true
+   qaError.value = ''
+   try {
+-    qaReport.value = await inspectTenderQa(id, { volume: previewVolume.value })
++    qaReport.value = await inspectTenderQa(id, { volume: qaVolume.value })
+   } catch (e) {
+     qaError.value = e instanceof ApiError || e instanceof Error ? e.message : '自检失败'
+   } finally {
+@@ -3127,7 +3161,7 @@
+       result.value?.id,
+       result.value?.docxFile,
+       result.value?.techDocxFile,
+-      previewVolume.value,
++      qaVolume.value,
+     ] as const,
+   ([id]) => {
+     qaError.value = ''
+@@ -3149,6 +3183,8 @@
+ }
+ 
+ async function onGenerateBoth() {
++  generationMode.value = 'split'
++  followAdvice.value = false
+   pendingBoth.value = true
+   await onFormStepNext()
+ }
+@@ -3292,6 +3328,10 @@
+   qaReport.value = null
+   qaError.value = ''
+   hasParsed.value = false
++  generationMode.value = null
++  followAdvice.value = false
++  delete draftPreference.business
++  delete draftPreference.technical
+   volumeHint.value = ''
+   success.value = ''
+   techDrawingSlot.value = blankTechDrawings()
+@@ -3391,6 +3431,14 @@
+     :description="currentStepIndex === 2 ? '' : '缺扫描件仍可生成：Word 附件区用虚线框占位，补齐后重新生成即可。公司名称等基本信息仍需先填。未上传报价清单时不填写报价分项。'"
+   >
+     <template #badges>
++      <label class="flex items-center gap-2 text-[12px]">
++        生成模式
++        <select class="kb-input font-sans" :value="effectiveGenerationMode" :disabled="generating || workflowLocked" @change="selectGenerationMode">
++          <option value="full">生成完整投标文件（综合标）</option>
++          <option value="split">分册两本（商务标 + 技术标）</option>
++          <option value="single">单卷（当前商务标 / 技术标）</option>
++        </select>
++      </label>
+       <div
+         class="tender-volume-switch"
+         role="tablist"
+@@ -5010,14 +5058,14 @@
+ 
+       <Panel title="商务响应起草" subtitle="对招标商务条款逐项生成偏离表及既有承诺章节正文，缺少证据标【待补充】">
+         <label class="flex items-center gap-2 text-[12px]">
+-          <input v-model="form.autoDraftBizResp" type="checkbox" />生成商务标时起草商务响应
++          <input v-model="form.autoDraftBizResp" type="checkbox" @change="draftPreference.business = form.autoDraftBizResp" />生成商务标或综合标时起草商务响应
+         </label>
+       </Panel>
+ 
+       <Panel title="技术章节草稿" subtitle="按邀请书目录分章写，缺事实会标【待补充】。有历史技术标知识库时会参考写法">
+         <div class="mb-3 space-y-2 text-[12px]">
+           <label class="flex items-center gap-2">
+-            <input v-model="form.autoDraftTechPlan" type="checkbox" />生成技术标时为现有空章节起草正文
++            <input v-model="form.autoDraftTechPlan" type="checkbox" @change="draftPreference.technical = form.autoDraftTechPlan" />生成技术标或综合标时为现有空章节起草正文
+           </label>
+           <textarea v-model="form.techPlanNote" rows="3" class="kb-input font-sans w-full" placeholder="本项目技术路线、施工部署、人员设备等要点（优先采用）" />
+           <label class="block">
+@@ -5227,9 +5275,9 @@
+       </p>
+       <p v-if="generating" class="mt-2 text-[11px] text-muted-foreground text-center">
+         {{
+-          followAdvice && form.volumeAdvice === 'full'
++          effectiveGenerationMode === 'full'
+             ? '正在生成投标文件…'
+-            : followAdvice && form.volumeAdvice === 'split'
++            : effectiveGenerationMode === 'split'
+               ? '正在按分册生成两卷…'
+               : activeVolume === 'technical'
+                 ? '正在生成技术标 Word…'
+@@ -5252,7 +5300,7 @@
+           </div>
+           <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+             <div
+-              v-if="result.docxFile && result.techDocxFile"
++              v-if="result.generateVolume !== 'full' && result.docxFile && result.techDocxFile"
+               class="tender-volume-switch"
+               role="tablist"
+               aria-label="预览商务标或技术标"
+@@ -5394,7 +5442,7 @@
+     <section v-else-if="currentStepIndex === 3 && result" class="tender-step-panel space-y-4">
+       <TenderQaPanel
+         page
+-        :title="previewVolume === 'technical' ? 'AI 自检 · 技术标' : 'AI 自检 · 商务标'"
++        :title="qaVolume === 'full' ? 'AI 自检 · 完整投标文件（综合标）' : previewVolume === 'technical' ? 'AI 自检 · 技术标' : 'AI 自检 · 商务标'"
+         :report="qaReport"
+         :loading="qaLoading"
+         :error="qaError"
+--- /dev/null
++++ b/backend/tests/test_tender_full_bid.py
+@@ -0,0 +1,286 @@
++import asyncio
++from types import SimpleNamespace
++
++import pytest
++from docx import Document
++from docx.enum.section import WD_SECTION
++from docx.oxml import OxmlElement
++from docx.oxml.ns import qn
++
++from api.services.tenders import qa, records
++from api.services.tenders.assemble import assemble_bid_docx
++from api.services.tenders.classifier import apply_volume_binding
++from api.services.tenders.generate import generate_pair
++from api.services.tenders.schema import BidBrief, OutlineItem
++from db.models.tender import TenderRecord
++
++
++def test_full_report_stores_separately_and_checks_both_pools(tmp_path, monkeypatch):
++    monkeypatch.setattr(qa, 'tenders_output_dir', lambda: tmp_path)
++    pid = 'abc123def4567890'
++    for volume in ('business', 'technical', 'full'):
++        qa.save_qa_report(pid, {'similarityScore': 90, 'checkedAt': 1}, volume=volume)
++        assert qa.load_qa_report(pid, volume=volume)['volume'] == volume
++    assert qa.normalize_qa_volume(' FULL ') == 'full'
++    qa.unlink_qa_report(pid, volume='full')
++    assert qa.load_qa_report(pid, volume='full') is None
++    assert qa.load_qa_report(pid, volume='business')
++    brief = BidBrief(outlineItems=[
++        OutlineItem(id='letter', title='投标函', kind='letter', required=True),
++        OutlineItem(id='plan', title='施工组织设计', kind='tech_plan', required=True),
++    ])
++    gaps = qa.rule_inspect(brief, '项目正文', volume='full')['missing']
++    titles = {g['title'] for g in gaps}
++    assert any('商务偏离表' in title for title in titles)
++    assert any('技术方案' in title for title in titles)
++
++
++@pytest.mark.parametrize('requested', [None, 'business', 'technical', 'full'])
++def test_full_record_qa_always_targets_one_full_doc(requested):
++    brief = BidBrief(generateVolume='full')
++    row = SimpleNamespace(docx_file='full.docx', tech_docx_file='old-tech.docx')
++    assert records._record_qa_volume(brief, requested) == 'full'
++    assert records._qa_generated_file(row, brief, requested) == 'full.docx'
++
++
++def test_nonfull_qa_fallback_kept():
++    row = SimpleNamespace(docx_file='', tech_docx_file='tech.docx')
++    assert records._qa_generated_file(row, BidBrief()) == 'tech.docx'
++
++
++def test_full_regeneration_clears_previous_technical_file_reference():
++    row = TenderRecord(id=1, public_id='abc123def4567890', user_id=1, username='a',
++                       tech_docx_file='old-tech.docx', tech_download_name='技术标.docx')
++    records._apply_generated_files(row, BidBrief(generateVolume='full'),
++                                   {'docxFile': 'full.docx', 'downloadName': '综合标.docx'})
++    assert row.docx_file == 'full.docx'
++    assert row.tech_docx_file is None
++    assert row.tech_download_name is None
++
++
++def test_manual_split_slices_even_when_binding_advises_full(tmp_path, monkeypatch):
++    seen = []
++
++    def fake_generate(brief, **kwargs):
++        seen.append((brief.generateVolume, brief.splitSlice))
++        return {}
++
++    monkeypatch.setattr('api.services.tenders.generate.generate_bid', fake_generate)
++    generate_pair(BidBrief(volumeAdvice='full', generateBoth=True, splitSlice=True))
++    assert seen == [('business', True), ('technical', False)]
++
++
++@pytest.mark.parametrize('volume', ['full', 'business', 'technical'])
++def test_explicit_volume_survives_binding_judgment(volume):
++    result = apply_volume_binding(BidBrief(generateVolume=volume),
++                                 '商务标和技术标分别装订', keep_volume=True)
++    assert result.generateVolume == volume
++
++
++def test_full_assemble_finalizes_both_drafts_toc_and_section_pages(tmp_path, monkeypatch):
++    """原版格式章保留表格、字体、章节顺序；后填正文后重算目录。"""
++    src = tmp_path / 'source.docx'
++    doc = Document()
++    doc.add_paragraph('商务标')
++    doc.add_section(WD_SECTION.NEW_PAGE)
++    doc.add_paragraph('目录')
++    doc.add_paragraph('商务标')
++    doc.add_paragraph('一、商务响应')
++    doc.add_paragraph('技术标')
++    doc.add_paragraph('二、施工组织设计')
++    doc.add_section(WD_SECTION.NEW_PAGE)
++    doc.add_paragraph('一、商务响应')
++    doc.add_paragraph('商务原文')
++    doc.add_table(rows=1, cols=1).cell(0, 0).text = '报价原表不改'
++    doc.add_section(WD_SECTION.NEW_PAGE)
++    doc.add_paragraph('技术标')
++    doc.add_paragraph('二、施工组织设计')
++    doc.add_paragraph('技术原文')
++    for sec in doc.sections[2:]:
++        num = OxmlElement('w:pgNumType')
++        num.set(qn('w:start'), '1')
++        sec._sectPr.append(num)
++    doc.save(src)
++    monkeypatch.setattr('api.services.tenders.pdf_format._word_format_file', lambda _: src)
++    brief = BidBrief(layoutMode='outline', invitationId='abc123def456', generateVolume='full',
++                     autoDraftBizResp=True, autoDraftTechPlan=True, projectName='本项目',
++                     attachQualifications=False)
++    calls = []
++    from api.services.tenders import pdf_format
++
++    toc_calls = []
++    for name in ('_link_toc_body', '_repair_format_table_toc'):
++        original = getattr(pdf_format, name)
++
++        def tracked(*args, _name=name, _original=original, **kwargs):
++            toc_calls.append(_name)
++            return _original(*args, **kwargs)
++
++        monkeypatch.setattr(pdf_format, name, tracked)
++
++    def fill(path, brief, label):
++        calls.append(label)
++        document = Document(path)
++        document.add_paragraph(label)
++        document.save(path)
++        return 1, []
++
++    monkeypatch.setattr('api.services.tenders.assemble._fill_drafted_format_sections',
++                        lambda path, brief: fill(path, brief, '已起草技术正文'))
++    monkeypatch.setattr('api.services.tenders.assemble._fill_business_format_sections',
++                        lambda path, brief: fill(path, brief, '已起草商务正文'))
++    path, _ = assemble_bid_docx(brief, tmp_path / 'full.docx', volume='full',
++                                catalog_slots=[], catalog_media={}, catalog_facts=[])
++    out = Document(path)
++    text = '\n'.join(p.text for p in out.paragraphs)
++    assert calls == ['已起草技术正文', '已起草商务正文']
++    assert '已起草商务正文' in text and '已起草技术正文' in text
++    assert '商务标' not in text and '技术标' not in text
++    assert '投标文件' in text
++    assert out.tables[0].cell(0, 0).text == '报价原表不改'
++    starts = [i for i, sec in enumerate(out.sections)
++              if any(n.get(qn('w:start')) is not None for n in sec._sectPr.findall(qn('w:pgNumType')))]
++    assert starts == [2]
++    refs = [p for p in out.paragraphs if 'PAGEREF' in p._p.xml]
++    assert len(refs) == 2
++    assert [p.text.rsplit('\t', 1)[-1] for p in refs] == ['1', '2']
++    names = [n.get(qn('w:name')) for n in out.element.body.iter(qn('w:bookmarkStart'))]
++    assert len(names) == len(set(names))
++    assert all(sec.header.paragraphs[0].text == '本项目' for sec in out.sections)
++    assert toc_calls == ['_link_toc_body', '_repair_format_table_toc']
++    signature = _full_doc_signature(path)
++    for _ in range(2):
++        pdf_format.unify_full_docx(path, brief)
++        assert _full_doc_signature(path) == signature
++
++
++def test_full_saved_report_ignores_previous_single_volume_report(tmp_path, monkeypatch):
++    monkeypatch.setattr(qa, 'tenders_output_dir', lambda: tmp_path)
++    pid = 'abc123def4567890'
++    qa.save_qa_report(pid, {'similarityScore': 70, 'checkedAt': 20}, volume='technical')
++    qa.save_qa_report(pid, {'similarityScore': 99, 'checkedAt': 10}, volume='full')
++    row = SimpleNamespace(public_id=pid, docx_file='full.docx', tech_docx_file='old.docx',
++                          brief_json={'generateVolume': 'full'})
++
++    async def get_row(*args):
++        return row
++
++    monkeypatch.setattr(records, '_get_row', get_row)
++    for volume in (None, 'business', 'technical', 'full'):
++        report = asyncio.run(records.get_record_qa(None, pid, volume=volume))['report']
++        assert report['volume'] == 'full'
++        assert report['similarityScore'] == 99
++
++
++def _full_doc_signature(path):
++    doc = Document(path)
++    instructions = tuple(n.text for n in doc.element.body.iter(qn('w:instrText')))
++    starts = tuple((n.get(qn('w:name')), n.get(qn('w:id')))
++                   for n in doc.element.body.iter(qn('w:bookmarkStart')))
++    ends = tuple(n.get(qn('w:id')) for n in doc.element.body.iter(qn('w:bookmarkEnd')))
++    assert len(starts) == len({name for name, _ in starts})
++    assert len(starts) == len({ident for _, ident in starts})
++    assert len(ends) == len(set(ends))
++    assert {ident for _, ident in starts} == set(ends)
++    for para in doc.paragraphs:
++        fields = [n.text for n in para._p.iter(qn('w:instrText'))
++                  if 'PAGEREF' in (n.text or '')]
++        if fields:
++            assert len(fields) == 1
++    return (tuple(p.text for p in doc.paragraphs), instructions, starts,
++            ends,
++            tuple(sec._sectPr.xml for sec in doc.sections),
++            tuple(sec.footer._element.xml for sec in doc.sections))
++
++
++@pytest.mark.parametrize('unmatched', [False, True])
++def test_full_floating_table_toc_is_idempotent(tmp_path, unmatched):
++    from api.services.tenders.document import _bookmark_paragraph, _pageref_bookmark
++    from api.services.tenders.pdf_format import unify_full_docx
++
++    doc = Document()
++    doc.add_paragraph('目录')
++    doc.add_paragraph('六、项目管理机构')
++    doc.add_paragraph('项目管理机构组成表')
++    if unmatched:
++        doc.add_paragraph('尚未上传的附件资料')
++    doc.add_page_break()
++    doc.add_paragraph('六、项目管理机构')
++    carrier = doc.add_paragraph()
++    pict = OxmlElement('w:pict')
++    content = OxmlElement('w:txbxContent')
++    table = doc.add_table(rows=1, cols=1)
++    table.cell(0, 0).text = '姓名与任职信息' * 12
++    content.append(table._tbl)
++    pict.append(content)
++    carrier.add_run()._r.append(pict)
++    carrier.add_run('项目管理机构组成表')
++    _bookmark_paragraph(carrier, '(一)项目管理机构组成表')
++    brief = BidBrief(generateVolume='full', outlineItems=[
++        OutlineItem(id='organization', title='项目管理机构组成表'),
++    ])
++    path = tmp_path / 'floating-full.docx'
++    doc.save(path)
++    unify_full_docx(path, brief)
++    signature = _full_doc_signature(path)
++    out = Document(path)
++    entries = [p for p in out.paragraphs if _pageref_bookmark(p)]
++    assert len(entries) == (3 if unmatched else 2)
++    assert entries[1].text.rsplit('\t', 1)[-1].isdigit()
++    for _ in range(2):
++        unify_full_docx(path, brief)
++        assert _full_doc_signature(path) == signature
++
++
++def test_full_fixed_layout_keeps_its_existing_toc_path(tmp_path, monkeypatch):
++    from api.services.tenders import pdf_format
++
++    def unexpected(*args, **kwargs):
++        pytest.fail('Fixed layout must not run the native-format TOC linker again')
++
++    monkeypatch.setattr(pdf_format, '_link_toc_body', unexpected)
++    monkeypatch.setattr(pdf_format, '_repair_format_table_toc', unexpected)
++    brief = BidBrief(generateVolume='full', attachQualifications=False,
++                     includePlaceholders=False, includeCommitment=False)
++    path, _ = assemble_bid_docx(brief, tmp_path / 'fixed-full.docx', volume='full',
++                                catalog_slots=[], catalog_media={}, catalog_facts=[])
++    refs = [n for n in Document(path).element.body.iter(qn('w:instrText'))
++            if 'PAGEREF' in (n.text or '')]
++    assert refs
++
++
++def test_generate_full_split_and_single_write_expected_documents(tmp_path, monkeypatch):
++    from api.services.tenders.generate import generate_bid
++
++    raw = Document()
++    for text in ('投标函', '本项目商务响应正文', '已标价工程量清单', '清单合计',
++                 '施工组织设计', '本项目技术方案正文'):
++        raw.add_paragraph(text)
++    source = tmp_path / 'source.format.docx'
++    raw.save(source)
++    source.with_name(source.name + '.source').write_text('docx-raw', encoding='utf-8')
++    original = source.read_bytes()
++    monkeypatch.setattr('api.services.tenders.pdf_format._word_format_file', lambda _: source)
++    monkeypatch.setattr('api.services.tenders.generate.tenders_output_dir', lambda: tmp_path)
++    brief = BidBrief(layoutMode='outline', invitationId='abc123def456', generateVolume='full',
++                     volumeAdvice='full', attachQualifications=False, projectName='综合标回归测试')
++    kwargs = dict(catalog_slots=[], catalog_media={}, catalog_facts=[])
++    full = generate_bid(brief, **kwargs)
++    assert full['docxFile'] and not full['techDocxFile']
++    assert full['downloadName'].endswith('投标文件.docx')
++    blob = '\n'.join(p.text for p in Document(tmp_path / full['docxFile']).paragraphs)
++    assert '本项目商务响应正文' in blob and '本项目技术方案正文' in blob
++
++    split = generate_pair(brief.model_copy(update={'generateBoth': True, 'splitSlice': True}), **kwargs)
++    assert split['docxFile'] and split['techDocxFile']
++    assert split['docxFile'] != split['techDocxFile']
++    business = '\n'.join(p.text for p in Document(tmp_path / split['docxFile']).paragraphs)
++    technical = '\n'.join(p.text for p in Document(tmp_path / split['techDocxFile']).paragraphs)
++    assert '本项目商务响应正文' in business and '本项目技术方案正文' not in business
++    assert '本项目技术方案正文' in technical and '本项目商务响应正文' not in technical
++
++    for volume in ('business', 'technical'):
++        single = generate_bid(brief.model_copy(update={'generateVolume': volume}), **kwargs)
++        assert bool(single['docxFile']) != bool(single['techDocxFile'])
++    assert source.read_bytes() == original
++    assert len(list(tmp_path.glob('*.docx'))) == 6  # source + full + split pair + two single calls

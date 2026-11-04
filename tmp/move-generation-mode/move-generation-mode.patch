@@ -1,0 +1,32 @@
+--- a/src/views/TendersView.vue
++++ b/src/views/TendersView.vue
+@@ -3431,14 +3431,6 @@
+     :description="currentStepIndex === 2 ? '' : '缺扫描件仍可生成：Word 附件区用虚线框占位，补齐后重新生成即可。公司名称等基本信息仍需先填。未上传报价清单时不填写报价分项。'"
+   >
+     <template #badges>
+-      <label class="flex items-center gap-2 text-[12px]">
+-        生成模式
+-        <select class="kb-input font-sans" :value="effectiveGenerationMode" :disabled="generating || workflowLocked" @change="selectGenerationMode">
+-          <option value="full">生成完整投标文件（综合标）</option>
+-          <option value="split">分册两本（商务标 + 技术标）</option>
+-          <option value="single">单卷（当前商务标 / 技术标）</option>
+-        </select>
+-      </label>
+       <div
+         class="tender-volume-switch"
+         role="tablist"
+@@ -5299,6 +5291,14 @@
+             </p>
+           </div>
+           <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
++            <label class="flex items-center gap-2 text-[12px]">
++              生成模式
++              <select class="kb-input font-sans" :value="effectiveGenerationMode" :disabled="generating || workflowLocked" @change="selectGenerationMode">
++                <option value="full">生成完整投标文件（综合标）</option>
++                <option value="split">分册两本（商务标 + 技术标）</option>
++                <option value="single">单卷（当前商务标 / 技术标）</option>
++              </select>
++            </label>
+             <div
+               v-if="result.generateVolume !== 'full' && result.docxFile && result.techDocxFile"
+               class="tender-volume-switch"

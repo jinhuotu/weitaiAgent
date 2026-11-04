@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="45" time="7.815" timestamp="2026-11-01T14:41:34.931279+08:00" hostname="awen"><testcase classname="tests.test_tender_logical_slots" name="test_split_date_slots_fill_numbers_without_moving_labels" time="0.095" /><testcase classname="tests.test_tender_logical_slots" name="test_adjacent_runs_form_one_logical_name_slot" time="0.023" /><testcase classname="tests.test_tender_logical_slots" name="test_cover_cannot_receive_material_placeholders" time="0.049" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_original_underlined_run_is_the_value_anchor[\t]" time="0.024" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_original_underlined_run_is_the_value_anchor[   ]" time="0.028" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_original_underlined_run_is_the_value_anchor[____]" time="0.030" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_original_underlined_run_is_the_value_anchor[\uff3f\u3000]" time="0.021" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_legacy_appended_value_moves_to_its_underline_without_duplicate" time="0.019" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_multiline_contacts_preserve_label_runs_and_layout_tab_nodes" time="0.032" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_long_value_shrinks_only_the_fill_run_before_the_next_fixed_tab" time="0.044" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_builtin_fill_groups_consecutive_blank_runs_and_preserves_columns" time="0.018" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_builtin_signature_reuses_original_runs_and_given_name" time="0.021" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_native_cover_does_not_append_name_to_stamp_run" time="0.023" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_existing_date_keeps_year_month_day_labels_and_tab_stop_structure" time="0.023" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_signature_block_can_break_without_gluing_previous_body" time="0.018" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_only_a_separately_split_stamp_hint_keeps_with_its_value_line" time="0.040" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_render_padding_is_not_added_when_signature_would_overflow[1-0]" time="0.017" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_render_padding_is_not_added_when_signature_would_overflow[20-3]" time="0.018" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_combined_source_signature_labels_are_not_copied_to_an_extra_paragraph[None]" time="0.022" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_combined_source_signature_labels_are_not_copied_to_an_extra_paragraph[\u652f\u4ed8\u6761\u4ef6]" time="0.045" /><testcase classname="tests.tenders.test_underlined_run_rendering" name="test_combined_source_signature_labels_are_not_copied_to_an_extra_paragraph[\u6388\u6743\u59d4\u6258\u4e66]" time="0.033" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces0-\u62db\u6807\u7f16\u53f7\uff1a-ZB-2026-008]" time="0.032" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces0-\u6cd5\u5b9a\u4ee3\u8868\u4eba\uff1a-\u90ed\u5fd7\u4f1f]" time="0.033" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces0-\u65e5\u671f\uff1a-2026\u5e7410\u670830\u65e5]" time="0.037" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces1-\u62db\u6807\u7f16\u53f7\uff1a-ZB-2026-008]" time="0.021" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces1-\u6cd5\u5b9a\u4ee3\u8868\u4eba\uff1a-\u90ed\u5fd7\u4f1f]" time="0.023" /><testcase classname="tests.test_tender_blank_spans" name="test_label_consumes_whole_multirun_blank[pieces1-\u65e5\u671f\uff1a-2026\u5e7410\u670830\u65e5]" time="0.026" /><testcase classname="tests.test_tender_blank_spans" name="test_hint_crosses_runs_and_keeps_suffix[\uff08\u59d3\u540d\uff09-\u90ed\u5fd7\u4f1f]" time="0.034" /><testcase classname="tests.test_tender_blank_spans" name="test_hint_crosses_runs_and_keeps_suffix[\uff08\u9879\u76ee\u540d\u79f0\uff09-\u9879\u76ee\u540d\u79f0\u957f\u503c\u6d4b\u8bd5]" time="0.021" /><testcase classname="tests.test_tender_blank_spans" name="test_hint_crosses_runs_and_keeps_suffix[\uff08\u59d4\u6258\u4ee3\u7406\u4eba\u59d3\u540d\uff09-\u674e\u660e]" time="0.022" /><testcase classname="tests.test_tender_blank_spans" name="test_single_run_multiple_fields_do_not_underlined_label_or_eat_next_blank" time="0.026" /><testcase classname="tests.test_tender_blank_spans" name="test_split_date_has_no_trailing_lines" time="0.042" /><testcase classname="tests.test_tender_blank_spans" name="test_bare_dates_unknown_and_signature_blanks_unchanged[\u5e74 \u6708 \u65e5]" time="0.033" /><testcase classname="tests.test_tender_blank_spans" name="test_bare_dates_unknown_and_signature_blanks_unchanged[\u65e5\u671f\uff1a\u5e74\u3000\u6708\u3000\u65e5]" time="0.032" /><testcase classname="tests.test_tender_blank_spans" name="test_bare_dates_unknown_and_signature_blanks_unchanged[\u9879\u76ee\u7ecf\u7406\uff1a____]" time="0.024" /><testcase classname="tests.test_tender_blank_spans" name="test_bare_dates_unknown_and_signature_blanks_unchanged[\u7b7e\u5b57\uff1a____]" time="0.043" /><testcase classname="tests.test_tender_blank_spans" name="test_missing_value_leaves_all_runs_intact" time="0.031" /><testcase classname="tests.test_tender_blank_spans" name="test_missing_date_does_not_replace_lines_with_space_date" time="0.022" /><testcase classname="tests.test_tender_blank_spans" name="test_long_value_constrains_width_and_preserves_line_height_and_font" time="0.024" /><testcase classname="tests.test_tender_blank_spans" name="test_hints_do_not_reach_back_across_substantive_text" time="0.043" /><testcase classname="tests.test_tender_blank_spans" name="test_long_fitted_value_does_not_relax_an_exact_table_row" time="0.029" /><testcase classname="tests.test_tender_blank_spans" name="test_table_blank_and_separate_text_nodes_are_preserved" time="0.025" /><testcase classname="tests.test_tender_blank_spans" name="test_literal_line_with_underline_disabled_still_underlines_value" time="0.025" /><testcase classname="tests.test_tenders" name="test_factory_commitment_falls_back_to_project_name" time="2.364" /><testcase classname="tests.test_tenders" name="test_chapter5_letter_contact_auth_factory_layout" time="1.571"><failure message="assert 2239645.0 &lt; 50000&#10; +  where 2239645.0 = abs((2239645.0 - 0.0))&#10; +    where 2239645.0 = float((2239645))&#10; +      where 2239645 = &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BE210&gt;.left_indent&#10; +        where &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BE210&gt; = &lt;docx.text.paragraph.Paragraph object at 0x000001DCA31F1730&gt;.paragraph_format&#10; +    and   0.0 = float((None or 0))&#10; +      where None = &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BF9B0&gt;.left_indent&#10; +        where &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BF9B0&gt; = &lt;docx.text.paragraph.Paragraph object at 0x000001DCA31F2210&gt;.paragraph_format">tmp_path = WindowsPath('E:/code/python/weitaiAgent/tmp/underline-render-fix/compat/test_chapter5_letter_contact_a0')
+
+    def test_chapter5_letter_contact_auth_factory_layout(tmp_path) -&gt; None:
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+    
+        brief = legacy_brief(
+            projectName="厂内新能源充电桩采购项目",
+            tenderer="测试招标人新能源有限公司",
+            bidPriceYuan=518800,
+            bidderAddress="河南省郑州市高新区开发区梧桐街与红松路交叉口东南角远大产业园区内6号楼三层",
+            bidderPhone="17630567052",
+            bidderWebsite="",
+            bidderFax="",
+            bidderPostcode="",
+            attachQualifications=False,
+            includePlaceholders=False,
+            includeCommitment=True,
+            bidDate="2026-09-09",
+        )
+        path, _warnings = build_bid_docx(brief, tmp_path / "bid.docx", qualification_pdf=None)
+        from docx import Document
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+    
+        def _has_blank_u(para) -&gt; bool:
+            xml = para._p.xml
+            if "w:tab" in xml and 'w:val="single"' in xml:
+                return True
+            return any(
+                r.underline is True
+                and (
+                    "\u3000" in (r.text or "")
+                    or r._element.find(qn("w:tab")) is not None
+                )
+                for r in para.runs
+            )
+    
+        doc = Document(str(path))
+        addr = next(
+            p
+            for p in doc.paragraphs
+            if "址" in (p.text or "") and "梧桐街" in (p.text or "")
+        )
+        assert any(run.underline is True and "梧桐街" in (run.text or "") for run in addr.runs)
+        legal_i = next(i for i, p in enumerate(doc.paragraphs) if "法定代表人身份证明" in (p.text or ""))
+        legal_addr = next(
+            p
+            for p in doc.paragraphs[legal_i:]
+            if "地址" in (p.text or "") and "梧桐街" in (p.text or "")
+        )
+        assert float(legal_addr.paragraph_format.line_spacing or 0) &gt;= 1.9
+        letter_rep = next(
+            p
+            for p in doc.paragraphs
+            if "法定代表人或其委托代理人" in (p.text or "") and "签字或盖章" in (p.text or "")
+        )
+        assert _has_blank_u(letter_rep) or any(r.underline is True for r in letter_rep.runs)
+        assert "（签字或盖章）" in (letter_rep.text or "")
+        assert "郭志伟" not in (letter_rep.text or "")
+        assert "梧桐街" not in (letter_rep.text or "")
+        letter_label = next(r for r in letter_rep.runs if (r.text or "").startswith("法定代表人"))
+        assert letter_label.bold is not True
+        letter_east = None
+        letter_rpr = letter_label._element.find(qn("w:rPr"))
+        if letter_rpr is not None and letter_rpr.find(qn("w:rFonts")) is not None:
+            letter_east = letter_rpr.find(qn("w:rFonts")).get(qn("w:eastAsia"))
+        assert letter_east not in {"微软雅黑", "黑体", "Microsoft YaHei", "SimHei"}
+        letter_i = next(
+            i
+            for i, p in enumerate(doc.paragraphs)
+            if "法定代表人或其委托代理人" in (p.text or "") and "签字或盖章" in (p.text or "")
+        )
+        letter_rep = doc.paragraphs[letter_i]
+        letter_blob = "\n".join((p.text or "") for p in doc.paragraphs[:letter_i + 8])
+        assert "项目联系人" not in letter_blob
+        letter_date = next(
+            p
+            for p in doc.paragraphs[letter_i:]
+            if "".join((p.text or "").split()).startswith("日期") and "2026" in (p.text or "")
+        )
+        assert "2026年" in (letter_date.text or "").replace(" ", "").replace("\u3000", "")
+        letter_date_left = (
+            float(letter_date.paragraph_format.left_indent.cm)
+            if letter_date.paragraph_format.left_indent
+            else 0
+        )
+        assert letter_date_left &gt;= 4.0
+        assert "\n" not in (letter_date.text or "")
+        pay_bidder = next(
+            p for p in doc.paragraphs if "投标人名称" in (p.text or "") and "伟泰" in (p.text or "")
+        )
+        assert pay_bidder.text.count("法定代表人") == 1  # Original combined signature line stays combined.
+        assert "盖单位" in (pay_bidder.text or "") and "章）" in (pay_bidder.text or "")
+        until = next(p for p in doc.paragraphs if "委托期限" in (p.text or ""))
+        assert "至本项目投标有效期届满" in (until.text or "")
+        assert "代理人无转委托权" in (until.text or "")
+        legal_heads = [
+            i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "法定代表人身份证明"
+        ]
+        legal_i = legal_heads[-1]
+        legal_bidder_i = next(
+            i
+            for i, p in enumerate(doc.paragraphs[legal_i:], start=legal_i)
+            if "".join((p.text or "").split()).startswith("投标人")
+            and "盖单位公章" in (p.text or "")
+            and "法定代表人" not in (p.text or "")
+        )
+        legal_bidder = doc.paragraphs[legal_bidder_i]
+        legal_date = next(
+            p
+            for p in doc.paragraphs[legal_bidder_i:]
+            if "".join((p.text or "").split()).startswith("日期：") and "2026" in (p.text or "")
+        )
+        assert "日期" in "".join((legal_date.text or "").split())
+        assert abs(
+            float(legal_bidder.paragraph_format.left_indent or 0)
+            - float(legal_date.paragraph_format.left_indent or 0)
+        ) &lt; 50000
+        auth_heads = [i for i, p in enumerate(doc.paragraphs) if (p.text or "").strip() == "授权委托书"]
+        auth_i = auth_heads[-1]
+        auth_bidder_i = next(
+            i
+            for i, p in enumerate(doc.paragraphs[auth_i:], start=auth_i)
+            if "".join((p.text or "").split()).startswith("投标人") and "盖单位公章" in (p.text or "")
+        )
+        auth_bidder = doc.paragraphs[auth_bidder_i]
+        assert auth_bidder.text.count("法定代表人") == 1
+        auth_date = next(
+            p
+            for p in doc.paragraphs[auth_bidder_i:]
+            if "".join((p.text or "").split()).startswith("日期：") and "2026" in (p.text or "")
+        )
+&gt;       assert abs(
+            float(auth_bidder.paragraph_format.left_indent or 0)
+            - float(auth_date.paragraph_format.left_indent or 0)
+        ) &lt; 50000
+E       assert 2239645.0 &lt; 50000
+E        +  where 2239645.0 = abs((2239645.0 - 0.0))
+E        +    where 2239645.0 = float((2239645))
+E        +      where 2239645 = &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BE210&gt;.left_indent
+E        +        where &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BE210&gt; = &lt;docx.text.paragraph.Paragraph object at 0x000001DCA31F1730&gt;.paragraph_format
+E        +    and   0.0 = float((None or 0))
+E        +      where None = &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BF9B0&gt;.left_indent
+E        +        where &lt;docx.text.parfmt.ParagraphFormat object at 0x000001DCA31BF9B0&gt; = &lt;docx.text.paragraph.Paragraph object at 0x000001DCA31F2210&gt;.paragraph_format
+
+tests\test_tenders.py:681: AssertionError</failure></testcase></testsuite></testsuites>

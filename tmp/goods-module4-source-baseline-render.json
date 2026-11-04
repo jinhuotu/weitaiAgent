@@ -1,0 +1,398 @@
+{
+  "structure_only": false,
+  "visual_status": "not_accepted",
+  "documents": [
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500107624-00001.docx",
+      "sha256": "ba0bfd129ebb8b04861a2cdfa4529f13f6378e79b36a2fc401e2bfd4e570d6eb",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0001.png",
+          "sha256": "9549a6020ffcf9829175a2829c900d18508a2dc70227da2c81fadf0ad4ff8994"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0002.png",
+          "sha256": "ea79127b3297ff529186d8a0868afb3577056a66ea2756c01f99e9dfc464256d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0003.png",
+          "sha256": "fb1fb75e4ec73f71275ce30068e5f7eedf8ee02671a1384bfcbba32e56328ef9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0004.png",
+          "sha256": "446a965054a2371effa6d7585e8afc47be935f115bc095e7e55b3019175a6f0e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0006.png",
+          "sha256": "08f5e4135445b1ad6142bfe86a48964a1f081da6cb22624419fad9ee23a8426a"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\0\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500107868-00001.docx",
+      "sha256": "c10fc28d496d8f478039ee5605f2a51385c68568c03ae71a0c9794c8276dd8e6",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0001.png",
+          "sha256": "d32586af64ca81cfe3db1e2dd723caa6d2fd96eedf5f7404e87919f13b572292"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0002.png",
+          "sha256": "79f623ca3f0882e2340264c7f499251b020580241cdf457f2c4af1e64fc0e8de"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0003.png",
+          "sha256": "360674451141f8da12be821ae386e09eec41645ea97148714fc34f467d507761"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0004.png",
+          "sha256": "293bbf32e1e232b51d247adafbe57193408b66bda3a038bd91becf0ade2577ca"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\1\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500107869-00001.docx",
+      "sha256": "eb4050d5aedbe92bae5a7ace34226b65a9512672ee3d2b8a4c461181df09e643",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0001.png",
+          "sha256": "fbfaccddaf52a80094cbe070e31775c8946a2e6e15b0737c14c911fac0c21382"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0002.png",
+          "sha256": "9ba26ff055371221f1d299cb422e5487eb6afdb487c69e82dc936f97d5306a4c"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0003.png",
+          "sha256": "e253d6f4c696978bc3bb3b766238ffc9c7b508bb60993cb09cc00432765e3984"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0004.png",
+          "sha256": "6bd7fe005ed282daf768a98453148b28b01e62b107a7baf6f02519ca26c830e7"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\2\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108108-00001.docx",
+      "sha256": "16c11345b29d0230e8dd589741c18b114e7d15abfa27a3a4907b04c18170fd09",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0001.png",
+          "sha256": "573505c4fe8e7d7492d9111aed2a83eb0f9ae008303d129d89240a824b9fa710"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0002.png",
+          "sha256": "7dfec65413db4153caeeed91892cf1527de173ecbec9c9f276587b6ee10d2714"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0003.png",
+          "sha256": "d9252aa7d19fb3299d590b2123cf5540e58736fdcafdbfe42c28cd4cea5083c0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0004.png",
+          "sha256": "179387df43d45d6d4837478431afe774e818cb298fa0fa2e0540974589465eb0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\3\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108211-00001.docx",
+      "sha256": "00c57d718c4d4e05a24ab7ca63a3c7edd5fb0ceb26bfb2cdc128afbcd509160c",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0001.png",
+          "sha256": "0e8c7ff293809b26c0c0d6288f265feca7c18b480db40624216b3a967f6e0f06"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0002.png",
+          "sha256": "b7eda6eac9bc46b43b1994a46cc86fa7c2c87ed031818ebeb38b2a27dfdb82c2"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0003.png",
+          "sha256": "27540b732b733e8fe7ca961908c50734314c714975547b792ab3a03e3559aa0b"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0004.png",
+          "sha256": "aeb22b003f2d151c6bff7db526cc3cd19885546a71b070d23e541b4ea1428a7e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\4\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108302-00002.docx",
+      "sha256": "2ceec9ba01f6d4168d68ecab32c7229af007dd1c1533b61e3277383cccab1dd5",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0001.png",
+          "sha256": "d458773f8cdfef3420bdcdb01d7ae063bd53e546ccae31647ca5d89722f23cd9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0002.png",
+          "sha256": "fdf3a336a46e5688259e9e1608ef544e9a2fe882568b74a9b0d64699bef9a708"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0003.png",
+          "sha256": "6fc81362c071c97c40587a5afb6c9d8c522373adb7931f56f13d01ce38a4c040"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0004.png",
+          "sha256": "839c82ac2b5ce1b4b3b3b0cc7da6ccaa33c8c81b885196d07174cc526efebbba"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\5\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108449-00001.docx",
+      "sha256": "690b996c0761af550d5133a9b24988cde9f22ca2a35337ffefefc7fd68d98974",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0001.png",
+          "sha256": "7098e793cf264d3d034a5c5bf4617e5be70c9a0e3d757c49417e1f69864aabaf"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0002.png",
+          "sha256": "efe7fa8e02e954c7a36d606dfe6bee2addea27346502015febf329748044de45"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0003.png",
+          "sha256": "b17f81e9feea29fdc2ee7dd8bdb389a2163d62b69213d3e9e3b9cc04bee411a8"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0004.png",
+          "sha256": "b709a511bec6e4a9f9aeeaa482cf8bfd94a510dd24211b9d3a8b83fc121c51a1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\6\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108478-00001.docx",
+      "sha256": "c5036c27aa54479a9761ef0b940626b0963717675e30f7c1c0cba2be20bfc3a1",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0001.png",
+          "sha256": "c71f3057c8b9136aefc46a68ae4495e23cd9b45dec35d6703ad2b42c7b2ba156"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0002.png",
+          "sha256": "99a99dc1974913a61a07b0bbe606aca93f53602204d129f53c9cd8fa74c1e50c"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0003.png",
+          "sha256": "f81b364d61187ac131b90cbd765127d667f743438b98034135498433617a9b52"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0004.png",
+          "sha256": "1dd1f1e962f7bfdeb9d4f6a0ffe5d13ad4b1eaebd4cf18ee230c16846d849318"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\7\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500108651-00001.docx",
+      "sha256": "f005cab37a94683a0e70e21a2752bbf841a3079ca5b4f834ee84a800fd975cf1",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0001.png",
+          "sha256": "3398f6a8bcf722d48affb73985a94a9fdbe9126f1a42b5f3d1aa82c98cd95ab1"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0002.png",
+          "sha256": "14fb119d5eb5bdcdb206c3db8537ab9e88b82cc3c394d464bad585aabbab3037"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0003.png",
+          "sha256": "10f82f660ad3580be3930f2940f944b709a75b175e62919a09072edb5619ba98"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0004.png",
+          "sha256": "cdcc97fb4b035ef7bba3d4e1eb9ad2ec33cf024eebc1c83346ffc7a22194595d"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0005.png",
+          "sha256": "711fb83ab5563b9da3d96d31531e561a0348ccd95a0fe1e77f66ae75a746f52e"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0006.png",
+          "sha256": "8f97aa630e3a31f7cfc20f8a611036acfbdf3d31a205e5ac12b1549190e1daa0"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\8\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    },
+    {
+      "file": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\9985-500138466-00001.docx",
+      "sha256": "c1ffc43e4fa2cbecbe4e374f2ae7e602bdbc1211d556029f699dcf4f879d6884",
+      "pages": [
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0001.png",
+          "sha256": "01723e3c7d4374ba7069208deabafc6cc54d1af7d10db58e296b01a1f4f32c72"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0002.png",
+          "sha256": "06435016373bb45928b2b8f8e8349d99ede0b6baa4cf2e5f4fe3be33bbeff5df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0003.png",
+          "sha256": "72a2c4f8b576754b6e71d9605d6c77e2e841aefc861b6fdabe2245b4c06dd480"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0004.png",
+          "sha256": "a596ddb2cc7a421fb7718ad1ca97a22f9ba1d65344ae3818f666eb956bc848f9"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0005.png",
+          "sha256": "5f8528ed4dfa53171955d65551dd469a6402f9c2227c452f0aa19471f001fdeb"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0006.png",
+          "sha256": "0c3ffbba84c7584ff0ae69fe58c60f9e7ecb499bb26e0399a351d5de40ef8f87"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0007.png",
+          "sha256": "283a8ea3f725d1b29e947696b9d3a66a18cc762807f58c787147ae9379b3e7df"
+        },
+        {
+          "path": "E:\\code\\python\\weitaiAgent\\tmp\\goods-module4-source-baseline\\visual\\9\\page-0008.png",
+          "sha256": "cb731d2d138ad02c6fe6a55b01810b90c42c8d657182af2db7ebe049ec342a9d"
+        }
+      ],
+      "status": "rendered_pending_review"
+    }
+  ],
+  "reviews": [],
+  "message": "已生成的页面仍须逐页人工核对；未渲染页保持未验收"
+}

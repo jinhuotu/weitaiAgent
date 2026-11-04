@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "reachable": true,
+  "healthy": true,
+  "commandAccepted": true,
+  "jwtConfigured": true,
+  "version": "8.2.2.22"
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="6.981" timestamp="2026-10-29T09:51:34.793834+08:00" hostname="awen"><testcase classname="tests.test_tender_native_format" name="test_original_volume_preserves_forms_and_supplements_only_missing[business-False]" time="2.090" /><testcase classname="tests.test_tender_native_format" name="test_original_volume_preserves_forms_and_supplements_only_missing[technical-False]" time="1.099" /><testcase classname="tests.test_tender_native_format" name="test_original_volume_preserves_forms_and_supplements_only_missing[technical-True]" time="0.750"><failure message="AssertionError: assert ('投标人' not in '\n\n\n\n本次设...标识及人员信息）\n\n'&#10;  &#10;  '投标人' is contained here:&#10;    &#10;    &#10;    &#10;    &#10;    本次设备采购项目...&#10;  &#10;  ...Full output truncated (6 lines hidden), use '-vv' to show)">tests\test_tender_native_format.py:193: in test_original_volume_preserves_forms_and_supplements_only_missing
+    assert "投标人" not in front and "签字" not in front and "盖章" not in front
+E   AssertionError: assert ('投标人' not in '\n\n\n\n本次设...标识及人员信息）\n\n'
+E     
+E     '投标人' is contained here:
+E       
+E       
+E       
+E       
+E       本次设备采购项目...
+E     
+E     ...Full output truncated (6 lines hidden), use '-vv' to show)</failure></testcase><testcase classname="tests.test_tender_native_format" name="test_original_volume_preserves_forms_and_supplements_only_missing[full-False]" time="1.557" /></testsuite></testsuites>

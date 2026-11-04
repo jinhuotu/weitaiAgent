@@ -1,0 +1,10 @@
+{
+  "extract.py": true,
+  "facts.py": true,
+  "gen_biz_resp.py": true,
+  "gen_tech_plan.py": true,
+  "performance.py": true,
+  "qa.py": true,
+  "tech_draft.py": true,
+  "tech_fill.py": true
+}

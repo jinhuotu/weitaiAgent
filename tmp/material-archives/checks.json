@@ -1,0 +1,8 @@
+{
+  "backendPassed": 1316,
+  "existingBackendFailures": 10,
+  "newBackendFailures": [],
+  "frontendBaselineTypeErrors": 11,
+  "frontendNewTypeErrors": [],
+  "viteBuildPassed": true
+}

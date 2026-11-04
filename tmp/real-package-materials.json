@@ -1,0 +1,1043 @@
+{
+  "files": [
+    {
+      "logical_path": "bidpkgsign20260424_172230_517.sign",
+      "source_chain": [],
+      "depth": 0,
+      "file_type": ".sign",
+      "size": 1968,
+      "sha256": "5026509b89f7b13cd5cbed9678fc46955b9f41435c43496687be18909e9332ec",
+      "duplicate_of": null,
+      "storage_path": "0\\bidpkgsign20260424_172230_517.sign",
+      "role": "integrity",
+      "role_evidence": [
+        "签名/完整性校验文件，不参与正文"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip",
+      "source_chain": [],
+      "depth": 0,
+      "file_type": ".zip",
+      "size": 60751,
+      "sha256": "8356f415af381a15d9dd5b96f2d3171a9ccb6bbb086eb934cfe2fd647988576a",
+      "duplicate_of": null,
+      "storage_path": "1\\包1_技术规范书_28934092797466219.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5912,
+      "sha256": "586019316d8f76c1d60556aa10110b70ef4ef955f55edff4a1d82cb580f4c82f",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 2,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6183,
+      "sha256": "c10fc28d496d8f478039ee5605f2a51385c68568c03ae71a0c9794c8276dd8e6",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\0\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500107868-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5920,
+      "sha256": "3dd42b1cc53dd00ea3f97d97886818d606f5f94e71d0de3e26c39f57768cbbca",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\1\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 3,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6188,
+      "sha256": "ba0bfd129ebb8b04861a2cdfa4529f13f6378e79b36a2fc401e2bfd4e570d6eb",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\1\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500107624-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 2,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5909,
+      "sha256": "d9d51efb0770397f00e19c95aef764b2094a5d3a39a13e43b015907d3df2ca27",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\2\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 4,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6180,
+      "sha256": "00c57d718c4d4e05a24ab7ca63a3c7edd5fb0ceb26bfb2cdc128afbcd509160c",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\2\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108211-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 3,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5898,
+      "sha256": "6fdd448887da81d42f62701c0548e903845ac95b1db9e1d7fc3d74e9a147b82a",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\3\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 5,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6180,
+      "sha256": "eb4050d5aedbe92bae5a7ace34226b65a9512672ee3d2b8a4c461181df09e643",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\3\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500107869-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 4,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5879,
+      "sha256": "253441d56af7a5bf96582e6d63c3f1cb4d9f2d5a497bf52942b59281b788ca2e",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\4\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 6,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6176,
+      "sha256": "690b996c0761af550d5133a9b24988cde9f22ca2a35337ffefefc7fd68d98974",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\4\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108449-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 5,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5865,
+      "sha256": "046ac076821456164ff6bec90743c7358c26fbfb1797241c6935422c6b118181",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\5\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 7,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6174,
+      "sha256": "f005cab37a94683a0e70e21a2752bbf841a3079ca5b4f834ee84a800fd975cf1",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\5\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108651-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 6,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5843,
+      "sha256": "78566027587da7932ee5fc6563cdeb7fd09d9e0c71fd56d5e52033f6ed21dee1",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\6\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 8,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6167,
+      "sha256": "c1ffc43e4fa2cbecbe4e374f2ae7e602bdbc1211d556029f699dcf4f879d6884",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\6\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500138466-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 7,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5897,
+      "sha256": "6025a673e27f3ee0913dc6d3d1da055f0c51972d728b04a150475a5b787fc679",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\7\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 9,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6178,
+      "sha256": "2ceec9ba01f6d4168d68ecab32c7229af007dd1c1533b61e3277383cccab1dd5",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\7\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108302-00002"
+      ],
+      "material_candidates": [],
+      "role_order": 8,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5897,
+      "sha256": "95b04d9f8383ace37fec9fcfe5dfbf5c47fd85a4a0b339bffb6a3d71dc1dbee5",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\8\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 10,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6180,
+      "sha256": "16c11345b29d0230e8dd589741c18b114e7d15abfa27a3a4907b04c18170fd09",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\8\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108108-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 9,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 5907,
+      "sha256": "4028f3110e1956cf8a2c0d5bb8e311b2b854ec644c90a80fea3fd728be2463dd",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\9\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 11,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "source_chain": [
+        "包1_技术规范书_28934092797466219.zip",
+        "国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 6172,
+      "sha256": "c5036c27aa54479a9761ef0b940626b0963717675e30f7c1c0cba2be20bfc3a1",
+      "duplicate_of": null,
+      "storage_path": "1\\nested\\9\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "role": "tech_spec",
+      "role_evidence": [
+        "文件名命中 tech_spec",
+        "正文开头命中 tech_spec"
+      ],
+      "role_candidates": [
+        "tech_spec"
+      ],
+      "solidified_ids": [
+        "9985-500108478-00001"
+      ],
+      "material_candidates": [],
+      "role_order": 10,
+      "primary_candidate": false,
+      "material_recognition": {
+        "material": null,
+        "evidence": [],
+        "conflict": false,
+        "needs_confirmation": true,
+        "reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+      }
+    },
+    {
+      "logical_path": "合同文件.zip",
+      "source_chain": [],
+      "depth": 0,
+      "file_type": ".zip",
+      "size": 705675,
+      "sha256": "697448d04a6b456d99e39409ea9a156b1e54402b4c7b3f7c24262acb5580eded",
+      "duplicate_of": null,
+      "storage_path": "2\\合同文件.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 12,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "合同文件.zip/5.120 10kV及以下协议库存货物采购合同通用条款（材料类）（2024版）.docx",
+      "source_chain": [
+        "合同文件.zip"
+      ],
+      "depth": 1,
+      "file_type": ".docx",
+      "size": 689980,
+      "sha256": "830b85472b8ec4a7228c7ea5c489407cf4cf6317515dba7352aa2f10a5b2b27e",
+      "duplicate_of": null,
+      "storage_path": "2\\nested\\0\\5.120 10kV及以下协议库存货物采购合同通用条款（材料类）（2024版）.docx",
+      "role": "contract",
+      "role_evidence": [
+        "正文读取未完成：ValueError；请人工核对",
+        "文件名命中 contract"
+      ],
+      "role_candidates": [
+        "contract"
+      ],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true
+    },
+    {
+      "logical_path": "合同文件.zip/合同专用条款文件.zip",
+      "source_chain": [
+        "合同文件.zip"
+      ],
+      "depth": 1,
+      "file_type": ".zip",
+      "size": 11551,
+      "sha256": "e13f529e76ad6f1df22753095d3240e3b905d5fd31e20b84c0b8f3e5e08900ce",
+      "duplicate_of": null,
+      "storage_path": "2\\nested\\1\\合同专用条款文件.zip",
+      "role": "other",
+      "role_evidence": [
+        "压缩容器，仅保留来源关系；角色由内部文档判定"
+      ],
+      "role_candidates": [],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 13,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "合同文件.zip/合同专用条款文件.zip/合同专用条款其他文件202604241017993.docx",
+      "source_chain": [
+        "合同文件.zip",
+        "合同专用条款文件.zip"
+      ],
+      "depth": 2,
+      "file_type": ".docx",
+      "size": 12738,
+      "sha256": "ca1a17287bcaa8ffd716f02f99cadffa9973485ed669324ee2d3f232d826f617",
+      "duplicate_of": null,
+      "storage_path": "2\\nested\\1\\nested\\0\\合同专用条款其他文件202604241017993.docx",
+      "role": "contract",
+      "role_evidence": [
+        "文件名命中 contract",
+        "正文开头命中 contract"
+      ],
+      "role_candidates": [
+        "contract"
+      ],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 2,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "合同文件.zip/5.120 10kV及以下协议库存货物采购合同（材料类）（2024版）.docx",
+      "source_chain": [
+        "合同文件.zip"
+      ],
+      "depth": 1,
+      "file_type": ".docx",
+      "size": 43945,
+      "sha256": "bfe8b0b5a7619f1268b625e86c6e9d7b35e7212b120ab2d78caf08932251463f",
+      "duplicate_of": null,
+      "storage_path": "2\\nested\\2\\5.120 10kV及以下协议库存货物采购合同（材料类）（2024版）.docx",
+      "role": "contract",
+      "role_evidence": [
+        "文件名命中 contract",
+        "正文开头命中 contract"
+      ],
+      "role_candidates": [
+        "contract"
+      ],
+      "solidified_ids": [],
+      "material_candidates": [
+        "&mat_name&                    "
+      ],
+      "role_order": 3,
+      "primary_candidate": false
+    },
+    {
+      "logical_path": "SL2639-招标文件第2-6章.docx",
+      "source_chain": [],
+      "depth": 0,
+      "file_type": ".docx",
+      "size": 17256072,
+      "sha256": "aa0586eaea1d7f14edc980148f70059e2a4f924ef9211c7efe5f6c59c0808bd1",
+      "duplicate_of": null,
+      "storage_path": "3\\SL2639-招标文件第2-6章.docx",
+      "role": "notice",
+      "role_evidence": [
+        "文件名命中 notice",
+        "正文开头命中 invitation",
+        "正文开头命中 notice"
+      ],
+      "role_candidates": [
+        "notice"
+      ],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true
+    },
+    {
+      "logical_path": "SL2639-第一章投标邀请书.docx",
+      "source_chain": [],
+      "depth": 0,
+      "file_type": ".docx",
+      "size": 63547,
+      "sha256": "d41aeaa8aba192c5abcecb055429a9bcc9133d31d2a990c869d208cfc662fdc1",
+      "duplicate_of": null,
+      "storage_path": "4\\SL2639-第一章投标邀请书.docx",
+      "role": "invitation",
+      "role_evidence": [
+        "文件名命中 invitation",
+        "正文开头命中 invitation"
+      ],
+      "role_candidates": [
+        "invitation"
+      ],
+      "solidified_ids": [],
+      "material_candidates": [],
+      "role_order": 1,
+      "primary_candidate": true
+    }
+  ],
+  "total_bytes": 18966932,
+  "file_count": 29,
+  "limits": {
+    "max_files": 2000,
+    "max_bytes": 536870912,
+    "max_ratio": 200,
+    "max_depth": 4,
+    "allowed": [
+      ".docx",
+      ".doc",
+      ".pdf",
+      ".xlsx",
+      ".xls",
+      ".csv",
+      ".txt",
+      ".png",
+      ".jpg",
+      ".jpeg",
+      ".zip",
+      ".sign"
+    ]
+  },
+  "role_counts": {
+    "integrity": 1,
+    "other": 13,
+    "tech_spec": 10,
+    "contract": 3,
+    "notice": 1,
+    "invitation": 1
+  },
+  "solidified_id_map": [
+    {
+      "solidified_id": "9985-500107868-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "storage_path": "1\\nested\\0\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "sha256": "c10fc28d496d8f478039ee5605f2a51385c68568c03ae71a0c9794c8276dd8e6",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500107624-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "storage_path": "1\\nested\\1\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "sha256": "ba0bfd129ebb8b04861a2cdfa4529f13f6378e79b36a2fc401e2bfd4e570d6eb",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108211-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "storage_path": "1\\nested\\2\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "sha256": "00c57d718c4d4e05a24ab7ca63a3c7edd5fb0ceb26bfb2cdc128afbcd509160c",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500107869-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "storage_path": "1\\nested\\3\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "sha256": "eb4050d5aedbe92bae5a7ace34226b65a9512672ee3d2b8a4c461181df09e643",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108449-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "storage_path": "1\\nested\\4\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "sha256": "690b996c0761af550d5133a9b24988cde9f22ca2a35337ffefefc7fd68d98974",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108651-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "storage_path": "1\\nested\\5\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "sha256": "f005cab37a94683a0e70e21a2752bbf841a3079ca5b4f834ee84a800fd975cf1",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500138466-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "storage_path": "1\\nested\\6\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "sha256": "c1ffc43e4fa2cbecbe4e374f2ae7e602bdbc1211d556029f699dcf4f879d6884",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108302-00002",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "storage_path": "1\\nested\\7\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "sha256": "2ceec9ba01f6d4168d68ecab32c7229af007dd1c1533b61e3277383cccab1dd5",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108108-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "storage_path": "1\\nested\\8\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "sha256": "16c11345b29d0230e8dd589741c18b114e7d15abfa27a3a4907b04c18170fd09",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108478-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "storage_path": "1\\nested\\9\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "sha256": "c5036c27aa54479a9761ef0b940626b0963717675e30f7c1c0cba2be20bfc3a1",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    }
+  ],
+  "pending_confirmation": [
+    "1\\包1_技术规范书_28934092797466219.zip",
+    "1\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip",
+    "1\\nested\\1\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip",
+    "1\\nested\\2\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip",
+    "1\\nested\\3\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip",
+    "1\\nested\\4\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip",
+    "1\\nested\\5\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip",
+    "1\\nested\\6\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip",
+    "1\\nested\\7\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip",
+    "1\\nested\\8\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip",
+    "1\\nested\\9\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip",
+    "2\\合同文件.zip",
+    "2\\nested\\1\\合同专用条款文件.zip"
+  ],
+  "classification_warnings": [],
+  "material_pending_confirmation": [
+    {
+      "solidified_id": "9985-500107868-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "storage_path": "1\\nested\\0\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107868-00001）.docx",
+      "sha256": "c10fc28d496d8f478039ee5605f2a51385c68568c03ae71a0c9794c8276dd8e6",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500107624-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "storage_path": "1\\nested\\1\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107624-00001）.docx",
+      "sha256": "ba0bfd129ebb8b04861a2cdfa4529f13f6378e79b36a2fc401e2bfd4e570d6eb",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108211-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "storage_path": "1\\nested\\2\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108211-00001）.docx",
+      "sha256": "00c57d718c4d4e05a24ab7ca63a3c7edd5fb0ceb26bfb2cdc128afbcd509160c",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500107869-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "storage_path": "1\\nested\\3\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500107869-00001）.docx",
+      "sha256": "eb4050d5aedbe92bae5a7ace34226b65a9512672ee3d2b8a4c461181df09e643",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108449-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "storage_path": "1\\nested\\4\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108449-00001）.docx",
+      "sha256": "690b996c0761af550d5133a9b24988cde9f22ca2a35337ffefefc7fd68d98974",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108651-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "storage_path": "1\\nested\\5\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108651-00001）.docx",
+      "sha256": "f005cab37a94683a0e70e21a2752bbf841a3079ca5b4f834ee84a800fd975cf1",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500138466-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "storage_path": "1\\nested\\6\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500138466-00001）.docx",
+      "sha256": "c1ffc43e4fa2cbecbe4e374f2ae7e602bdbc1211d556029f699dcf4f879d6884",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108302-00002",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "storage_path": "1\\nested\\7\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108302-00002）.docx",
+      "sha256": "2ceec9ba01f6d4168d68ecab32c7229af007dd1c1533b61e3277383cccab1dd5",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108108-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "storage_path": "1\\nested\\8\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108108-00001）.docx",
+      "sha256": "16c11345b29d0230e8dd589741c18b114e7d15abfa27a3a4907b04c18170fd09",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    },
+    {
+      "solidified_id": "9985-500108478-00001",
+      "logical_path": "包1_技术规范书_28934092797466219.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.zip/国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "storage_path": "1\\nested\\9\\nested\\0\\国家电网公司总部_配网普通技术参数主数据固化ID编制（9985-500108478-00001）.docx",
+      "sha256": "c5036c27aa54479a9761ef0b940626b0963717675e30f7c1c0cba2be20bfc3a1",
+      "material": null,
+      "material_candidates": [],
+      "needs_confirmation": true,
+      "material_evidence": [],
+      "conflict": false,
+      "material_reason": "正文无明确物料名称字段或专用标题；组件清单、型号及参数不作为物料名称"
+    }
+  ],
+  "material_conflicts": []
+}

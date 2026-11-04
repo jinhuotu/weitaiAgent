@@ -1,0 +1,94 @@
+--- E:\code\python\weitaiAgentui\src\views\TendersView.vue
++++ E:\code\python\weitaiAgentui\src\views\TendersView.vue
+@@ -523,6 +523,19 @@
+ }
+ 
+ /** 合并 brief：空字符串不覆盖已有公司默认；其它字段照常写入 */
++/** 原版格式章优先，旧记录的结构来源标记不能覆盖已识别的范本。 */
++function hasOriginalFormat(brief: Partial<BidBrief> = form): boolean {
++  if (!brief.invitationId) return false
++  const chapter = String(brief.outlineChapter || '').replace(/\s+/g, '')
++  const named = /^(?:第[一二三四五六七八九十百0-9]+(?:部分|章节|章|节)[、.．]?)?(?:投标|响应)文件(?:格式|组成)$/.test(chapter)
++  return named || brief.layoutMode === 'outline' || Boolean(brief.formatConfirmed && !brief.requirementsDriven)
++}
++
++function generationLayoutMode(): string {
++  if (hasOriginalFormat()) return 'outline'
++  return form.requirementsDriven ? 'requirements' : (form.structureMode === 'outline' ? 'outline' : 'chapter5')
++}
++
+ function mergeBriefIntoForm(brief: Partial<BidBrief>) {
+   const defaults = emptyBrief()
+   const next: Record<string, unknown> = { ...form }
+@@ -538,7 +551,11 @@
+     next[key] = value
+   }
+   if (junkPmName(String(next.pmName || ''))) next.pmName = ''
+-  if (brief.requirementsDriven) next.structureMode = 'outline'
++  if (hasOriginalFormat(next as Partial<BidBrief>)) {
++    next.layoutMode = 'outline'
++    next.structureMode = 'outline'
++    next.requirementsDriven = false
++  } else if (brief.requirementsDriven) next.structureMode = 'outline'
+   Object.assign(form, next)
+   ensureCompanyDefaults(form)
+   if (brief.authEnabled === undefined) {
+@@ -969,14 +986,18 @@
+   try {
+     const preview = await prepareInvitationFormatDocx(invitationId, {
+       ...form,
+-      layoutMode: form.requirementsDriven ? 'requirements' : (form.structureMode === 'outline' ? 'outline' : 'chapter5'),
++      layoutMode: generationLayoutMode(),
+       generateVolume: effectiveGenerationMode.value === 'full' ? 'full' : activeVolume.value,
+     })
+     if (!preview.fileName) throw new Error('未生成预览文件')
+     formatPreviewFile.value = preview.fileName
+     formatPreviewOnly.value = preview.previewOnly
+     formatPreviewMessage.value = preview.message
+-    if (preview.previewOnly) {
++    if (preview.source === 'invitation') {
++      form.requirementsDriven = false
++      form.structureMode = 'outline'
++      form.layoutMode = 'outline'
++    } else if (preview.previewOnly) {
+       form.requirementsDriven = preview.source === 'requirements'
+       form.structureMode = preview.source === 'requirements' ? 'outline' : 'fixed'
+       form.layoutMode = preview.source === 'requirements' ? 'requirements' : 'chapter5'
+@@ -996,6 +1017,7 @@
+ 
+ /** 双轨结构来源。fixed=按固定模板，outline=按本标招标书大纲。 */
+ function setStructureMode(mode: StructureMode) {
++  if (hasOriginalFormat()) mode = 'outline'
+   form.structureMode = mode
+   form.layoutMode = mode === 'outline' ? 'outline' : 'chapter5'
+   clearFormatPreview()
+@@ -3164,8 +3186,9 @@
+       generateVolume: effectiveGenerationMode.value === 'full' ? 'full' : activeVolume.value,
+       generateBoth: effectiveGenerationMode.value === 'split' || pendingBoth.value,
+       splitSlice: effectiveGenerationMode.value === 'split' || pendingBoth.value,
+-      structureMode: form.structureMode,
+-      layoutMode: form.requirementsDriven ? 'requirements' : (form.structureMode === 'outline' ? 'outline' : 'chapter5'),
++      structureMode: hasOriginalFormat() ? 'outline' : form.structureMode,
++      requirementsDriven: hasOriginalFormat() ? false : form.requirementsDriven,
++      layoutMode: generationLayoutMode(),
+       contentTemplateId: form.contentTemplateId,
+     }
+     if (result.value?.id) {
+@@ -4013,6 +4036,7 @@
+                 type="radio"
+                 name="structure-mode"
+                 :checked="form.structureMode === 'fixed'"
++                :disabled="hasOriginalFormat()"
+                 class="accent-current"
+                 @change="setStructureMode('fixed')"
+               />
+@@ -4029,6 +4053,9 @@
+               按本标招标书要求生成
+             </label>
+           </div>
++          <p v-if="hasOriginalFormat()" class="text-muted-foreground">
++            优先沿用原版封面和章节格式，仅用内置格式补齐缺少的章节。
++          </p>
+           <div v-if="form.requirementsDriven" class="space-y-2">
+             <p class="text-muted-foreground leading-relaxed">
+               已按全文投标要求综合大纲，自动生成封面、目录和完整正文结构。缺少的资料及响应内容会标为【待补充】，请在生成后核对。

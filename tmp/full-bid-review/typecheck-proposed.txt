@@ -1,0 +1,10 @@
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(272,7): error TS6133: 'OUTLINE_KIND_OPTIONS' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(325,10): error TS6133: 'setOutlineKind' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(343,10): error TS6133: 'outlinePolicyHint' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(456,10): error TS6133: 'onOutlineDragStart' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(468,10): error TS6133: 'onOutlineDragOver' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(475,10): error TS6133: 'onOutlineDrop' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(482,10): error TS6133: 'onOutlineDragEnd' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(875,16): error TS6133: 'loadOutlinePreview' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(996,10): error TS6133: 'setItemPolicy' is declared but its value is never read.
+tmp/full-bid-review/proposed/frontend/src/views/TendersView.vue(2967,10): error TS6133: 'onDrawingsDrop' is declared but its value is never read.

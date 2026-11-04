@@ -1,6 +1,7 @@
 """知识库入库与检索：切块 → Embedding → Qdrant；检索带关键词重排。"""
 
 from __future__ import annotations
+from api.services.knowledge.expiry import apply_expiry, expiry_fields
 
 import hashlib
 import logging
@@ -209,6 +210,7 @@ def to_kb_item(doc: KnowledgeDocument) -> dict[str, Any]:
     created_ms = to_epoch_ms(doc.created_at)
     file_key = doc.file_key or doc.storage_path
     return {
+        **expiry_fields(doc),
         "id": doc.public_id,
         "baseId": getattr(doc, "_base_public_id", None),
         "name": doc.name,
@@ -626,6 +628,7 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
                 doc, base_pid, prefer_cached=not force_reextract
             )
             text = extracted.text
+            apply_expiry(doc, text)
             if extracted.from_file:
                 _apply_extract_stats(doc, extracted)
             if base_pid:
@@ -969,6 +972,7 @@ async def ingest_text(
         review_status=_initial_review_status(drawing=(kind == "drawing")),
         created_by=created_by,
     )
+    apply_expiry(doc, text)
     db.add(doc)
     await db.flush()
 

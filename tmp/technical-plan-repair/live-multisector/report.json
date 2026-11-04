@@ -1,0 +1,78 @@
+{
+  "goods-delivery": {
+    "modes": {
+      "False": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      },
+      "True": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      }
+    },
+    "notes": [
+      "技术卷：原版 5 个要点逐项起草；资源为拟投入计划，未核实参数在实施前复核"
+    ]
+  },
+  "service-migration": {
+    "modes": {
+      "False": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      },
+      "True": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      }
+    },
+    "notes": [
+      "技术卷：原版 5 个要点逐项起草；资源为拟投入计划，未核实参数在实施前复核"
+    ]
+  },
+  "medical-maintenance": {
+    "modes": {
+      "False": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      },
+      "True": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      }
+    },
+    "notes": [
+      "技术卷：原版 5 个要点逐项起草；资源为拟投入计划，未核实参数在实施前复核"
+    ]
+  },
+  "unseen-mapping": {
+    "modes": {
+      "False": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      },
+      "True": {
+        "points": 5,
+        "tables": 1,
+        "figures": 2,
+        "boxes": 0
+      }
+    },
+    "notes": [
+      "技术卷：原版 5 个要点逐项起草；资源为拟投入计划，未核实参数在实施前复核"
+    ]
+  }
+}

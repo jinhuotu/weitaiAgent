@@ -1,0 +1,38 @@
+{
+  "pdf_format": {
+    "changed": [
+      "_fill_word_blanks",
+      "_write_blank_span",
+      "_seat_run",
+      "_fill_para_blanks"
+    ],
+    "added": [
+      "_layout_tab",
+      "_fill_font_half",
+      "_fill_line_width",
+      "_fit_filled_run",
+      "_relax_signature_flow",
+      "_blank_ranges"
+    ]
+  },
+  "document": {
+    "changed": [
+      "_run_underlined",
+      "_put_on_line",
+      "_fill_blanks",
+      "_underline_value",
+      "_rewrite_labeled_underline",
+      "_rewrite_date_line",
+      "_glue_sign_off",
+      "_fill_paragraphs",
+      "_pad_signature_blocks"
+    ],
+    "added": []
+  },
+  "native_format": {
+    "changed": [
+      "fill_native_cover"
+    ],
+    "added": []
+  }
+}

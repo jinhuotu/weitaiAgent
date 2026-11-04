@@ -1,0 +1,95 @@
+--- before/pdf_format.py
++++ apps/api/services/tenders/pdf_format.py
+@@ -3907,7 +3907,7 @@
+     return max(20, width)
+ 
+ 
+-def _fill_line_cursor(el, tokens):
++def _fill_line_cursor(el, tokens, *, wrap=True):
+     """Shared tab stops and natural-wrap budget in paragraph coordinates."""
+     indent = el.find('w:pPr/w:ind', el.nsmap)
+     left = int(indent.get(qn('w:left'),'0')) if indent is not None else 0
+@@ -3921,18 +3921,71 @@
+     for run, node, _, _, text in tokens:
+         if node.tag == qn('w:tab'):
+             x = advance(x)
+-            if x > line_edge:
++            if wrap and x > line_edge:
+                 x = 0.0
+         elif node.tag == qn('w:t'):
+             width = _vis_width(text) * _fill_font_half(run, el) * 5
+-            if x + width > line_edge:
++            if wrap and x + width > line_edge:
+                 x = 0.0
+             x += width
+-            if x > line_edge:
++            if wrap and x > line_edge:
+                 x = (x-1) % line_edge + 1
+         else:
+             x = 0.0
+     return x, advance, line_edge
++
++
++def _protect_following_form_label(el, filled):
++    """Keep a fixed field label after a parenthetical suffix on one line."""
++    tokens = list(_blank_tokens(el))
++    following = []
++    passed = False
++    for token in tokens:
++        run,node,_,_,text = token
++        if run is filled:
++            passed = True
++            continue
++        if not passed:
++            continue
++        if node.tag != qn('w:t') or _run_under(run):
++            break
++        following.append(token)
++    if not following:
++        return False
++    text = ''.join(t[4] for t in following)
++    match = re.fullmatch(r'\s*[（(][^（）()\n]*[）)]\s*(?P<label>[^:：\n\t]+[:：])', text)
++    if not match:
++        return False
++    start = following[0][2] + match.start('label')
++    prefix = [(r,n,a,min(b,start),s[:max(0,start-a)]) for r,n,a,b,s in tokens if a < start]
++    x,_,edge = _fill_line_cursor(el,prefix,wrap=False)
++    width = sum(_vis_width(s[max(0,start-a):]) * _fill_font_half(r,el) * 5
++                for r,_,a,b,s in following if b > start)
++    if x + width <= edge:
++        return False
++    run,node,a,_,part = next(t for t in following if t[2] <= start < t[3])
++    cut = start-a
++    # A stamp and the next label may share a single source run. Split only at
++    # their structural boundary, keeping every fixed glyph and its rPr.
++    if cut or any(c.tag != qn('w:rPr') for c in list(run)[:list(run).index(node)]):
++        tail = OxmlElement('w:r')
++        if run.find(qn('w:rPr')) is not None:
++            tail.append(deepcopy(run.find(qn('w:rPr'))))
++        remainder = deepcopy(node);remainder.text = part[cut:]
++        remainder.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
++        tail.append(remainder)
++        for child in list(run)[list(run).index(node)+1:]:
++            tail.append(child)
++        node.text = part[:cut]
++        node.set('{http://www.w3.org/XML/1998/namespace}space','preserve')
++        run.addnext(tail)
++        run = tail
++    separator = OxmlElement('w:r')
++    if run.find(qn('w:rPr')) is not None:
++        separator.append(deepcopy(run.find(qn('w:rPr'))))
++    separator.append(OxmlElement('w:br'))
++    run.addprevious(separator)
++    return True
+ 
+ 
+ def _fit_filled_run(el, filled):
+@@ -3993,6 +4046,8 @@
+             node = OxmlElement('w:' + name)
+             rpr.append(node)
+         node.set(qn('w:val'), str(size))
++    if _protect_following_form_label(el, filled):
++        _fit_filled_run(el, filled)
+ 
+ 
+ def _signature_flow_field(el):

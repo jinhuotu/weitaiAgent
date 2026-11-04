@@ -1,0 +1,17 @@
+{
+  "newFullFailures": [],
+  "resolvedFullFailures": [],
+  "historicalFailures": 149,
+  "targetedPassed": 218,
+  "tendersPassed": 194,
+  "volumes": {
+    "business": {
+      "tableXmlAndOrderUnchanged": true,
+      "nonMaterialBodyTextAndOrderUnchanged": true
+    },
+    "full": {
+      "tableXmlAndOrderUnchanged": true,
+      "nonMaterialBodyTextAndOrderUnchanged": true
+    }
+  }
+}

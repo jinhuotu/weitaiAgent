@@ -1,0 +1,162 @@
+{
+  "slots": [
+    {
+      "key": "request_满足第一章资格要求的支持证明材料",
+      "title": "满足第一章资格要求的支持证明材料",
+      "hint": "须提供满足第一章资格要求的支持证明材料，制作于技术投标文件中",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "request_投标人自述的企业名称变更原因说明",
+      "title": "投标人自述的企业名称变更原因说明",
+      "hint": "应提供投标人自述的企业名称变更原因说明、市场监督管理部门出具的“名称变更证明”相关证明材料",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "request_市场监督管理部门出具的“名称变更证明”相关证明材料",
+      "title": "市场监督管理部门出具的“名称变更证明”相关证明材料",
+      "hint": "应提供投标人自述的企业名称变更原因说明、市场监督管理部门出具的“名称变更证明”相关证明材料",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "request_项目具体成本测算与报价合理性相关的书面说明及必要证明材料",
+      "title": "项目具体成本测算与报价合理性相关的书面说明及必要证明材料",
+      "hint": "应提供项目具体成本测算与报价合理性相关的书面说明及必要证明材料，明确是否影响后续履约",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "qualification",
+      "title": "资质证书副本",
+      "hint": "应附投标人及其制造商（适用于代理经销商投标的情形）资格或者资质证书副本和投标材料检验或认证等材料的复印件以及：",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "request_投标材料检验或认证",
+      "title": "投标材料检验或认证",
+      "hint": "应附投标人及其制造商（适用于代理经销商投标的情形）资格或者资质证书副本和投标材料检验或认证等材料的复印件以及：",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "finance",
+      "title": "财务会计报表及财务报表",
+      "hint": "应附经会计师事务所或审计机构审计的财务会计报表，包括资产负债表、现金流量表、利润表和财务报表附注复印件，具体年份要求见投标人须知前附表",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "request_个人数字证书",
+      "title": "个人数字证书",
+      "hint": "附证书证件均为原件扫描件，并采用单位和个人数字证书，按招标文件要求在相应位置加盖电子印章",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "bond",
+      "title": "银行保函",
+      "hint": "须提供银行保函原件扫描件）",
+      "attachToSection": "",
+      "demandIds": []
+    },
+    {
+      "key": "bond",
+      "title": "投标保证金汇款凭证",
+      "hint": "须提供汇款凭证电子版或扫描件，不接受纸质汇款凭证）",
+      "attachToSection": "",
+      "demandIds": []
+    }
+  ],
+  "media": {
+    "request_满足第一章资格要求的支持证明材料": [],
+    "request_投标人自述的企业名称变更原因说明": [],
+    "request_市场监督管理部门出具的“名称变更证明”相关证明材料": [],
+    "request_项目具体成本测算与报价合理性相关的书面说明及必要证明材料": [],
+    "qualification": [],
+    "request_投标材料检验或认证": [],
+    "finance": [],
+    "request_个人数字证书": [],
+    "bond": []
+  },
+  "documents": [
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\bond\\ee8bd2c93c0e.png",
+      "public_id": "ee8bd2c93c0e",
+      "name": "高途智成港（一期）汽车充电桩采购安装项目投标保证金-2026-04-01",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\id_agent\\c87ce1ef7b1c.png",
+      "public_id": "c87ce1ef7b1c",
+      "name": "图片1",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\bank_permit\\75dc677223a5.pdf",
+      "public_id": "75dc677223a5",
+      "name": "原厂生产承诺书（设备类）-2026-04-01",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\id_legal\\75929174bcd0.jpg",
+      "public_id": "75929174bcd0",
+      "name": "张朝文·正面",
+      "expire_at": "2028-11-18",
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\id_legal\\4f100041bfc7.jpg",
+      "public_id": "4f100041bfc7",
+      "name": "张朝文·反面",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\license\\0dfcd2e6f229.png",
+      "public_id": "0dfcd2e6f229",
+      "name": "7f283a72bdbe",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\credit\\31f661180e4d.pdf",
+      "public_id": "31f661180e4d",
+      "name": "30ade82dd079",
+      "expire_at": null,
+      "is_perpetual": false
+    },
+    {
+      "path": "E:\\code\\python\\weitaiAgent\\storage\\tender-assets\\slots\\bond\\1fa15ebc1c1e.png",
+      "public_id": "1fa15ebc1c1e",
+      "name": "520ce977fa45",
+      "expire_at": null,
+      "is_perpetual": false
+    }
+  ],
+  "warnings": [
+    {
+      "type": "business_selection_pending",
+      "message": "同类资料命中多份，需指定本次实际选用文件",
+      "level": "warning",
+      "source": "投标保证金缴存回单"
+    },
+    {
+      "type": "business_selection_pending",
+      "message": "同类资料命中多份，需指定本次实际选用文件",
+      "level": "warning",
+      "source": "投标保证金缴存回单"
+    }
+  ],
+  "unresolved_keys": [
+    "bond",
+    "bond"
+  ],
+  "loaded": true
+}

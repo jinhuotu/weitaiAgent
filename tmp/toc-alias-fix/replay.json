@@ -1,0 +1,34 @@
+[
+  {
+    "entries": 20,
+    "firstBodyBlock": 44,
+    "volume": "business",
+    "anonymous": false,
+    "repeatStable": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-alias-fix\\business-False\\1e2bff9edf7f.docx"
+  },
+  {
+    "entries": 1,
+    "firstBodyBlock": 26,
+    "volume": "technical",
+    "anonymous": false,
+    "repeatStable": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-alias-fix\\technical-False\\01334fa5dd2d.docx"
+  },
+  {
+    "entries": 1,
+    "firstBodyBlock": 11,
+    "volume": "technical",
+    "anonymous": true,
+    "repeatStable": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-alias-fix\\technical-True\\77774569b875.docx"
+  },
+  {
+    "entries": 21,
+    "firstBodyBlock": 45,
+    "volume": "full",
+    "anonymous": false,
+    "repeatStable": true,
+    "path": "E:\\code\\python\\weitaiAgent\\tmp\\toc-alias-fix\\full-False\\4490e725031e.docx"
+  }
+]
