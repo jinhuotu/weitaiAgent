@@ -62,6 +62,53 @@ def material_files(slot, media):
     return list_slot_files(slot.key) if _KEY_RE.fullmatch(slot.key or '') else []
 
 
+def resolve_material_anchor(doc, plan):
+    """Refresh only physical boundaries; ownership decisions never change here."""
+    from api.services.tenders.placeholders import _body_block
+    body = doc.element.body
+    def live(node):
+        block = _body_block(node) if node is not None else None
+        return block if block is not None and block.getparent() is body else None
+    original = live(plan.get('anchor'))
+    anchor = original
+    if anchor is None:
+        anchor = live(plan.get('source'))
+    head = live(plan.get('head'))
+    if head is None:
+        head = next((node for node in body if _heading_text(node) == plan.get('chapter')), None)
+    if anchor is None:
+        anchor = head
+    if anchor is None:
+        anchor = next((live(node) for node in reversed(plan.get('blocks', [])) if live(node) is not None), None)
+    if anchor is None:
+        anchor = doc.add_paragraph()._p
+    if live(anchor) is None:
+        raise ValueError('Unable to relocate material boundary')
+    # Synthetic sections have no source attachment blocks. Give every material
+    # its own disposable boundary, so replacing one frame cannot invalidate peers.
+    if plan.get('fallback'):
+        marker = OxmlElement('w:p')
+        anchor.addnext(marker)
+        anchor = marker
+    logging.getLogger(__name__).info(
+        'material anchor key=%s chapter=%s anchor_live=%s relocated=%s',
+        plan['slot'].key, plan.get('chapter', ''), original is not None,
+        original is None or plan.get('fallback', False))
+    return anchor
+
+
+def _fresh_material_plan(decision, scopes):
+    """Rehydrate cached ownership against this entrypoint's current body blocks."""
+    owners = [(h, b) for h, b, _ in scopes if _heading_text(h) == decision['chapter']]
+    index = decision.get('chapter_index', 0)
+    head, blocks = owners[index] if index < len(owners) else (None, [])
+    def locate(text):
+        return next((node for node in [head, *blocks] if node is not None and text and _text(node) == text), None)
+    return {**decision, 'head': head, 'blocks': list(blocks),
+            'anchor': locate(decision.get('anchor_text')),
+            'source': locate(decision.get('source_text'))}
+
+
 def insert_material(doc, anchor, slot, files, *, wording=''):
     """The section layer selects a boundary; the shared writer owns insertion."""
     from api.services.tenders.placeholders import _drop_after, _body_block
@@ -73,13 +120,13 @@ def insert_material(doc, anchor, slot, files, *, wording=''):
     before=set(doc.element.body)
     try:
         result = _drop_after(doc,anchor,slot,files,complete=True,at_marker=True,wording=wording)
+        if original_text and anchor.xml != original_xml:
+            raise ValueError('Source block changed during material insertion: '+slot.key)
     except Exception:
         for block in list(doc.element.body):
             if block not in before:
                 doc.element.body.remove(block)
         raise
-    if original_text and anchor.xml != original_xml:
-        raise ValueError('Source block changed during material insertion: '+slot.key)
     return result
 
 
@@ -487,7 +534,7 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
                 key='request_'+hashlib.sha256(_key(title).encode()).hexdigest()[:20]
                 catalog[key]=PlaceholderItem(key=key,title=title,attachToSection=title)
                 named.append(catalog[key])
-    # Cache immutable owners/boundaries on this document across shared entrypoints.
+    # Cache ownership decisions only; physical insertion boundaries are per entrypoint.
     # A changed title/section is a new plan, never a second opinion mid-render.
     cached=getattr(doc._element,'_material_plans',None)
     if cached is None:
@@ -497,7 +544,7 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
     for key,slot in catalog.items():
         signature=key
         if signature in cached:
-            plans[key]=cached[signature]; continue
+            plans[key]=_fresh_material_plan(cached[signature], scopes); continue
         name,section=_key(slot.title),_key(slot.attachToSection)
         agent_target = None
         if _identity_family(slot,slot.attachToSection) == 'id_agent':
@@ -568,7 +615,11 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
             raise AppError(ErrorCode.VALIDATION,'无法定位任何块边界：'+slot.title,status_code=422)
         label=hit[2] if hit and re.match(r'^\s*[A-Za-z][.．、）)]',hit[2]) else slot.title
         plan={'head':head,'chapter':_heading_text(head),'anchor':endpoint,'slot':slot,'label':label,'fallback':fallback,'source':hit[1] if hit else endpoint}
-        plans[key]=cached[signature]=plan
+        plan['blocks']=list(body)
+        plans[key]=plan
+        cached[signature]={name:plan[name] for name in ('chapter','slot','label','fallback')}
+        cached[signature].update(anchor_text=_text(endpoint), source_text=_text(plan['source']),
+            chapter_index=[h for h,_,_ in scopes if _heading_text(h)==plan['chapter']].index(head))
     planned=perf_counter(); handled=set()
     section_heads={h:_heading_text(h) for h,_,_ in scopes}
     for plan in plans.values():
@@ -592,10 +643,18 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
             existing.discard(token+'_box')
         wording='对应 '+plan['label']+'；所需材料：'+material_name(slot.title)
         try:
-            pasted=insert_material(doc,plan['anchor'],slot,files,wording=wording)
-        except (OSError,ValueError,RuntimeError) as exc:
-            notes.append('警告：'+slot.title+' 渲染异常，保留文字占位：'+type(exc).__name__)
-            pasted=insert_material(doc,plan['anchor'],slot,[],wording=wording)
+            anchor=resolve_material_anchor(doc,plan)
+            pasted=insert_material(doc,anchor,slot,files,wording=wording)
+        except Exception as exc:
+            notes.append('警告：'+slot.title+' 渲染异常，尝试文字占位：'+type(exc).__name__)
+            logger.warning('material render failed key=%s chapter=%s',key,plan['chapter'],exc_info=True)
+            try:
+                anchor=resolve_material_anchor(doc,plan)
+                pasted=insert_material(doc,anchor,slot,[],wording=wording)
+            except Exception as fallback_exc:
+                notes.append('警告：'+slot.title+' 占位渲染失败，已跳过：'+type(fallback_exc).__name__)
+                logger.warning('material placeholder skipped key=%s chapter=%s',key,plan['chapter'],exc_info=True)
+                continue
         handled.add(key)
         existing.add(token+('_img' if pasted else '_box'))
         logger.info('material result key=%s kind=%s files=%s chapter=%s',key,'img' if pasted else 'box',len(files),plan['chapter'])
