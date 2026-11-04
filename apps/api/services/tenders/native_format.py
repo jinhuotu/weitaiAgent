@@ -11,6 +11,7 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
+from lxml import etree
 
 from api.services.tenders.schema import BidBrief, OutlineItem
 
@@ -978,7 +979,7 @@ def _find_body_anchor(children, cursor: int, title: str, block: list, *, skip=No
     want = _key(title)
     candidates = []
     for el in children[cursor:]:
-        if el in block or "PAGEREF" in el.xml:
+        if el in block or "PAGEREF" in etree.tostring(el, encoding="unicode"):
             continue
         paras = (
             [el]
@@ -1388,6 +1389,15 @@ def _clean_toc_gap(title, first_body, rows) -> None:
                         el.remove(child)
             else:
                 body.remove(el)
+
+    # Source submission instructions and material blocks are not directory rows.
+    # Keep them intact as front matter, and keep the generated TOC contiguous
+    # immediately before the body rather than spanning those blocks.
+    region = list(body)[body.index(title) + 1 : body.index(host)]
+    if any(el not in rows and (_text(el).strip() or el.tag == qn("w:tbl")
+               or next(el.iter(qn("w:drawing")), None) is not None) for el in region):
+        for node in [title, *rows]:
+            host.addprevious(node)
 
 
 def _validation_body_start(doc, children, rows, first_target: int) -> int:

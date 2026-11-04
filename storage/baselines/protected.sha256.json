@@ -1,9 +1,9 @@
 {
   "schema": "protected-baseline/1",
-  "generated_at": "2026-11-04T09:45:08.899906+00:00",
+  "generated_at": "2026-11-04T09:58:03.752117+00:00",
   "root": "E:\\code\\python\\weitaiAgent",
   "file_count": 149,
-  "digest": "a7b0aa40f862d63cb71133d9587966166cfa39d72076903ece37117f8b08de3d",
+  "digest": "aad77051434e160d30b435ec22b3a19ad9955dc39baa122ecfbb59536235eb72",
   "files": {
     "apps/api/routers/tenders.py": "df255868fb061a576107181d719790f0170b4fd29359f11ef878ed7dee38d914",
     "apps/api/services/tender_package/GOODS_CONTRACT.md": "d2821e8863fff0ee4ef805f769bff33fb85e2db8f0271b4dd1190252666e46c3",
@@ -105,7 +105,7 @@
     "apps/api/services/tenders/material_store.py": "7f629251a2c81fe3b85626c8e9d0aa91d5e4174d6bf13403df98d4cc5cab4884",
     "apps/api/services/tenders/modules.py": "a9e7c015f73600ce88d362e30dc9f5b3b65e2a259db2c38de2d22937d3f5be68",
     "apps/api/services/tenders/money.py": "5cf7a611ec506a1e05d03f5a9a09cc05b1b8415dffe66f22960b88faf2c2f9fb",
-    "apps/api/services/tenders/native_format.py": "a64bf85ec8ba4382cf2a03c1e46a9610e4368393c78999f1def63dfbd1caf9af",
+    "apps/api/services/tenders/native_format.py": "04c6f4e5664c37272802f31823c1564c59518d0a4aadeee20aee329ddc226e43",
     "apps/api/services/tenders/onlyoffice.py": "3e8eed255f896e707b99d249862804766a639c8587b6c73f312796a617bb51b4",
     "apps/api/services/tenders/outline.py": "fff9fccebd70c7aaab9b2d3f4115411468dc4be2ab2f345f746e78d2f5d20cf5",
     "apps/api/services/tenders/pdf_format.py": "9e8c2fd3e9ef7fe5bb0c0ff340b02e95d2e73d20eab454a1828977abb8bffa3d",
