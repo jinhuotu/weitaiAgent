@@ -6,6 +6,7 @@ import hashlib
 import logging
 import re
 import shutil
+import tempfile
 from pathlib import Path
 
 from sqlalchemy import select
@@ -59,9 +60,11 @@ TENDER_LIB_PUBLIC_ID = "tenderlib01"
 TENDER_LIB_NAME = "投标资料库"
 TAG_MATERIAL = "投标资料"
 TAG_SLOT_PREFIX = "slot:"
-_ALLOWED_EXT = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+_ALLOWED_EXT = {".doc", ".docx", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 _IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 _FILE_MIME = {
+    "doc": "application/msword",
+    "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "pdf": "application/pdf",
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -541,12 +544,36 @@ def _file_entry(doc: KnowledgeDocument, path: Path) -> dict[str, object]:
     return payload
 
 
+def _overlay_id_cards(pairs, files) -> None:
+    """摘要被 OCR 盖掉后，仍按正文把正反面配回同一个人。"""
+    by_id = {}
+    for row in _library_card_metas(pairs):
+        fid = str(row.get("fileId") or "")
+        if fid and str(row.get("personKey") or "").strip():
+            by_id[fid] = row
+    for entry in files:
+        card = by_id.get(str(entry.get("fileId") or ""))
+        if not card:
+            continue
+        entry["idCard"] = {
+            "side": str(card.get("side") or ""),
+            "name": str(card.get("name") or ""),
+            "gender": str(card.get("gender") or ""),
+            "idNo": str(card.get("idNo") or ""),
+            "age": str(card.get("age") or ""),
+            "personKey": str(card.get("personKey") or ""),
+        }
+
+
 def item_to_slot(
     parent: KnowledgeDocument,
     children: list[KnowledgeDocument],
 ) -> dict[str, object]:
     key = key_from_tags(parent.tags) or f"m{parent.public_id}"
-    files = [_file_entry(doc, path) for doc, path in _iter_file_docs(parent, children)]
+    pairs = _iter_file_docs(parent, children)
+    files = [_file_entry(doc, path) for doc, path in pairs]
+    if key == "id_legal":
+        _overlay_id_cards(pairs, files)
     if not files and key and _KEY_RE.match(key):
         for path in list_slot_files(key):
             ext = path.suffix.lstrip(".").lower()
@@ -629,6 +656,8 @@ async def open_library_file(
     ext = (doc.file_type or path.suffix.lstrip(".")).lower()
     title = (doc.name or path.stem or pid).strip() or pid
     if thumb:
+        if ext in {"doc", "docx"}:
+            raise AppError(ErrorCode.BAD_REQUEST, "Word 原件请下载查看", status_code=422)
         try:
             jpeg = preview_jpeg_from_file(path, ext=ext, max_px=360)
         except Exception as exc:  # noqa: BLE001
@@ -637,7 +666,10 @@ async def open_library_file(
                 return path.read_bytes(), path.name, _FILE_MIME.get(ext, "application/octet-stream")
             raise AppError(ErrorCode.BAD_REQUEST, "无法预览该文件", status_code=422) from exc
         return jpeg, f"{title}.jpg", "image/jpeg"
-    return path.read_bytes(), path.name, _FILE_MIME.get(ext, "application/octet-stream")
+    original_name = next((str(tag)[len("original-name:"):] for tag in (doc.tags or [])
+                          if str(tag).startswith("original-name:")), "")
+    filename = (original_name or f"{title}.{ext}") if ext in {"doc", "docx"} else path.name
+    return path.read_bytes(), filename, _FILE_MIME.get(ext, "application/octet-stream")
 
 
 async def list_library_items(db: AsyncSession) -> list[dict[str, object]]:
@@ -662,6 +694,9 @@ async def catalog_placeholders(db: AsyncSession) -> list[PlaceholderItem]:
                PlaceholderItem(key='qualification', title='企业资质证书'),
                PlaceholderItem(key='safety', title='安全生产许可证'),
                PlaceholderItem(key='other_materials', title='其他资料')]
+    known = {slot.key for slot in catalog}
+    catalog.extend(PlaceholderItem(key=str(item['key']), title=str(item['title']), hint=str(item.get('hint') or ''))
+                   for item in items if item.get('fileCount') and item['key'] not in known)
     return SlotCatalog(catalog, dismissed_keys=await dismissed_library_keys(db),
        real_keys=[standard_material_key(PlaceholderItem(key=str(item['key']), title=str(item['title']))) or str(item['key'])
                   for item in items if item.get('docId') or item.get('fileCount')])
@@ -700,14 +735,14 @@ async def dismiss_library_item(db: AsyncSession, key: str) -> dict[str, object]:
 
 def _merged_library_rows(rows):
     """A canonical display row retains real file IDs and its real delete key."""
-    from api.services.tenders.material_identity import material_key_aliases, standard_material_key
+    from api.services.tenders.material_identity import material_key_aliases, canonical_material_key
 
     aliases = material_key_aliases([*DEFAULT_SLOTS, *[
         PlaceholderItem(key=str(row['key']), title=str(row['title'])) for row in rows]])
     merged = {}
     for row in rows:
         key = str(row['key'])
-        canonical = standard_material_key(PlaceholderItem(key=key, title=str(row['title']))) or aliases.get(key, key)
+        canonical = canonical_material_key(PlaceholderItem(key=key, title=str(row['title']))) or aliases.get(key, key)
         current = merged.get(canonical)
         candidate = dict(row, key=canonical, parentKey=key)
         if current is None:
@@ -1101,6 +1136,11 @@ async def library_payload_kb(
         logger.exception("id card backfill skipped")
     slots = await list_slots_status_kb(db)
     slots = [s for s in slots if str(s.get("key") or "") != TECH_DRAWING_KEY]
+    # The management page shows custom entries even before their first upload.
+    visible_keys = {str(slot["key"]) for slot in slots}
+    for key, row in _merged_library_rows(await list_library_items(db)).items():
+        if key not in visible_keys and key != TECH_DRAWING_KEY:
+            slots.append(row)
     filled = sum(1 for s in slots if int(s.get("fileCount") or 0) > 0)
     return {
         "slots": slots,
@@ -1190,7 +1230,7 @@ async def resolve_attachments(
                     tags = child.tags or []
                     title = next((str(tag).removeprefix('material-title:') for tag in tags
                                   if str(tag).startswith('material-title:')), '')
-                    if ('material-key:' + key in tags or title and re.sub(r'\s+', '', title) == re.sub(r'\s+', '', item.title)):
+                    if ('material-key:' + key in tags or title and _norm_material_title(title) == _norm_material_title(item.title)):
                         path = _doc_file_path(child)
                         if path: paths.append(path)
         if not paths and _KEY_RE.match(key):
@@ -1198,6 +1238,22 @@ async def resolve_attachments(
         # 缺件就空着，绝不拿身份证/信用中国等其他槽位文件顶替
         if paths:
             out[key] = paths
+    for item in slots:
+        key=(item.key or '').strip()
+        if not key or out.get(key):
+            continue
+        wanted=_norm_material_title(item.title)
+        for parent in (p for group in parents.values() for p in group):
+            for child in children.get(parent.public_id,[]):
+                title=next((str(t).removeprefix('material-title:') for t in (child.tags or []) if str(t).startswith('material-title:')), '')
+                candidate=_norm_material_title(title or child.name)
+                if candidate and (candidate==wanted or (len(wanted)>=6 and (wanted in candidate or candidate in wanted))):
+                    path=_doc_file_path(child)
+                    if path:
+                        out.setdefault(key,[]).append(path)
+                        logging.getLogger(__name__).info('material title fallback key=%s source_parent=%s',key,parent.public_id)
+        if not out.get(key):
+            logging.getLogger(__name__).info('material unmatched key=%s title=%s candidates=%s',key,item.title,[])
     # 同名资料若建了自定义 key（营业执照挂在 mxxxx），标准项空着时借过来
     known = {item.key for item in DEFAULT_SLOTS}
     by_title: dict[str, list[Path]] = {}
@@ -1244,6 +1300,12 @@ async def resolve_attachments(
                 out[key] = paths
     return out
 
+def _norm_material_title(text: str) -> str:
+    value=re.sub(r'\s+','',str(text or ''))
+    value=re.sub(r'^(?:第[一二三四五六七八九十百0-9]+章|[（(][一二三四五六七八九十百0-9]+[）)]|[一二三四五六七八九十百]+、|[0-9]+\.|[A-Za-z]\.)','',value)
+    value=re.sub(r'(?:（格式）|\(格式\)|（如有）|\(如有\)|扫描件|复印件|加盖公章|（加盖单位公章）|\(加盖单位公章\))$','',value)
+    return value.rstrip('：:，,。；;的')
+
 
 async def create_library_item(
     db: AsyncSession,
@@ -1260,10 +1322,13 @@ async def create_library_item(
     raw_key = (key or '').strip()
     if raw_key and not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', raw_key):
         raise AppError(ErrorCode.VALIDATION, "资料项 key 仅支持字母数字和 _-", status_code=422)
-    next_key = standard_material_key(PlaceholderItem(key=raw_key, title=name)) or 'other_materials'
+    next_key = standard_material_key(PlaceholderItem(key=raw_key, title=name))
+    if not next_key:
+        next_key = raw_key or 'm' + hashlib.sha256(_norm_material_title(name).encode('utf-8')).hexdigest()[:24]
     base = await ensure_library_base(db, created_by=created_by)
     items = await list_library_items(db)
-    existing = next((item for item in items if item.get('key') == next_key), None)
+    existing = next((item for item in items if item.get('key') == next_key
+                     or _norm_material_title(str(item.get('title') or '')) == _norm_material_title(name)), None)
     if existing is not None:
         return existing
     # Serialize the only permitted parent-creation path. JSON slot tags have
@@ -1271,7 +1336,8 @@ async def create_library_item(
     await db.execute(select(KnowledgeBase.id).where(KnowledgeBase.id == base.id).with_for_update())
     documents = await _list_docs(db, base.id)
     found = next((doc for doc in documents if _is_material_parent(doc)
-                  and key_from_tags(doc.tags) == next_key), None)
+                  and (key_from_tags(doc.tags) == next_key
+                       or _norm_material_title(doc.name or '') == _norm_material_title(name))), None)
     if found is not None:
         result = item_to_slot(found, _group_children(documents).get(found.public_id, []))
         await db.commit()
@@ -1358,9 +1424,16 @@ async def save_library_file(
     name = Path((filename or "upload.bin").replace("\\", "/").split("/")[-1]).name
     suffix = Path(name).suffix.lower()
     if suffix not in _ALLOWED_EXT:
-        raise AppError(ErrorCode.VALIDATION, "仅支持 PDF / PNG / JPG / WEBP / GIF / BMP", status_code=422)
+        raise AppError(ErrorCode.VALIDATION, "仅支持 Word（DOC / DOCX）/ PDF / PNG / JPG / WEBP / GIF / BMP", status_code=422)
+    if suffix in {".doc", ".docx"}:
+        from api.services.knowledge.parsers import extract_text_from_file
 
-    from api.services.tenders.material_identity import standard_material_key
+        # Validate before creating a parent or replacing an existing original.
+        with tempfile.TemporaryDirectory(prefix="tender-word-") as temp_dir:
+            candidate = Path(temp_dir) / ("upload" + suffix)
+            candidate.write_bytes(data)
+            await extract_text_from_file(candidate, ext=suffix.lstrip("."), ocr_budget=0)
+
     original_key = key
     if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}', original_key or ''):
         raise AppError(ErrorCode.VALIDATION, '无效的附件项 key', status_code=422)
@@ -1371,17 +1444,18 @@ async def save_library_file(
         rows = await list_library_items(db)
         old = next((row for row in rows if row.get('key') == key), None)
         material_title = str(old.get('title') or '') if old else ''
-    key = standard_material_key(PlaceholderItem(key=key, title=material_title or key)) or 'other_materials'
     try:
         parent, children = await _get_parent(db, key)
     except AppError as exc:
         if exc.status_code != 404:
             raise
-        await create_library_item(db, title=material_title.strip()[:255] or key, hint=material_hint.strip()[:2000], key=key)
+        item = await create_library_item(db, title=material_title.strip()[:255] or key, hint=material_hint.strip()[:2000], key=key)
+        key = str(item['key'])
         parent, children = await _get_parent(db, key)
     if material_title.strip() and parent.name==key:
         parent.name=material_title.strip()[:255]
     base = await ensure_library_base(db)
+    await require_embedding_ready(db)
     if replace:
         from api.services.tenders.company_identity import company_from_document, same_company
 
@@ -1403,7 +1477,6 @@ async def save_library_file(
     if len(_files_of(parent, children)) >= _MAX_FILES_PER_SLOT:
         raise AppError(ErrorCode.VALIDATION, f"每项最多 {_MAX_FILES_PER_SLOT} 个文件", status_code=422)
 
-    await require_embedding_ready(db)
     public_id = short_id(12)
     ext = suffix.lstrip(".")
     from api.services.tenders.slots import sanitize_slot_key
@@ -1429,7 +1502,7 @@ async def save_library_file(
         review_status="approved",
     )
     db.add(child)
-    child.tags = [*(child.tags or []), 'material-key:' + original_key,
+    child.tags = [*(child.tags or []), 'original-name:' + name, 'material-key:' + original_key,
                   'material-title:' + (material_title.strip() or key)]
     if bidder_name.strip():
         child.tags = [*(child.tags or []), 'bidder:' + bidder_name.strip()[:120]]

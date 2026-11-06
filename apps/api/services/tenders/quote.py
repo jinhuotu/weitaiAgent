@@ -735,3 +735,34 @@ __all__ = [
     "sheet_from_quote_records",
     "sheet_from_rows",
 ]
+
+
+def merge_quote_files(paths):
+    """Parse uploads in order; reject incompatible headers before matching once."""
+    accepted = []
+    notes = []
+    names = []
+    for path, name in paths:
+        try:
+            sheet = parse_quote_path(path)
+            if sheet is None or not sheet.lines:
+                raise ValueError("未识别到报价分项")
+            if accepted and sheet.headers != accepted[0].headers:
+                raise ValueError("表头与第一份清单不一致")
+        except Exception as exc:
+            notes.append(f"报价清单《{name}》已跳过：{exc}")
+            continue
+        accepted.append(sheet)
+        names.append(name)
+    if not accepted:
+        return None, notes, names
+    first = accepted[0]
+    if len(accepted) == 1:
+        return first, notes, names
+    lines = tuple(replace(line, seq=str(i)) for i, line in enumerate(
+        (line for sheet in accepted for line in sheet.lines), 1))
+    return replace(first, lines=lines,
+        total_ex_tax=sum((s.total_ex_tax for s in accepted), Decimal(0)),
+        total_inc_tax=sum((s.total_inc_tax for s in accepted), Decimal(0)),
+        source_inc_tax=sum((s.source_inc_tax for s in accepted), Decimal(0)),
+        source_projects=tuple(dict.fromkeys(p for s in accepted for p in s.source_projects))), notes, names

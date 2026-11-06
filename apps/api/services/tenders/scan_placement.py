@@ -116,7 +116,7 @@ def _pictures(doc, anchor, files, key=""):
         _compose_id_strip,
         _fit_cm,
         _normalize_id_image,
-        _render_pdf_page_jpeg,
+        _render_pdf_page_bytes,
         _scan_height_cm,
     )
 
@@ -128,7 +128,7 @@ def _pictures(doc, anchor, files, key=""):
     errors = []
     cards = []
 
-    def picture(stream, size):
+    def picture(stream, size, full_page=False):
         if key in {"id_legal", "id_agent"}:
             with Image.open(stream) as raw:
                 card = _normalize_id_image(raw, force_landscape=True)
@@ -137,11 +137,15 @@ def _pictures(doc, anchor, files, key=""):
                 buffer.seek(0)
                 cards.append(buffer)
             return
-        insert(stream, size, _width(doc, anchor), max_h)
+        insert(stream, size, _width(doc, anchor), max_h, full_page=full_page or size[1] > size[0])
 
-    def insert(stream, size, width, height):
+    def insert(stream, size, width, height, full_page=False):
         w, h = _fit_cm(*size, max_w=width, max_h=height)
+        from api.services.cablepkg.image_quality import image_png
+        with Image.open(stream) as source:
+            stream = image_png(source, width_cm=w, height_cm=h)
         p = doc.add_paragraph(style="Normal")
+        p.paragraph_format.page_break_before = full_page
         p.paragraph_format.line_spacing = 1
         p.paragraph_format.space_before = p.paragraph_format.space_after = Pt(3)
         p.paragraph_format.keep_with_next = False
@@ -164,11 +168,11 @@ def _pictures(doc, anchor, files, key=""):
                     for n in range(len(pdf)):
                         page = pdf[n]
                         try:
-                            stream = _render_pdf_page_jpeg(page)
+                            stream = _render_pdf_page_bytes(page, sharp=True)
                             with Image.open(stream) as img:
                                 size = img.size
                             stream.seek(0)
-                            picture(stream, size)
+                            picture(stream, size, full_page=True)
                         finally:
                             page.close()
                 finally:
@@ -177,7 +181,7 @@ def _pictures(doc, anchor, files, key=""):
                 with Image.open(path) as raw:
                     image = ImageOps.exif_transpose(raw).convert("RGB")
                     stream = io.BytesIO()
-                    image.save(stream, format="JPEG", quality=90)
+                    image.save(stream, format="PNG")
                     stream.seek(0)
                     picture(stream, image.size)
         except Exception:  # A bad scan must not erase its placeholder or other valid pages.

@@ -37,8 +37,8 @@ _CREDIT_PDF_MAX_PAGES = 4
 _SLOT_MAX_FILES = 2
 _CREDIT_MAX_FILES = 6
 _PLACEHOLDER_MAX_IMAGES = 8
-_RENDER_SCALE = 0.5
-_JPEG_QUALITY = 45
+_RENDER_SCALE = 300 / 72.0
+_JPEG_QUALITY = 90
 _IMAGE_MAX_PX = 800
 # 信用中国等文字页按约 220dpi 出 PNG，不再走 JPEG 45/800px
 _CREDIT_DPI = 220
@@ -49,7 +49,7 @@ _ID_PAIR_MAX_IMAGES = 2
 _ID_STRIP_WIDTH_CM = 17.4
 _ID_SINGLE_WIDTH_CM = 8.6
 _ID_STRIP_MAX_H_CM = 5.4
-_ID_PREVIEW_DPI = 96
+_ID_PREVIEW_DPI = 300
 _ID_ASPECT_MIN = 1.22
 _ID_ASPECT_MAX = 1.98
 _HEADING_CM = 1.1
@@ -274,7 +274,11 @@ def this_bid_keys(
             if not (d.condition=='agent' and not has_agent)])
         # Recognition owns obligations. Catalog availability and legacy word
         # matches must never manufacture another required item after review.
-        return canonical_keys(required, normalize_slot_keys([*required,*(include_keys or [])]))
+        include=normalize_slot_keys([*required,*(include_keys or [])])
+        for item in catalog or DEFAULT_SLOTS:
+            if item.key in {'license','bank_permit','iso'} and item.key not in include:
+                include.append(item.key)
+        return canonical_keys(required, include)
     source_text = _with_format_paste(invitation_id, source_text)
     extras = extra or []
     known = {item.key for item in (catalog if catalog is not None else DEFAULT_SLOTS) if item.key}
@@ -801,6 +805,8 @@ def _slot_anchor(anchor):
 
 def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Path], *, wording: str = "", complete: bool = False, at_marker: bool = False) -> bool:
     """The single block writer: never insert inside a paragraph or a table cell."""
+    from api.services.tenders.directory_guard import assert_insertable
+    assert_insertable(doc, anchor_el)
     import hashlib
     from api.services.tenders.material_layout import constrain_blocks
     anchor_el = _body_block(anchor_el)
@@ -835,6 +841,7 @@ def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Pat
         and anchor_el.find('w:pPr/w:pBdr',anchor_el.nsmap) is not None
         and next(anchor_el.iter(qn('w:drawing')),None) is None
         and next(anchor_el.iter(qn('w:sectPr')),None) is None)
+    assert_insertable(doc, anchor_el)
     tail = [node for node in nodes[nodes.index(anchor_el)+1:] if node.tag != qn('w:sectPr')]
     for node in tail:body.remove(node)
     try:
@@ -850,9 +857,10 @@ def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Pat
             for br in list(node.iter(qn('w:br'))):
                 if br.get(qn('w:type'))=='page':
                     br.getparent().remove(br)
-            for props in node.iter(qn('w:pPr')):
-                for flag in list(props.findall(qn('w:pageBreakBefore'))):
-                    props.remove(flag)
+            if not list(node.iter(qn('w:drawing'))):
+                for props in node.iter(qn('w:pPr')):
+                    for flag in list(props.findall(qn('w:pageBreakBefore'))):
+                        props.remove(flag)
         constrain_blocks(doc,anchor_el,added)
         host=next((p for node in added for p in node.iter(qn('w:p'))
             if list(p.iter(qn('w:drawing'))) or p.find('w:pPr/w:pBdr',p.nsmap) is not None),None)
@@ -880,7 +888,10 @@ def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Pat
             for blank in blanks:
                 body.insert(len(body) - (1 if body.find(qn('w:sectPr')) is not None else 0), blank)
                 tail.remove(blank)
-            _break_before_slot(doc, sum(_slot_height_cm(doc, node) for node in added))
+            first_picture = next((node for node in added if list(node.iter(qn('w:drawing')))), None)
+            own_page = first_picture is not None and first_picture.find('w:pPr/w:pageBreakBefore', first_picture.nsmap) is not None
+            if not own_page:
+                _break_before_slot(doc, sum(_slot_height_cm(doc, node) for node in added))
             for node in added:
                 body.insert(len(body) - (1 if body.find(qn('w:sectPr')) is not None else 0), node)
         if replace_empty_frame:
@@ -983,6 +994,8 @@ def _slot_flow_cm(doc, nodes, previous=None, following=None):
 
 def _reuse_slot_blanks(doc, blanks, material, *, previous=None, following=None):
     """Replace blank paragraphs, retaining their total estimated flow height."""
+    if any(node.find('w:pPr/w:pageBreakBefore', node.nsmap) is not None for node in material):
+        return False
     if not material or len(material) > len(blanks) or any(node.tag != qn('w:p') for node in material):
         return False
     available = _slot_flow_cm(doc, blanks, previous, following)
@@ -2000,13 +2013,18 @@ def _render_pdf_page_jpeg(
     quality: int = _JPEG_QUALITY,
     max_px: int | None = None,
 ) -> io.BytesIO:
+    """Compatibility name retained for callers; new output is lossless PNG."""
     bitmap = page.render(scale=scale)
-    image = bitmap.to_pil().convert("RGB")
-    image = _shrink_pil(image, max_px=_IMAGE_MAX_PX if max_px is None else max_px)
-    buf = io.BytesIO()
-    image.save(buf, format="JPEG", quality=quality, optimize=False)
-    buf.seek(0)
-    return buf
+    try:
+        image = bitmap.to_pil().convert("RGB")
+        if max_px is not None:
+            image = _shrink_pil(image, max_px=max_px)
+        buf = io.BytesIO()
+        image.save(buf, format="PNG", dpi=(scale * 72, scale * 72))
+        buf.seek(0)
+        return buf
+    finally:
+        bitmap.close()
 
 
 def _shrink_pil(image, max_px: int | None = None):
@@ -2059,12 +2077,12 @@ def _normalize_id_image(image, *, force_landscape: bool):
     w, h = image.size
     if force_landscape or _looks_like_id_card(w, h):
         image = _force_landscape(image)
-    return _shrink_pil(image)
+    return image
 
 
 def _image_to_jpeg(image) -> io.BytesIO:
     buf = io.BytesIO()
-    image.save(buf, format="JPEG", quality=max(_JPEG_QUALITY, 55), optimize=False)
+    image.save(buf, format="PNG")
     buf.seek(0)
     return buf
 
@@ -2199,7 +2217,7 @@ def _compose_id_strip(buffers: list[io.BytesIO]) -> tuple[io.BytesIO, float, flo
     if not cards:
         return None
     resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
-    card_h = 220
+    card_h = min(round(_ID_STRIP_MAX_H_CM / 2.54 * _ID_PREVIEW_DPI), min(im.height for im in cards))
     prepared = []
     for im in cards:
         im = _force_landscape(im)
@@ -2220,9 +2238,11 @@ def _compose_id_strip(buffers: list[io.BytesIO]) -> tuple[io.BytesIO, float, flo
     )
     px_w = max(1, int(round(width_cm / 2.54 * _ID_PREVIEW_DPI)))
     px_h = max(1, int(round(height_cm / 2.54 * _ID_PREVIEW_DPI)))
-    canvas = canvas.resize((px_w, px_h), resample)
+    ratio = min(1.0, px_w / canvas.width, px_h / canvas.height)
+    if ratio < 1:
+        canvas = canvas.resize((max(1, round(canvas.width * ratio)), max(1, round(canvas.height * ratio))), resample)
     out = io.BytesIO()
-    canvas.save(out, format="JPEG", quality=82, dpi=(_ID_PREVIEW_DPI, _ID_PREVIEW_DPI), optimize=True)
+    canvas.save(out, format="PNG", dpi=(_ID_PREVIEW_DPI, _ID_PREVIEW_DPI))
     out.seek(0)
     return out, width_cm, height_cm
 
@@ -2237,9 +2257,11 @@ def _bake_id_jpeg(buf: io.BytesIO, *, width_cm: float, height_cm: float) -> io.B
         px_w = max(1, int(round(width_cm / 2.54 * _ID_PREVIEW_DPI)))
         px_h = max(1, int(round(height_cm / 2.54 * _ID_PREVIEW_DPI)))
         resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", Image.BICUBIC)
-        image = image.resize((px_w, px_h), resample)
+        ratio = min(1.0, px_w / image.width, px_h / image.height)
+        if ratio < 1:
+            image = image.resize((max(1, round(image.width * ratio)), max(1, round(image.height * ratio))), resample)
         out = io.BytesIO()
-        image.save(out, format="JPEG", quality=82, dpi=(_ID_PREVIEW_DPI, _ID_PREVIEW_DPI), optimize=True)
+        image.save(out, format="PNG", dpi=(_ID_PREVIEW_DPI, _ID_PREVIEW_DPI))
         out.seek(0)
         return out
 
@@ -2250,20 +2272,18 @@ def _insert_image(doc: Document, path: Path, *, width_cm: float = 15.5, sharp: b
     try:
         from PIL import Image
 
+        from api.services.cablepkg.image_quality import image_png
+
         with Image.open(path) as raw:
-            image = raw.convert("RGB")
-            if not sharp:
-                image = _shrink_pil(image)
-            buf = io.BytesIO()
-            if sharp:
-                image.save(buf, format="PNG")
-            else:
-                image.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=False)
-            buf.seek(0)
-            max_h = _CREDIT_MAX_H_CM if sharp else _IMAGE_MAX_H_CM
-            disp_w, disp_h = _fit_to_page(doc, image.size[0], image.size[1], max_w=width_cm, max_h=max_h)
+            image = _apply_exif(raw).convert("RGB")
+            full_page = image.height > image.width
+            max_h = _scan_height_cm(doc) if full_page else _IMAGE_MAX_H_CM
+            disp_w, disp_h = _fit_cm(*image.size, max_w=width_cm, max_h=max_h)
+            buf = image_png(image, width_cm=disp_w, height_cm=disp_h)
             pic = doc.add_paragraph()
             pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            pic.paragraph_format.page_break_before = full_page
+            pic.paragraph_format.line_spacing = 1
             pic.paragraph_format.space_before = Pt(4)
             pic.paragraph_format.space_after = Pt(4)
             pic.add_run().add_picture(buf, width=Cm(disp_w), height=Cm(disp_h))
@@ -2293,21 +2313,14 @@ def _fit_to_page(
 
 
 def _scan_height_cm(doc: Document) -> float:
-    """Reserve captions/gaps so normal scans can share a body page."""
-    return min(_IMAGE_MAX_H_CM, max(4.0, _page_body_cm(doc) / 2 - 1.0))
+    """Use the printable page height while reserving attachment spacing."""
+    return max(4.0, _page_body_cm(doc) - 1.0)
 
 
 def _render_pdf_page_bytes(page, *, sharp: bool) -> io.BytesIO:
-    if sharp:
-        scale = _CREDIT_DPI / 72.0
-        bitmap = page.render(scale=scale)
-        image = bitmap.to_pil().convert("RGB")
-        image = _shrink_pil(image, max_px=_CREDIT_MAX_PX)
-        buf = io.BytesIO()
-        image.save(buf, format="PNG", dpi=(_CREDIT_DPI, _CREDIT_DPI))
-        buf.seek(0)
-        return buf
-    return _render_pdf_page_jpeg(page)
+    from api.services.cablepkg.image_quality import pdf_page_png
+
+    return pdf_page_png(page)
 
 
 def _insert_pdf_pages(
@@ -2332,7 +2345,6 @@ def _insert_pdf_pages(
     try:
         count = min(len(pdf), max_pages)
         inserted = 0
-        max_h = _CREDIT_MAX_H_CM if sharp else _IMAGE_MAX_H_CM
         for i in range(count):
             if budget is not None and budget.get("left", 0) <= 0:
                 break
@@ -2348,9 +2360,11 @@ def _insert_pdf_pages(
                     buf.seek(0)
                 except Exception:
                     pass
-                disp_w, disp_h = _fit_to_page(doc, px_w, px_h, max_w=15.5, max_h=max_h)
+                disp_w, disp_h = _fit_cm(px_w, px_h, max_w=15.5, max_h=_scan_height_cm(doc))
                 pic = doc.add_paragraph()
                 pic.alignment = WD_ALIGN_PARAGRAPH.CENTER
+                pic.paragraph_format.page_break_before = True
+                pic.paragraph_format.line_spacing = 1
                 pic.paragraph_format.space_before = Pt(2)
                 pic.paragraph_format.space_after = Pt(2)
                 buf.seek(0)

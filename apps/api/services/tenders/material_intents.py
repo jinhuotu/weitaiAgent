@@ -275,6 +275,15 @@ def _catalog(catalog):
 
 
 def apply_demand_slots(brief: BidBrief, demands):
+    from api.services.cablepkg.material_binding import normalize_demands
+    demands = normalize_demands(brief, demands)
+    from api.services.cablepkg.word_materials import material_title_valid
+    invalid_keys = {slot.key for slot in brief.extraPlaceholders if not material_title_valid(slot.title)}
+    invalid_keys.update(demand.slotKey for demand in demands if not material_title_valid(demand.title))
+    brief.extraPlaceholders = [slot for slot in brief.extraPlaceholders if slot.key not in invalid_keys]
+    brief.requiredSlotKeys = [key for key in brief.requiredSlotKeys if key not in invalid_keys]
+    brief.includeSlotKeys = [key for key in brief.includeSlotKeys if key not in invalid_keys]
+    demands = [demand for demand in demands if material_title_valid(demand.title)]
     merged = {}
     for demand in demands:
         # Repeated source appearances do not create another material/box.

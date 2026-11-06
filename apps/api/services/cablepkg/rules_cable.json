@@ -1,0 +1,728 @@
+{
+  "schema_version": "cable-design/1",
+  "disclaimer": "未验证的10kV设计规则；标准编号仅作核验线索，全部需企业核定，不构成报告或企业事实。",
+  "geometry": {
+    "compaction": 0.9,
+    "core_layers": [
+      0.8,
+      4.6,
+      0.8,
+      0.1
+    ],
+    "bundle_factor": 2.1547,
+    "liner": 1.5,
+    "steel_large": 0.8,
+    "steel_small": 0.5,
+    "large_area": 240,
+    "sheath_single": 2.5,
+    "sheath_small": 3.0,
+    "sheath_default": 3.2,
+    "small_area": 70,
+    "screen_thickness": 0.1,
+    "overlap": 0.15,
+    "tape_width": 35,
+    "winding_pitch": 35,
+    "single_core_gap": 0.6
+  },
+  "models": {
+    "YJLV22": {
+      "insulation": "XLPE",
+      "screen_type": "可剥离",
+      "armor": "镀锌钢带",
+      "sheath": "聚氯乙烯",
+      "separator": "聚氯乙烯（阻燃）"
+    },
+    "YJV22": {
+      "insulation": "XLPE",
+      "screen_type": "可剥离",
+      "armor": "镀锌钢带",
+      "sheath": "聚氯乙烯",
+      "separator": "聚氯乙烯（阻燃）"
+    },
+    "YJV63": {
+      "insulation": "XLPE",
+      "screen_type": "可剥离",
+      "armor": "不锈钢带（非磁性）",
+      "sheath": "聚乙烯",
+      "separator": "聚氯乙烯（阻燃）"
+    }
+  },
+  "resistance_limits": {
+    "铜": {
+      "70": 0.268,
+      "120": 0.153,
+      "150": 0.124,
+      "240": 0.0754,
+      "300": 0.0601,
+      "400": 0.047
+    },
+    "铝": {
+      "70": 0.443,
+      "120": 0.253,
+      "150": 0.206,
+      "240": 0.125,
+      "300": 0.1,
+      "400": 0.0778
+    }
+  },
+  "rules": [
+    {
+      "id": "R2.model",
+      "name_pattern": "^产品型号规格$",
+      "action": "metadata",
+      "params": {
+        "field": "model"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.conductor",
+      "name_pattern": "^导体材料$",
+      "action": "metadata",
+      "params": {
+        "field": "cond"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.area",
+      "name_pattern": "^导体芯数",
+      "action": "core_area",
+      "params": {},
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.insulation",
+      "name_pattern": "^绝缘材料$",
+      "action": "structure",
+      "params": {
+        "field": "insulation"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.screen",
+      "name_pattern": "^绝缘屏蔽类型$",
+      "action": "structure",
+      "params": {
+        "field": "screen_type"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.armor",
+      "name_pattern": "^铠装层材料$",
+      "action": "structure",
+      "params": {
+        "field": "armor"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.sheath",
+      "name_pattern": "^外护套材料$",
+      "action": "structure",
+      "params": {
+        "field": "sheath"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.separator",
+      "name_pattern": "^隔离套材料$",
+      "action": "structure",
+      "params": {
+        "field": "separator"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.wire_gap",
+      "name_pattern": "^金属屏蔽铜丝.*间隙",
+      "action": "constant",
+      "params": {
+        "value": "不适用（采用铜带屏蔽，搭盖率15%）"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.screen_wire",
+      "name_pattern": "^金属屏蔽铜丝",
+      "action": "constant",
+      "params": {
+        "value": "不适用（采用铜带屏蔽）"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.armor_wire",
+      "name_pattern": "^铠装层钢丝",
+      "action": "constant",
+      "params": {
+        "value": "不适用（钢带铠装）"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R2.components",
+      "name_pattern": "^(交联聚乙烯绝缘电力电缆|电缆导体|交联聚乙烯绝缘料|半导电屏蔽料|铜带（丝）屏蔽|钢带（丝）铠装|外护套（PVC）|外护套（PE）)$",
+      "action": "constant",
+      "params": {
+        "value": "（待填：本厂或外购厂家型式规格）"
+      },
+      "level": "L4",
+      "basis": "组件制造商与原产地属于企业事实，禁止推测"
+    },
+    {
+      "id": "R2.flame",
+      "name_pattern": "^电缆阻燃等级$",
+      "action": "constant",
+      "params": {
+        "value": "C类（GB/T 19666 ZC）"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R1.environment",
+      "name_pattern": "^(海拔高度|最高气温|最低气温|地面水平加速度|地面垂直加速度|日照强度)",
+      "action": "copy",
+      "params": {},
+      "level": "L2",
+      "basis": "环境需求照录，非企业事实"
+    },
+    {
+      "id": "R3.separator_percent",
+      "name_pattern": "^隔离套最小厚度$",
+      "action": "percent",
+      "params": {
+        "nominal": 2.0
+      },
+      "level": "L3",
+      "basis": "设计标称隔离套2mm × 需求百分比；输出mm",
+      "qualifier": "%标称厚度",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.sheath_percent",
+      "name_pattern": "^外护套最薄点厚度$",
+      "action": "percent",
+      "params": {
+        "nominal_field": "sheath"
+      },
+      "level": "L3",
+      "basis": "按设计标称护套厚度 × 需求百分比；输出mm",
+      "qualifier": "%标称厚度",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.conductor",
+      "name_pattern": "^导体外径$",
+      "action": "geometry",
+      "params": {
+        "field": "conductor"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "digits": 1,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.armor",
+      "name_pattern": "^铠装层外径$",
+      "action": "geometry",
+      "params": {
+        "field": "armor"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "digits": 1,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.cable",
+      "name_pattern": "^(电缆外径|缆径)$",
+      "action": "geometry",
+      "params": {
+        "field": "cable"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "digits": 1,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.steel",
+      "name_pattern": "^铠装层钢带厚度",
+      "action": "geometry",
+      "params": {
+        "field": "steel"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "digits": 1,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.pitch",
+      "name_pattern": "节距",
+      "action": "geometry",
+      "params": {
+        "field": "cable",
+        "factor": 20
+      },
+      "level": "L3",
+      "basis": "设计节距取缆径20倍，须企业工艺核定",
+      "operators": [
+        "ge",
+        "le",
+        "eq",
+        "bidder_supplied"
+      ],
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R5.wrap",
+      "name_pattern": "^导体屏蔽绕包",
+      "action": "constant",
+      "params": {
+        "value": "1层×0.20"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.shield_average",
+      "name_pattern": "^(挤包导体屏蔽|绝缘屏蔽)平均厚度$",
+      "action": "constant",
+      "params": {
+        "value": 0.8
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.shield_min",
+      "name_pattern": "^(挤包导体屏蔽|绝缘屏蔽)最薄点厚度$",
+      "action": "constant",
+      "params": {
+        "value": 0.65
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.screen_width",
+      "name_pattern": "^金属屏蔽铜带宽度$",
+      "action": "geometry_parameter",
+      "params": {
+        "field": "tape_width"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R5.screen_thickness",
+      "name_pattern": "^金属屏蔽铜带厚度$",
+      "action": "geometry_parameter",
+      "params": {
+        "field": "screen_thickness"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R5.overlap",
+      "name_pattern": "^金属屏蔽铜带最小搭盖率$",
+      "action": "geometry_parameter",
+      "params": {
+        "field": "overlap",
+        "factor": 100
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R5.filler",
+      "name_pattern": "^填充层材料$",
+      "action": "constant",
+      "params": {
+        "value": "阻燃聚丙烯网状填充绳＋无纺布包带"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.liner",
+      "name_pattern": "^内衬层厚度$",
+      "action": "constant",
+      "params": {
+        "value": 1.5
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.steel_layers",
+      "name_pattern": "^铠装层钢带层数",
+      "action": "constant",
+      "params": {
+        "value": 2
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.steel_width",
+      "name_pattern": "^铠装层钢带宽度",
+      "action": "constant",
+      "params": {
+        "value": 35
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.color",
+      "name_pattern": "^外护套颜色$",
+      "action": "constant",
+      "params": {
+        "value": "黑色（可按买方要求着色）"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.special",
+      "name_pattern": "^外护套特殊要求",
+      "action": "constant",
+      "params": {
+        "value": "可按买方要求提供防白蚁、防鼠型（GB/T 2951.38）"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R5.sheath_resistance",
+      "name_pattern": "^外护套的绝缘电阻$",
+      "action": "constant",
+      "params": {
+        "value": "≥300"
+      },
+      "level": "L3",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R3.insulation_average",
+      "name_pattern": "^绝缘平均厚度$",
+      "action": "affine",
+      "params": {
+        "offset": 0.1
+      },
+      "level": "L3",
+      "basis": "需求下限 + 0.1mm设计余量",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.insulation_min",
+      "name_pattern": "^绝缘最薄点厚度$",
+      "action": "affine",
+      "params": {
+        "offset": 0.2
+      },
+      "level": "L3",
+      "basis": "需求下限 + 0.2mm设计余量",
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R3.screen_min",
+      "name_pattern": "^金属屏蔽铜带最小厚度$",
+      "action": "copy",
+      "params": {},
+      "level": "L2",
+      "basis": "需求指定最小厚度照录"
+    },
+    {
+      "id": "R4.compaction",
+      "name_pattern": "^圆形导体紧压系数$",
+      "action": "affine",
+      "params": {
+        "factor": 1,
+        "offset": 0.02
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.eccentricity",
+      "name_pattern": "^(绝缘偏心度|电缆不圆度)$",
+      "action": "affine",
+      "params": {
+        "factor": 0.5,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.resistivity",
+      "name_pattern": "^导体半导电屏蔽层",
+      "action": "affine",
+      "params": {
+        "factor": 0.1,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.tandelta",
+      "name_pattern": "^tanδ",
+      "action": "affine",
+      "params": {
+        "factor": 0.5,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果",
+      "digits": 4
+    },
+    {
+      "id": "R4.insulation_tensile",
+      "name_pattern": "^绝缘老化前抗张强度$",
+      "action": "affine",
+      "params": {
+        "factor": 1,
+        "offset": 1
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.insulation_elongation",
+      "name_pattern": "^绝缘老化前断裂伸长率$",
+      "action": "affine",
+      "params": {
+        "factor": 1,
+        "offset": 30
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.shrink",
+      "name_pattern": "^绝缘收缩率$",
+      "action": "affine",
+      "params": {
+        "factor": 0.75,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.hot_load",
+      "name_pattern": "^绝缘热延伸负荷下伸长率$",
+      "action": "affine",
+      "params": {
+        "factor": 0.8,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.hot_cool",
+      "name_pattern": "^绝缘热延伸冷却后永久伸长率$",
+      "action": "affine",
+      "params": {
+        "factor": 0.5,
+        "offset": 0
+      },
+      "level": "L3",
+      "basis": "需求限值加设计余量；估算而非检测结果"
+    },
+    {
+      "id": "R4.peel_before",
+      "name_pattern": "^绝缘屏蔽老化前剥离力$",
+      "action": "constant",
+      "params": {
+        "value": 12
+      },
+      "level": "L3",
+      "basis": "区间内的设计目标力，须试验核定"
+    },
+    {
+      "id": "R4.peel_after",
+      "name_pattern": "^绝缘屏蔽老化后剥离力$",
+      "action": "constant",
+      "params": {
+        "value": 18
+      },
+      "level": "L3",
+      "basis": "区间内的设计目标力，须试验核定"
+    },
+    {
+      "id": "R4.tensile_change",
+      "name_pattern": "^非金属外护套老化后抗张强度变化率$",
+      "action": "constant",
+      "params": {
+        "value": "±15"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R4.elongation_change",
+      "name_pattern": "^非金属外护套老化后断裂伸长率变化率$",
+      "action": "constant",
+      "params": {
+        "value": "±15"
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R4.loss",
+      "name_pattern": "^非金属外护套热失重",
+      "action": "constant",
+      "params": {
+        "value": 1.2
+      },
+      "level": "L2",
+      "basis": "设计配置估算，须企业核定"
+    },
+    {
+      "id": "R4.sheath_tensile_before",
+      "name_pattern": "^非金属外护套老化前抗张强度$",
+      "action": "affine",
+      "params": {
+        "offset": 0.5,
+        "fallback": 12.5
+      },
+      "level": "L3",
+      "basis": "配方设计余量；无数值的PE旧需求按待核定设计基准"
+    },
+    {
+      "id": "R4.sheath_tensile_after",
+      "name_pattern": "^非金属外护套老化后抗张强度$",
+      "action": "affine",
+      "params": {
+        "offset": 0.3,
+        "fallback": 12.5
+      },
+      "level": "L3",
+      "basis": "配方设计余量；无数值的PE旧需求按待核定设计基准"
+    },
+    {
+      "id": "R4.sheath_elongation_before",
+      "name_pattern": "^非金属外护套老化前断裂伸长率$",
+      "action": "affine",
+      "params": {
+        "offset": 30,
+        "fallback": 300
+      },
+      "level": "L3",
+      "basis": "配方设计余量；无数值的PE旧需求按待核定设计基准"
+    },
+    {
+      "id": "R4.sheath_elongation_after",
+      "name_pattern": "^非金属外护套老化后断裂伸长率$",
+      "action": "affine",
+      "params": {
+        "offset": 20,
+        "fallback": 300
+      },
+      "level": "L3",
+      "basis": "配方设计余量；无数值的PE旧需求按待核定设计基准"
+    },
+    {
+      "id": "R4.resistance",
+      "name_pattern": "^20℃时导体最大直流电阻$",
+      "action": "resistance",
+      "params": {
+        "factor": 0.96
+      },
+      "level": "L3",
+      "basis": "GB/T 3956核验线索：截面/材质限值表 × 0.96，待核定",
+      "digits": 4,
+      "significant_digits": 3
+    },
+    {
+      "id": "R5.screen_resistance",
+      "name_pattern": "^20℃时金属屏蔽最大直流电阻$",
+      "action": "screen_resistance",
+      "params": {
+        "resistivity": 17.241
+      },
+      "level": "L3",
+      "basis": "铜带等效面积与电阻率估算",
+      "digits": 2,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R5.short_conductor",
+      "name_pattern": "^导体允许短路电流",
+      "action": "short_circuit",
+      "params": {
+        "seconds": 3
+      },
+      "level": "L3",
+      "basis": "绝热设计估算 kS/√t，输出kA；非试验值",
+      "digits": 1
+    },
+    {
+      "id": "R5.short_screen",
+      "name_pattern": "^金属屏蔽允许短路电流",
+      "action": "short_circuit",
+      "params": {
+        "seconds": 3,
+        "screen": true
+      },
+      "level": "L3",
+      "basis": "等效铜带面积的绝热设计估算，输出kA",
+      "digits": 2,
+      "source": "设计手册待核定"
+    },
+    {
+      "id": "R4.voltage",
+      "name_pattern": "^(出厂工频电压试验电压|安装后交流电压试验电压)",
+      "action": "copy",
+      "params": {},
+      "level": "L2",
+      "basis": "试验电压需求照录，不代表已通过试验"
+    }
+  ],
+  "forbidden_patterns": [
+    "^(?:完全)?满足(要求|招标文件.*要求)?$",
+    "^响应$",
+    "^无偏离$",
+    "^满足用户要求$"
+  ],
+  "short_circuit": {
+    "k_copper": 143,
+    "k_aluminium": 94,
+    "time_bases": [
+      1,
+      3
+    ],
+    "conductor_keys": {
+      "铜": "k_copper",
+      "铝": "k_aluminium"
+    }
+  }
+}

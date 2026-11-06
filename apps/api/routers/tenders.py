@@ -83,6 +83,8 @@ router = APIRouter(prefix="/tenders", tags=["tenders"])
 from api.routers.tender_materials import router as materials_router
 
 router.include_router(materials_router)
+from api.routers.bid_table_import import router as bid_table_import_router
+router.include_router(bid_table_import_router)
 
 logger = logging.getLogger("api.tenders")
 
@@ -257,13 +259,19 @@ async def tenders_library_file(
 ):
     await kb_access.require_tender_lib_read(db, user)
     data, filename, media_type = await open_library_file(db, doc_id, thumb=thumb)
-    ascii_name = re.sub(r"[^\w.\-]+", "_", filename) or "preview.jpg"
+    from urllib.parse import quote
+
+    disposition = "attachment" if media_type in {
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    } else "inline"
+    encoded_name = quote(filename, safe="")
     return Response(
         content=data,
         media_type=media_type,
         headers={
             "Cache-Control": "private, max-age=300",
-            "Content-Disposition": f"inline; filename*=UTF-8''{ascii_name}",
+            "Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded_name}",
         },
     )
 
@@ -408,7 +416,9 @@ async def tenders_clear_slot(
 async def tenders_parse_invitation(
     db: DbSession,
     user: CurrentUser,
-    file: UploadFile = File(..., description="投标邀请书 / 招标文件：.doc / .docx"),
+    file: UploadFile | None = File(None, description="投标邀请书 / 招标文件：.doc / .docx"),
+    files: list[UploadFile] | None = File(None),
+    quoteFiles: list[UploadFile] | None = File(None),
     quoteFile: UploadFile | None = File(None, description="可选：工程量清单 Excel/Word"),
     quoteRecordIds: str | None = Form(
         None, description="可选：AI 报价记录 publicId，JSON 数组或逗号分隔"
@@ -416,7 +426,13 @@ async def tenders_parse_invitation(
     kbIds: str | None = Form(None, description="知识库 ID：JSON 数组或逗号分隔"),
     current: str | None = Form(None, description="当前表单 JSON，抽取结果合并到其上"),
 ):
-    invitation_word_ext(file.filename)
+    uploads = [*(files or []), *([file] if file is not None else [])]
+    quotes = [*(quoteFiles or []), *([quoteFile] if quoteFile is not None else [])]
+    if not uploads or len(uploads) > 5 or len(quotes) > 5:
+        raise AppError(ErrorCode.VALIDATION, "请上传 1–5 份邀请书，报价清单最多 5 份", status_code=422)
+    for item in uploads:
+        invitation_word_ext(item.filename)
+    file = uploads[0]
     brief, volume_locked = _parse_current_brief(current)
     from api.services.tenders.demo import demo_enabled, demo_parse
 
@@ -428,15 +444,28 @@ async def tenders_parse_invitation(
         )
         payload = await parse_invitation(
             db,
-            file,
+            uploads if len(uploads) > 1 else file,
             kb_ids=parse_kb_ids(kbIds),
             current=brief,
-            quote_upload=quoteFile,
+            quote_upload=quotes if len(quotes) > 1 else (quotes[0] if quotes else None),
             quote_record_ids=parse_kb_ids(quoteRecordIds),
             created_by=int(user.id),
             persist_library=persist_library,
             volume_locked=volume_locked,
         )
+    # Sidecar analysis only: never merge scoring review into the generation brief.
+    from api.services.tender_comparison import extract_scoring
+    from api.services.tenders.assets import load_invitation_text
+    parsed_brief = payload.get("brief") or {}
+    payload["scoringReview"] = await extract_scoring(
+        db, load_invitation_text(str(parsed_brief.get("invitationId") or "")),
+        scope={key: parsed_brief.get(key, '') for key in ('lotName', 'bidContent')},
+    )
+    if payload.get("ocrCapped"):
+        payload["scoringReview"]["complete"] = False
+        payload["scoringReview"]["extractionComplete"] = False
+        payload["scoringReview"]["phase"] = "partial"
+        payload["scoringReview"]["warnings"].append("OCR reached its page limit; source review is required.")
     brief_data = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     extras = _coerce_placeholders(brief_data.get("extraPlaceholders"))
     include_keys = [

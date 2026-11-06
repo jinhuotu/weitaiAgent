@@ -1088,5 +1088,19 @@ async def inspect_bid(
         file_counts=file_counts,
         catalog=catalog,
     )
+    try:
+        from api.services.tender_comparison import compare_scoring
+        from api.services.knowledge.parsers import extract_text_from_file
+        scoring_bid = await extract_text_from_file(path, ext="docx")
+        report["scoringReview"] = await compare_scoring(
+            db, invitation, scoring_bid.text or "", vol,
+            scope={"lotName": brief.lotName, "bidContent": brief.bidContent},
+        )
+    except Exception:
+        logger.exception("scoring sidecar failed")
+        report["scoringReview"] = {
+            "version": "scoring-review/1", "complete": False, "rows": [],
+            "warnings": ["评分分析不可用，请重试；原有自检结果已保留。"],
+        }
     save_qa_report(public_id, report, volume=vol)
     return report

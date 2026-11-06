@@ -1,0 +1,50 @@
+"""Submission directories describe locations; they are never insertion sites."""
+import re
+
+from docx.oxml.ns import qn
+
+
+def _text(node):
+    return ''.join(t.text or '' for t in node.iter(qn('w:t'))).strip()
+
+
+def directory_blocks(doc):
+    """Include a tabular directory and its notes until an actual body chapter."""
+    from api.services.tenders.word_structure import outline_level
+
+    blocked = set()
+    active = False
+    for node in doc.element.body:
+        if node.tag == qn('w:sectPr'):
+            continue
+        text = re.sub(r'\s+', '', _text(node))
+        title = node.tag == qn('w:p') and bool(re.fullmatch(
+            r'(?:(?:第[一二三四五六七八九十\d]+章)|[一二三四五六七八九十\d]+[、.．])?(?:投标|响应)文件(?:格式目录|组成目录)', text))
+        table = node.tag == qn('w:tbl') and (
+            '提交方式' in text and ('上传端口' in text or '是否有格式要求' in text)
+        )
+        if title or table:
+            active = True
+        elif active and node.tag == qn('w:p') and text:
+            # Page/section breaks, numbered explanations and attachment mentions
+            # cannot turn a directory note into a real submission chapter.
+            body_heading = bool(
+                text in {'价格文件', '商务文件', '技术文件'} or
+                (len(text) < 100 and not re.search(r'[。；;：:]|说明|请针对|目录中', text) and (
+                    outline_level(doc, node) or
+                    re.match(r'^(?:第[一二三四五六七八九十\d]+[章节]|[一二三四五六七八九十]+[、.]|[（(][一二三四五六七八九十]+[）)])', text)
+                ))
+            )
+            if body_heading:
+                active = False
+        if active:
+            blocked.add(node)
+    return blocked
+
+
+def assert_insertable(doc, anchor):
+    body = doc.element.body
+    while anchor is not None and anchor.getparent() is not body:
+        anchor = anchor.getparent()
+    if anchor in directory_blocks(doc):
+        raise ValueError('投标文件格式目录及说明区禁止插入附件或占位内容，请定位实际正文章节')

@@ -644,11 +644,11 @@ def _fill_project_facts(data: dict, text: str, *, file_name: str = "") -> None:
 
 async def parse_invitation(
     db: AsyncSession,
-    upload: UploadFile,
+    upload: UploadFile | list[UploadFile],
     *,
     kb_ids: list[str] | None = None,
     current: BidBrief | None = None,
-    quote_upload: UploadFile | None = None,
+    quote_upload: UploadFile | list[UploadFile] | None = None,
     quote_record_ids: list[str] | None = None,
     created_by: int | None = None,
     persist_library: bool = True,
@@ -657,15 +657,60 @@ async def parse_invitation(
     from api.services.tenders.performance_tracker import PerformanceTracker
     tracker = PerformanceTracker()
     tracker.start_total()
-    path = await _save_invitation(upload)
-    quote_path = None
-    if quote_upload is not None and (quote_upload.filename or "").strip():
-        quote_path = await _save_upload(quote_upload)
-    extracted = await extract_text_from_file(path, ext=path.suffix.lower().lstrip("."))
-    invitation = (extracted.text or "").strip()
-    invitation_id = save_invitation_text(invitation, stem=path.stem)
+    from types import SimpleNamespace
+    uploads = list(upload) if isinstance(upload, (list, tuple)) else [upload]
+    quotes = list(quote_upload) if isinstance(quote_upload, (list, tuple)) else ([quote_upload] if quote_upload else [])
+    if not uploads or len(uploads) > 5 or len(quotes) > 5:
+        raise AppError(ErrorCode.VALIDATION, "请上传 1–5 份邀请书，报价清单最多 5 份", status_code=422)
+    if quotes and quote_record_ids:
+        raise AppError(ErrorCode.VALIDATION, "报价清单与报价记录不能同时选择", status_code=422)
     settings = get_settings()
     max_ocr = max(0, int(settings.ocr_max_pages))
+    texts, results, paths = [], [], []
+    used = 0
+    for item in uploads:
+        try:
+            saved = await _save_invitation(item)
+            kwargs = {"ocr_budget": max(0, max_ocr - used)} if len(uploads) > 1 else {}
+            part = await extract_text_from_file(saved, ext=saved.suffix.lower().lstrip("."), **kwargs)
+            text = (part.text or "").strip()
+            if len(text) < 20:
+                raise ValueError("邀请书解析正文过短，请换可检索的 Word（.doc / .docx）")
+        except Exception as exc:
+            raise AppError(ErrorCode.VALIDATION, f"邀请书《{item.filename}》解析失败：{exc}", status_code=422) from exc
+        paths.append(saved)
+        texts.append(text)
+        results.append(part)
+        used += int(getattr(part, "ocr_pages", 0) or 0)
+    upload = uploads[0]
+    path = paths[0]
+    invitation = "\n\n".join(texts)
+    extracted = SimpleNamespace(text=invitation,
+        page_count=sum(int(getattr(r, "page_count", 0) or 0) for r in results),
+        ocr_pages=used, ocr_capped=(any(bool(getattr(r, "ocr_capped", False)) for r in results)
+            or (len(uploads) > 1 and used >= max_ocr)))
+    invitation_id = save_invitation_text(invitation, stem=path.stem)
+    from api.services.tenders.invitation_attachment import save_sources
+    save_sources(invitation_id, paths, [item.filename or "" for item in uploads], texts)
+    quote_path = None
+    quote_warnings, quote_names = [], []
+    merged_sheet = None
+    quote_upload = quotes[0] if quotes else None
+    if len(quotes) == 1:
+        try:
+            quote_path = await _save_upload(quotes[0])
+        except Exception as exc:
+            quote_warnings.append(f"报价清单《{quotes[0].filename}》已跳过：{exc}")
+    elif quotes:
+        from api.services.tenders.quote import merge_quote_files
+        quote_paths = []
+        for item in quotes:
+            try:
+                quote_paths.append((await _save_upload(item), item.filename or ""))
+            except Exception as exc:
+                quote_warnings.append(f"报价清单《{item.filename}》已跳过：{exc}")
+        merged_sheet, warnings, quote_names = merge_quote_files(quote_paths)
+        quote_warnings.extend(warnings)
     if len(invitation) < 20:
         hint = "邀请书解析正文过短，请换可检索的 Word（.doc / .docx）"
         if extracted.ocr_capped:
@@ -721,6 +766,7 @@ async def parse_invitation(
     brief, filled = apply_extract_patch(current or default_brief(), patch)
     brief = apply_invite_letter_fields(brief, invitation, file_name=upload.filename or "")
     brief.invitationId = invitation_id
+    brief.bidTableImportId = ""
 
     # ========== 并行化独立DB查询 ==========
     with tracker.track("db_query"):
@@ -855,6 +901,7 @@ async def parse_invitation(
         path,
         quote_path,
         record_sheet=quote_record_sheet,
+        **({"file_sheet": merged_sheet} if quotes and len(quotes) > 1 else {}),
         source_name=quote_upload.filename if quote_upload is not None else '',
     )
     if quote_filled:
@@ -959,7 +1006,7 @@ async def parse_invitation(
     if extracted.ocr_capped:
         notes.insert(
             0,
-            f"邀请书共 {extracted.page_count or '?'} 页，OCR 已达上限 {max_ocr} 页"
+            f"上传文件合计 {extracted.page_count or '?'} 页，OCR 已达上限 {max_ocr} 页"
             f"（实际识别 {extracted.ocr_pages} 页）。未识别页未进入抽取，可提高 OCR_MAX_PAGES 后重试。",
         )
     elif extracted.ocr_pages:
@@ -973,7 +1020,8 @@ async def parse_invitation(
     if brief.layoutMode == "outline" and path.suffix.lower() == ".docx":
         from api.services.tenders.pdf_format import prepare_word_format_docx
 
-        fmt_note = await asyncio.to_thread(prepare_word_format_docx, path, invitation_id)
+        from api.services.tenders.invitation_attachment import format_source
+        fmt_note = await asyncio.to_thread(prepare_word_format_docx, format_source(paths), invitation_id)
     elif brief.layoutMode == "outline" and path.suffix.lower() == ".pdf":
         fmt_note = "格式章只从 Word 原件截取，请将招标文件另存为 .docx 后重新上传"
     if fmt_note:
@@ -1068,6 +1116,11 @@ async def parse_invitation(
     if (brief.volumeNote or "").strip():
         notes.append(brief.volumeNote)
 
+    notes.extend(quote_warnings)
+    if len(quotes) > 1 and merged_sheet is not None:
+        notes.append(f"已合并 {len(quote_names)} 份报价清单（主文件：{quote_names[0]}）")
+    if len(uploads) > 1:
+        notes.append(f"已合并 {len(uploads)} 份文件（主文件：{upload.filename}）")
     preview = invitation[:1200] + ("…" if len(invitation) > 1200 else "")
 
     with tracker.track("db_query"):
@@ -1085,6 +1138,8 @@ async def parse_invitation(
         "requiredSlotKeys": required_keys,
         "includeSlotKeys": include_keys,
         "attachmentMatch": attachment_match,
+        "fileNames": [item.filename for item in uploads],
+        "quoteFileNames": [item.filename for item in quotes],
         "fileName": upload.filename or path.name,
         "quoteFileName": (quote_upload.filename if quote_upload is not None else None),
         "charCount": len(invitation),
@@ -1332,17 +1387,23 @@ def _merge_quote(
     quote_path,
     record_sheet=None,
     source_name: str = '',
+    file_sheet=None,
 ) -> tuple[list[str], BidBrief, bool]:
     del patch, invitation, invite_path
     notes: list[str] = []
     from api.services.tenders.quote import quote_source_notes
-    sheet = parse_quote_path(quote_path) if quote_path is not None else None
+    sheet = file_sheet
+    if sheet is None and quote_path is not None:
+        try:
+            sheet = parse_quote_path(quote_path)
+        except Exception as exc:
+            notes.append(f"报价清单《{source_name or Path(quote_path).name}》已跳过：{exc}")
     source = "file" if sheet is not None else ""
     if sheet is None and record_sheet is not None:
         sheet = record_sheet
         source = "record"
     if sheet is None and quote_path is not None:
-        notes.append("报价清单未能按表格解析，生成时不填写报价分项。")
+        notes.append(f"报价清单《{source_name or Path(quote_path).name}》未能按表格解析，已跳过，生成时不填写报价分项。")
     if sheet is None:
         if quote_path is None:
             notes.append("未上传报价清单，生成时不填写报价分项。未采用模型或历史投标书中的台数。")
@@ -1391,13 +1452,13 @@ def invitation_word_ext(filename: str | None) -> str:
     name = (filename or "").replace("\\", "/").split("/")[-1].strip()
     ext = Path(name).suffix.lower()
     if ext not in _INVITE_WORD:
-        raise AppError(ErrorCode.VALIDATION, "投标邀请书只支持 .doc 和 .docx", status_code=422)
+        raise AppError(ErrorCode.VALIDATION, f"《{filename}》投标邀请书只支持 .doc 和 .docx", status_code=422)
     return ext
 
 
 async def _dump_upload(upload: UploadFile, dest: Path) -> None:
     settings = get_settings()
-    max_bytes = int(settings.kb_upload_max_bytes)
+    max_bytes = 200 * 1024 * 1024
     size = 0
     try:
         with dest.open("wb") as fh:
@@ -1409,7 +1470,7 @@ async def _dump_upload(upload: UploadFile, dest: Path) -> None:
                 if size > max_bytes:
                     raise AppError(
                         ErrorCode.VALIDATION,
-                        f"文件超过大小上限（{max_bytes} 字节）",
+                        f"《{upload.filename}》单文件最大 200MB",
                         status_code=422,
                     )
                 fh.write(chunk)

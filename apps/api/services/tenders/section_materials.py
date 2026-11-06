@@ -12,7 +12,7 @@ from api.services.tenders.schema import PlaceholderItem
 _ITEM = re.compile(r"^\s*(?:[A-Za-z][.．、）)]|\d+[.．、）)]|[（(][一二三四五六七八九十\d]+[）)])")
 _ROOT = re.compile(r"^\s*(?:第[一二三四五六七八九十百\d]+[章节部分]|[一二三四五六七八九十]+[、．.])")
 _FORM = re.compile(r"(?:书|函|声明|承诺|协议|合同)\s*$")
-_ATTACHMENT_SITE = re.compile(r'此处粘贴|在此粘贴|附[：:]|(?:应附|须附|需附|后附|提供)[^。\n]{0,100}(?:复印件|扫描件|凭证|清单)')
+_ATTACHMENT_SITE = re.compile(r'此处粘[贴帖]|在此粘[贴帖]|附[：:]|(?:应附|须附|需附|后附|提供)[^。\n]{0,100}(?:复印件|扫描件|凭证|清单)')
 
 
 def credit_source(text):
@@ -36,6 +36,8 @@ def attachment_anchors(body):
 
 def section_type(head, body):
     title = _heading_text(head)
+    if re.fullmatch(r'(?:第[一二三四五六七八九十\d]+章)?(?:投标|响应)文件(?:格式|组成)?(?:目录)?', re.sub(r'\s+', '', title)):
+        return 'A'
     if re.fullmatch(r'(?:投标|响应|商务|技术|综合)(?:文件|标)(?:[（(].*[）)])?|封面', re.sub(r'\s+','',title)):
         return 'A'
     # Document-composition lists describe the submitted package, not a place
@@ -81,6 +83,9 @@ def resolve_material_anchor(doc, plan):
     if anchor is None:
         anchor = next((live(node) for node in reversed(plan.get('blocks', [])) if live(node) is not None), None)
     if anchor is None:
+        from api.services.tenders.directory_guard import directory_blocks
+        if directory_blocks(doc):
+            raise ValueError('指定正文章节已失效，禁止在目录或文末建立替代插入点')
         anchor = doc.add_paragraph()._p
     if live(anchor) is None:
         raise ValueError('Unable to relocate material boundary')
@@ -220,11 +225,16 @@ def remove_repeated_child_modules(doc):
 
 
 def sections(doc, excluded):
+    from api.services.tenders.directory_guard import directory_blocks
+    excluded = set(excluded) | directory_blocks(doc)
     groups = []
     current = None
     style_cache={}; structure={}
     for el in list(doc.element.body):
-        if el in excluded or el.tag == qn("w:sectPr"):
+        if el in excluded:
+            current = None
+            continue
+        if el.tag == qn("w:sectPr"):
             continue
         text = _heading_text(el)
         rank,info=0,None
@@ -259,6 +269,9 @@ def sections(doc, excluded):
 
 def material_name(title):
     """Reject unnamed fragments without an industry-specific admission list."""
+    from api.services.cablepkg.word_materials import material_title_valid
+    if not material_title_valid(title):
+        return ''
     name = re.sub(r'^对应\s*', '', (title or '').strip())
     if not 2 <= len(re.sub(r'\s+', '', name)) <= 120:
         return ''
@@ -305,7 +318,7 @@ def _identity_family(slot, context=''):
 def _normalized_material_title(title):
     title=re.sub(r'[（(](?:如有|如非[^）)]*|若[^）)]*|如果[^）)]*)[）)]','',title or '')
     title=re.sub(r'(?:的)?(?:复印件或扫描件|复印件|扫描件)','',title)
-    return re.sub(r'\s+','',re.sub(r'^(?:附[:：]|此处粘贴|在此粘贴)\s*','',title))
+    return re.sub(r'\s+','',re.sub(r'^(?:附[:：]|此处粘[贴帖]|在此粘[贴帖])\s*','',title))
 
 
 def _sentence_boundary(anchor, body):
@@ -404,7 +417,9 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
         mark.getparent().remove(mark)
     if auth_enabled is not None:doc._element._material_auth_enabled=auth_enabled
     auth_enabled=getattr(doc._element,'_material_auth_enabled',None)
-    scopes=sections(doc,set(excluded))
+    from api.services.tenders.directory_guard import directory_blocks
+    protected_directory = directory_blocks(doc)
+    scopes=sections(doc,set(excluded) | protected_directory)
     generated=set()
     for mark in doc.element.body.iter(qn('w:bookmarkStart')):
         if mark.get(qn('w:name'),'').startswith('result_'):
@@ -497,8 +512,8 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
             requests=attachment_requests(value,source_kind=source_kinds[head])
             # Explicit paste instructions use the same parser locally; no
             # change to global extraction behavior outside this pipeline.
-            if re.search(r'[此这]处粘贴|在此粘贴',value):
-                cue=re.sub(r'^.*?(?:[此这]处粘贴|在此粘贴)\s*[:：]?','附：',value)
+            if re.search(r'[此这]处粘[贴帖]|在此粘[贴帖]',value):
+                cue=re.sub(r'^.*?(?:[此这]处粘[贴帖]|在此粘[贴帖])\s*[:：]?','附：',value)
                 requests.extend(attachment_requests(cue+'扫描件' if not re.search(r'扫描件|复印件',cue) else cue,source_kind=source_kinds[head]))
             alpha=re.match(r'^\s*[A-Za-z][.．、）)]\s*(.+)',value,re.S)
             if alpha and len(requests)<=1:
@@ -544,7 +559,14 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
     for key,slot in catalog.items():
         signature=key
         if signature in cached:
-            plans[key]=_fresh_material_plan(cached[signature], scopes); continue
+            if protected_directory and (cached[signature].get('fallback') or cached[signature].get('head') in protected_directory):
+                notes.append('警告：'+slot.title+'：原落位属于目录或未指定章节，已跳过，请核对正文位置')
+                continue
+            fresh = _fresh_material_plan(cached[signature], scopes)
+            if protected_directory and fresh['head'] is None:
+                notes.append('警告：'+slot.title+'：指定正文章节已失效，未追加到其他位置')
+                continue
+            plans[key]=fresh; continue
         name,section=_key(slot.title),_key(slot.attachToSection)
         agent_target = None
         if _identity_family(slot,slot.attachToSection) == 'id_agent':
@@ -586,16 +608,30 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
             continue
         fallback=False
         if best is None:
-            fallback=True
-            found=next(((h,b,None) for h,b,_ in scopes if _heading_text(h)=='其他资料（待核对归属）'),None)
-            if found is None:
-                head=doc.add_paragraph('其他资料（待核对归属）',style='Normal')._p
-                found=(head,[],None)
-                scopes.append((head,[],1))
-                details[head]=('C',_key(_heading_text(head)),'',set())
-            best=found
-            notes.append('警告：'+slot.title+'：所属章节未识别，已降级至「'+_heading_text(best[0])+'」')
+            target=_key(section)
+            found=next(((h,b,None) for h,b,_ in scopes if h not in blocked_heads and details[h][0]!='A' and target and (target==_key(_heading_text(h)) or target in _key(_heading_text(h)) or _key(_heading_text(h)) in target)),None)
+            if found is not None:
+                best=found
+                logger.debug('material section attachToSection=%s resolved=%s',section,_heading_text(found[0]))
+            else:
+                if protected_directory:
+                    notes.append('警告：'+slot.title+'：未找到指定正文章节，未在目录、说明区或文末追加')
+                    continue
+                fallback=True
+                logger.debug('material section attachToSection=%s fallback',section)
+                found=next(((h,b,None) for h,b,_ in scopes if _heading_text(h)=='其他资料（待核对归属）'),None)
+                if found is None:
+                    head=doc.add_paragraph('其他资料（待核对归属）',style='Normal')._p
+                    found=(head,[],None); scopes.append((head,[],1)); details[head]=('C',_key(_heading_text(head)),'',set())
+                best=found
+                notes.append('警告：'+slot.title+'：所属章节未识别，已降级至「'+_heading_text(best[0])+'」')
         head,body,hit=best
+        # Format presence is separate from response completeness. Never ask for
+        # a second copy of a table already supplied by this exact section.
+        from api.services.cablepkg.form_reconcile import title_kind, form_at_heading
+        form_kind = title_kind(slot.title)
+        if form_kind and form_at_heading(doc, head, form_kind, excluded=protected_directory):
+            continue
         # One immutable block boundary per owned requirement. No note locator,
         # equivalence pass, handled heuristic or further ownership computation.
         endpoint=_body_block(hit[1]) if hit and _ATTACHMENT_SITE.search(hit[2]) else body[-1] if body else head

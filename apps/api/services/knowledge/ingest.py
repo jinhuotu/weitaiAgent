@@ -113,6 +113,11 @@ def write_extracted_text(base_public_id: str, doc_public_id: str, text: str) -> 
     path.write_text(text, encoding="utf-8")
 
 
+def _keep_summary(summary: str | None) -> bool:
+    # 身份证、业绩、字段摘要给标书用，不能被 OCR 正文盖掉
+    return (summary or "").startswith(("PERFJSON:", "idcard:", "FACTS:"))
+
+
 def read_extracted_text(base_public_id: str, doc_public_id: str) -> str | None:
     try:
         path = resolve_storage_path(_extracted_text_key(base_public_id, doc_public_id))
@@ -633,7 +638,7 @@ async def process_uploaded_document(public_id: str, *, force_reextract: bool = F
                 _apply_extract_stats(doc, extracted)
             if base_pid:
                 write_extracted_text(base_pid, doc.public_id, text)
-            if not (doc.summary or "").startswith("PERFJSON:"):
+            if not _keep_summary(doc.summary):
                 doc.summary = text[:200]
             doc.char_count = len(text)
             doc.chunk_count = 0
@@ -1014,7 +1019,7 @@ def _apply_skip_rag(doc: KnowledgeDocument, reason: str) -> None:
     doc.status = "ready"
     doc.error_msg = None
     summary = doc.summary or ""
-    if not summary.startswith("PERFJSON:"):
+    if not _keep_summary(summary):
         doc.summary = (reason or "未向量化，检索将跳过")[:200]
 
 
@@ -1123,8 +1128,7 @@ async def _vectorize_document(
         return False
     doc.char_count = len(cleaned)
     doc.chunk_count = len(chunks)
-    # 业绩合同的 PERFJSON 摘要供标书生成用，不能被 OCR 正文覆盖
-    if not (doc.summary or "").startswith("PERFJSON:"):
+    if not _keep_summary(doc.summary):
         doc.summary = cleaned[:200]
     doc.status = "ready"
     doc.error_msg = None

@@ -717,12 +717,12 @@ def _copy_template_section(doc, template, item: OutlineItem) -> bool:
     return True
 
 
-def _import_form_xml(doc, template, el, *, numbering_map: dict) -> None:
+def _import_form_xml(doc, template, el, *, numbering_map: dict, style_prefix="native补章_") -> None:
     """Namespace imported style/list IDs so the original document definitions win."""
     style_cache = set()
 
     def style_id(source_id):
-        dest_id = "native补章_" + source_id
+        dest_id = style_prefix + source_id
         if (
             dest_id in style_cache
             or doc.styles.element.find(f'w:style[@w:styleId="{dest_id}"]', doc.element.nsmap)
@@ -745,6 +745,8 @@ def _import_form_xml(doc, template, el, *, numbering_map: dict) -> None:
             if ref is not None:
                 ref.set(qn("w:val"), style_id(ref.get(qn("w:val"))))
         doc.styles.element.append(copied)
+        if copied.find('.//w:numId', copied.nsmap) is not None:
+            _import_form_xml(doc, template, copied, numbering_map=numbering_map, style_prefix=style_prefix)
         return dest_id
 
     numbering = doc.part.numbering_part.element

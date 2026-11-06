@@ -972,10 +972,10 @@ _DRAWING_PDF_PAGES = 4
 def _insert_drawings_after(
     cursor: Paragraph, files: list[Path], *, max_pages: int = _DRAWING_PDF_PAGES
 ) -> tuple[Paragraph, int]:
-    """压缩后嵌入实施方案图纸。"""
-    import io
+    """按排版尺寸准备高清图纸并嵌入。"""
 
-    from api.services.tenders.placeholders import _JPEG_QUALITY, _render_pdf_page_jpeg, _shrink_pil
+    from api.services.tenders.placeholders import _render_pdf_page_jpeg
+    from api.services.cablepkg.image_quality import image_png
 
     inserted = 0
     for path in files[:_DRAWING_MAX_FILES]:
@@ -989,10 +989,7 @@ def _insert_drawings_after(
                 pic.paragraph_format.space_before = Pt(4)
                 pic.paragraph_format.space_after = Pt(4)
                 with Image.open(path) as raw:
-                    image = _shrink_pil(raw.convert("RGB"))
-                    buf = io.BytesIO()
-                    image.save(buf, format="JPEG", quality=max(40, _JPEG_QUALITY - 8), optimize=False)
-                    buf.seek(0)
+                    buf = image_png(raw, width_cm=15.5, height_cm=15.5 * raw.height / raw.width)
                     pic.add_run().add_picture(buf, width=Cm(15.5))
                 cursor = pic
                 inserted += 1

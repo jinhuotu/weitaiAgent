@@ -45,6 +45,8 @@ def generate_bid(
     catalog_slots: list[PlaceholderItem] | None = None,
     catalog_media: dict[str, list[Path]] | None = None,
     catalog_facts: list | None = None,
+    word_bindings: list[dict] | None = None,
+    word_sources: dict | None = None,
 ) -> dict[str, object]:
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.material_intents import prepare_structural_demands, coverage
@@ -89,6 +91,43 @@ def generate_bid(
         volume=vol,
     )
     warnings = list(warnings)
+    word_outcomes = []
+    if word_bindings:
+        from docx import Document
+        from api.services.cablepkg.word_materials import apply
+        from api.services.tenders.native_format import _import_form_xml
+        document = Document(dest)
+        selected = [binding for binding in word_bindings if vol == 'full' or binding.get('volume') in {vol, 'full', ''}]
+        word_outcomes = apply(document, selected, word_sources or {}, import_xml=_import_form_xml,
+                              section_titles=[item.rawTitle or item.title for item in brief.outlineItems])
+        for row in word_outcomes:
+            if row['status'] in {'copied', 'filled'}:
+                warnings.append('已复用 Word 资料：' + row['targetTitle'] + '；测试模板及待填字段须人工确认')
+            elif row['status'] == 'needs_review':
+                warnings.append('Word 资料待核对：' + row['targetTitle'] + '；' + row.get('reason', '未找到可填字段'))
+        document.save(dest)
+    from docx import Document
+    from api.services.cablepkg.word_materials import prune_placeholder_boxes
+    cleaned_document = Document(dest)
+    removed_boxes = prune_placeholder_boxes(cleaned_document, word_outcomes, word_bindings or [])
+    if removed_boxes:
+        cleaned_document.save(dest)
+    table_outcomes = []
+    if brief.bidTableImportId:
+        from api.services.bid_table_import import fill_document
+        warnings.extend(fill_document(dest, brief.bidTableImportId, brief.invitationId, vol, outcomes=table_outcomes))
+    from api.services.tenders.invitation_attachment import insert_required_invitation
+    warnings.extend(insert_required_invitation(dest, brief.invitationId))
+    # Reconcile only after all table/content writers; preserve source tables and
+    # unrelated missing evidence. This does not change bid eligibility.
+    from api.services.cablepkg.form_reconcile import reconcile_form_placeholders
+    from api.services.tenders.directory_guard import directory_blocks
+    final_document = Document(dest)
+    form_cleanup = reconcile_form_placeholders(final_document, table_outcomes, excluded=directory_blocks(final_document))
+    from api.services.cablepkg.form_pagination import normalize_duplicate_page_breaks
+    pagination_cleanup = normalize_duplicate_page_breaks(final_document)
+    if form_cleanup or pagination_cleanup:
+        final_document.save(dest)
     warnings.extend(n for n in brief.materialIntentNotes if n not in warnings)
     warnings.extend(attachment_notes)
     from api.services.tenders.company_identity import missing_company_notes
@@ -99,6 +138,19 @@ def generate_bid(
         from api.services.tenders.native_format import validate_native_toc
 
         validate_native_toc(Document(dest))
+
+    from api.services.cablepkg.image_quality import inspect_docx
+
+    image_quality = inspect_docx(dest)
+    for image in image_quality["images"]:
+        if image.get("lowResolution"):
+            warnings.append(
+                f"附件图片清晰度不足：{image['part']}，像素 {image['pixels']}，"
+                f"排版 {image['widthCm']}×{image['heightCm']} cm，"
+                f"有效 DPI {image['effectiveDpi']}，建议至少 220 DPI。"
+            )
+        elif image.get("error"):
+            warnings.append(f"附件图片检查失败：{image['part']}，{image['error']}")
 
     pdf_name = ""
     if pdf_src is not None:
@@ -113,6 +165,9 @@ def generate_bid(
         "techDownloadName": None,
         "pdfDownloadName": None,
         "warnings": warnings,
+        "imageQuality": {vol: image_quality},
+        "wordMaterialOutcomes": word_outcomes,
+        "formPlaceholderCleanup": {vol: form_cleanup},
         "defaultsUsed": brief.bidderName,
         "generateVolume": vol,
         "materialCoverage": {vol:coverage(brief,vol)},
@@ -155,6 +210,9 @@ def merge_generated(base: dict[str, object], extra: dict[str, object]) -> dict[s
             notes.append(note)
     out["warnings"] = notes
     out['materialCoverage'] = {**(base.get('materialCoverage') or {}), **(extra.get('materialCoverage') or {})}
+    out["imageQuality"] = {**(base.get("imageQuality") or {}), **(extra.get("imageQuality") or {})}
+    out["wordMaterialOutcomes"] = [*(base.get("wordMaterialOutcomes") or []), *(extra.get("wordMaterialOutcomes") or [])]
+    out["formPlaceholderCleanup"] = {**(base.get("formPlaceholderCleanup") or {}), **(extra.get("formPlaceholderCleanup") or {})}
     out["generateBoth"] = True
     return out
 
@@ -165,12 +223,16 @@ def generate_pair(
     catalog_slots: list[PlaceholderItem] | None = None,
     catalog_media: dict[str, list[Path]] | None = None,
     catalog_facts: list | None = None,
+    word_bindings: list[dict] | None = None,
+    word_sources: dict | None = None,
 ) -> dict[str, object]:
     """先出商务卷，再出技术卷。显式分册或建议分册时裁分商务卷。"""
     kw = dict(
         catalog_slots=catalog_slots,
         catalog_media=catalog_media,
         catalog_facts=catalog_facts,
+        word_bindings=word_bindings,
+        word_sources=word_sources,
     )
     # 报价留在商务卷，不另出一册。显式分册优先于识别建议，普通单卷调用保持原样。
     slice_biz = bool(brief.splitSlice) or (getattr(brief, "volumeAdvice", None) or "").strip() == "split"

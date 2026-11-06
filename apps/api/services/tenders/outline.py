@@ -293,6 +293,10 @@ def _is_tech_chapter_title(n: str) -> bool:
 
 
 def classify_kind(title: str) -> str:
+    if re.search(r'投标人基本情况表(?:[（(].*[）)])?$', title):
+        return 'company'
+    if re.search(r'技术服务[，,、].*(?:培训|安装指导)', title) or re.search(r'技术服务方案', title):
+        return 'tech_chapter'
     n = compact_title(title)
     if not n:
         return "unknown"

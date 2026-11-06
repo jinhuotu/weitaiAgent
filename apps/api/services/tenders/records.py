@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from datetime import UTC, date, datetime
 from uuid import uuid4
 
@@ -209,6 +210,83 @@ def _output_exists(name: str | None) -> bool:
     return bool(n) and (tenders_output_dir() / n).is_file()
 
 
+async def _word_library_inputs(db, brief):
+    from api.services.tenders import library_kb as library
+    from api.services.tenders.company_materials import document_matches_company
+    from api.services.tenders.categories import item_volume
+    from api.services.cablepkg.word_materials import bind
+    from common.errors import AppError
+    import hashlib
+
+    try:
+        base = await library.get_base_by_public_id(db, library.TENDER_LIB_PUBLIC_ID)
+    except AppError as exc:
+        if exc.status_code != 404:
+            raise
+        return [], {}
+    documents = await library._list_docs(db, base.id)
+    by_id = {document.public_id: document for document in documents}
+    entries, sources = [], {}
+    for document in documents:
+        path = library._doc_file_path(document)
+        parent = by_id.get(document.parent_id)
+        if path is None or path.suffix.lower() not in {'.doc', '.docx'} or parent is None:
+            continue
+        actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        eligible = document_matches_company(document, brief, key=library.key_from_tags(parent.tags))
+        eligible = eligible and (not document.content_hash or document.content_hash == actual_hash)
+        entries.append(dict(documentId=document.public_id, itemId=parent.public_id,
+                            title=parent.name, hash=actual_hash, eligible=eligible))
+        if eligible:
+            sources[document.public_id] = path
+    for index, item in enumerate(brief.outlineItems):
+        if not item.id:
+            item.id = 'section_' + hashlib.sha256((str(index) + item.title).encode()).hexdigest()[:20]
+    outline = [dict(item.model_dump(), volume=item_volume(kind=item.kind, title=item.title, key=item.id))
+               for item in brief.outlineItems]
+    from api.services.tenders.pdf_format import _word_format_file
+    from api.services.cablepkg.word_materials import _region, text
+    from docx import Document
+    original = _word_format_file(brief.invitationId)
+    if original is not None:
+        template = Document(original)
+        from api.services.cablepkg.word_materials import section_key, _toc
+        from api.services.tenders.schema import OutlineItem
+        from api.services.tenders.outline import classify_kind
+        from docx.oxml.ns import qn
+        import re
+        represented = {section_key(item['rawTitle'] or item['title']) for item in outline}
+        source_keys = {section_key(entry['title']) for entry in entries if entry['eligible']}
+        for index, node in enumerate(template.element.body):
+            if node.tag != qn('w:p') or _toc(node):
+                continue
+            heading = text(node)
+            key = section_key(heading)
+            if (re.match(r'^\s*\d+[.．、]', heading) and len(heading) <= 255
+                    and key in source_keys and key not in represented):
+                ident = 'source_' + hashlib.sha256((brief.invitationId + str(index) + heading).encode()).hexdigest()[:20]
+                item = OutlineItem(id=ident, title=heading, rawTitle=heading, kind=classify_kind(heading), source='copy', tocEligible=False)
+                brief.outlineItems.append(item)
+                outline.append(dict(item.model_dump(), volume=item_volume(kind=item.kind, title=item.title, key=item.id)))
+                represented.add(key)
+        titles = [item['rawTitle'] or item['title'] for item in outline]
+        for item in outline:
+            if '承诺函' in item['title']:
+                try:
+                    _, members = _region(template, item['rawTitle'] or item['title'], titles)
+                    item['context'] = ''.join(text(node) for node in members)[:1000]
+                except ValueError:
+                    pass
+    bindings, review = bind(outline, entries, [b.model_dump() for b in brief.libraryBindings])
+    from api.services.tenders.schema import WordMaterialBinding
+    # Retain stale snapshots so retrying cannot silently adopt a changed source version.
+    retained = {binding.targetId: binding for binding in brief.libraryBindings}
+    retained.update({binding['targetId']: WordMaterialBinding.model_validate(binding) for binding in bindings})
+    brief.libraryBindings = list(retained.values())
+    brief.libraryBindingReview = review[:400]
+    return bindings, sources
+
+
 async def _generate_for_record(
     db: AsyncSession,
     brief: BidBrief,
@@ -285,7 +363,29 @@ async def _prepare_and_generate(
         )
     require_format_confirm(brief)
 
+    if brief.bidTableImportId:
+        from api.services.bid_table_import import load_import
+        try:
+            imported = load_import(brief.bidTableImportId)
+        except (ValueError, OSError) as exc:
+            raise AppError(ErrorCode.VALIDATION, '已确认填报数据无法读取，请重新导入确认', status_code=422) from exc
+        if imported.get('owner') != material_owner_id or not imported.get('confirmed') or imported.get('invitationId') != brief.invitationId:
+            raise AppError(ErrorCode.VALIDATION, 'Invalid confirmed table import for this task', status_code=422)
+        from decimal import Decimal
+        imported_quotes = [r for r in imported['rows'] if r['kind'] == 'quote']
+        if imported_quotes:
+            total = sum((Decimal(r['values'][9]) for r in imported_quotes), Decimal(0))
+            if brief.bidPriceYuan and abs(Decimal(str(brief.bidPriceYuan)) - total) > Decimal('0.01'):
+                raise AppError(ErrorCode.VALIDATION, '投标总价与已确认填报数据不一致，请核对价格或重新导入确认', status_code=422)
+            brief.bidPriceYuan = float(total)
+
+    from api.services.tenders.outline import classify_kind
+    for item in brief.outlineItems:
+        corrected = classify_kind(item.rawTitle or item.title)
+        if item.draftStatus not in {'manual', 'edited'} and (item.kind == 'unknown' or '投标人基本情况表' in item.title):
+            item.kind = corrected
     catalog = await catalog_placeholders(db)
+    word_bindings, word_sources = await _word_library_inputs(db, brief)
     from api.services.tenders.material_intents import recognize_material_demands
 
     material_intent_notes = await recognize_material_demands(brief,catalog=catalog,db=db)
@@ -352,8 +452,10 @@ async def _prepare_and_generate(
     persons = await legal_persons_from_library(db, extract_missing=False)
     all_persons = persons
     # These IDs describe company-scoped documents, not the stale person choice.
-    persons = [p for p in all_persons if set(p.get('fileIds') or ()) & company_file_ids
-               or p.get('key') in company_person_keys]
+    # Legal representative is an explicit person choice, independent of the
+    # bidder company. Company scoping remains enforced for corporate materials;
+    # the selected person's ID scans are filtered by person key below.
+    persons = list(all_persons)
     logging.getLogger(__name__).info('legal rebind candidates before=%s after=%s company_person_keys=%s picked=%s',
         [{'key':p.get('key'),'name':p.get('name')} for p in all_persons],
         [{'key':p.get('key'),'name':p.get('name')} for p in persons],sorted(str(k) for k in company_person_keys),brief.legalPersonKey)
@@ -417,7 +519,7 @@ async def _prepare_and_generate(
                 keep.append(title)
         missing = keep
     t_prep = time.perf_counter()
-    facts = [f for f in await library_facts(db) if f.get("fileId") in company_file_ids]
+    facts = [f for f in await library_facts(db) if f.get("fileId") in company_file_ids and f.get("fileId") not in word_sources]
     draft_notes: list[str] = []
     technical_package_active = False
     if both or vol == 'technical':
@@ -466,7 +568,11 @@ async def _prepare_and_generate(
         brief.bizDeviationLines = prepared.bizDeviationLines
         brief.bizDevHeaders = prepared.bizDevHeaders
         draft_notes.extend(biz_notes)
+    media = {key: [path for path in files if Path(path).suffix.lower() not in {'.doc', '.docx'}]
+             for key, files in media.items()}
     gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=facts)
+    if word_bindings:
+        gen_kw.update(word_bindings=word_bindings, word_sources=word_sources)
     if both:
         generated = generate_pair(brief, **gen_kw)
     else:
@@ -474,8 +580,10 @@ async def _prepare_and_generate(
     t_docx = time.perf_counter()
     from api.services.tenders.categories import business_soft_issues, technical_soft_issues
 
+    word_binding_notes = ['Word 资料绑定待确认：' + str(item.get('targetId') or '') + '；' + item['reason']
+                          for item in brief.libraryBindingReview if item.get('status') == 'needs_review']
     warnings = list(dict.fromkeys([
-        *quote_notes, *requirement_notes, *company_notes, *material_notes, *material_intent_notes, *draft_notes, *(generated.get("warnings") or []),
+        *word_binding_notes, *quote_notes, *requirement_notes, *company_notes, *material_notes, *material_intent_notes, *draft_notes, *(generated.get("warnings") or []),
     ]))
     if pending_perf and vol != "technical":
         warnings.append(
@@ -516,6 +624,8 @@ async def _prepare_and_generate(
         required_keys=required_keys,
         include_keys=include_keys,
     )
+    from api.services.cablepkg.word_materials import reconcile_match
+    attachment_match = reconcile_match(attachment_match, generated.get('wordMaterialOutcomes') or [], word_bindings)
     for note in attachment_match_notes(attachment_match):
         if note not in warnings:
             warnings.append(note)
@@ -539,7 +649,12 @@ async def _prepare_and_generate(
         warnings.append(note)
     from api.services.tenders.expiry_check import generation_expiry_warnings
     warnings.extend(await generation_expiry_warnings(db, attachment_match, media))
+    from api.services.cablepkg.word_materials import section_key
+    placed_word_titles = {section_key(row['targetTitle']) for row in generated.get('wordMaterialOutcomes', []) if row['status'] in {'copied', 'filled'}}
+    warnings = [warning for warning in warnings if not (isinstance(warning, str)
+                and warning.startswith('资料库缺少') and section_key(warning.removeprefix('资料库缺少').split('，请')[0]) in placed_word_titles)]
     generated["warnings"] = warnings
+    attachment_match['wordMaterials'] = generated.get('wordMaterialOutcomes') or []
     return generated, attachment_match
 
 
@@ -595,7 +710,7 @@ async def create_record_from_generate(
     username: str,
 ) -> dict[str, object]:
     """生成 Word。未到下载定稿前记为草稿，不出现在生成记录里。"""
-    extra = {'material_owner_id': user_id} if any(c.enabled for c in brief.materialSelections.values()) else {}
+    extra = {'material_owner_id': user_id} if brief.bidTableImportId or any(c.enabled for c in brief.materialSelections.values()) else {}
     generated, attachment_match = await _generate_for_record(db, brief, **extra)
     # 没走到下载定稿前只留草稿，列表里看不到；换一份时清掉本人旧草稿
     await _drop_user_drafts(db, user_id)
@@ -620,6 +735,10 @@ async def create_record_from_generate(
     out = _record_to_dict(row)
     out["warnings"] = generated.get("warnings") or []
     out["defaultsUsed"] = generated.get("defaultsUsed")
+    out["imageQuality"] = generated.get("imageQuality") or {}
+    out["wordMaterialOutcomes"] = generated.get("wordMaterialOutcomes") or []
+    out["libraryBindings"] = [b.model_dump() for b in brief.libraryBindings]
+    out["libraryBindingReview"] = brief.libraryBindingReview
     out["attachmentMatch"] = attachment_match
     return out
 
@@ -911,6 +1030,10 @@ async def regenerate_from_record(
             brief = BidBrief.model_validate(row.brief_json)
         except Exception as exc:
             raise AppError(ErrorCode.VALIDATION, f"记录表单无法解析：{exc}", status_code=422) from exc
+    if 'libraryBindings' not in brief.model_fields_set and isinstance(row.brief_json, dict):
+        previous = BidBrief.model_validate(row.brief_json)
+        if previous.invitationId == brief.invitationId:
+            brief.libraryBindings = previous.libraryBindings
     old_docx, old_tech, old_pdf = row.docx_file, getattr(row, "tech_docx_file", None), row.pdf_file
     vol = generate_volume(brief)
     both = bool(brief.generateBoth)
@@ -920,7 +1043,7 @@ async def regenerate_from_record(
         peer_ready = _output_exists(old_docx)
     else:
         peer_ready = _output_exists(old_tech)
-    extra = {'material_owner_id': int(row.user_id)} if any(c.enabled for c in brief.materialSelections.values()) else {}
+    extra = {'material_owner_id': int(row.user_id)} if brief.bidTableImportId or any(c.enabled for c in brief.materialSelections.values()) else {}
     generated, attachment_match = await _generate_for_record(db, brief, peer_ready=peer_ready, **extra)
     _apply_generated_files(row, brief, generated)
     await db.commit()
@@ -944,6 +1067,10 @@ async def regenerate_from_record(
     out = _record_to_dict(row)
     out["warnings"] = generated.get("warnings") or []
     out["defaultsUsed"] = generated.get("defaultsUsed")
+    out["imageQuality"] = generated.get("imageQuality") or {}
+    out["wordMaterialOutcomes"] = generated.get("wordMaterialOutcomes") or []
+    out["libraryBindings"] = [b.model_dump() for b in brief.libraryBindings]
+    out["libraryBindingReview"] = brief.libraryBindingReview
     out["attachmentMatch"] = attachment_match
     return out
 

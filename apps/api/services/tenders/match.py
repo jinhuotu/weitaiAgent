@@ -95,6 +95,8 @@ def attachment_source_kind(headings, *, format_fragment=False):
 
 def attachment_requirement_allowed(title, evidence=''):
     """A submission material, not the invitation or a future-stage form."""
+    from api.services.cablepkg.word_materials import material_title_valid
+    if not material_title_valid(title):return False
     title=compact_title(title)
     if not title:return False
     if re.search(r'招标文件|投标人须知|评标办法|评审办法|合同条款|招标公告|施工组织设计|技术标|附表[一二三四五六1-6]',title):return False

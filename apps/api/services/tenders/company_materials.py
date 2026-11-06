@@ -18,7 +18,7 @@ def source_material_evidence(doc, key=''):
         return doc
     from api.services.knowledge.ingest import read_extracted_text
     from api.services.tenders.library_kb import TENDER_LIB_PUBLIC_ID
-    from api.services.tenders.company_identity import COMPANY_RE
+    from api.services.tenders.company_identity import COMPANY_RE, named_bidders
     raw = read_extracted_text(TENDER_LIB_PUBLIC_ID, getattr(doc, 'public_id', '')) or ''
     if not raw:
         summary = getattr(doc, 'summary', '') or ''
@@ -33,8 +33,14 @@ def source_material_evidence(doc, key=''):
                 'other_materials' if re.search(r'原厂授权|厂家授权|原厂.*承诺书',heading) else '')
     tags = list(getattr(doc, 'tags', None) or [])
     owners = []
-    region = raw[:1500]
+    region = raw
     if detected == 'license':
+        # OCR can flatten the register grid to 名称<company>类型<company type>.
+        # Read that labelled field only; do not adopt an arbitrary company mention.
+        for match in re.finditer(r'(?:^|[\r\n]|登记内容)\s*名称\s*[:：]?\s*(.*?)(?=类型|注册资本|法定代表人|住所|[\r\n]|$)', raw):
+            candidate = COMPANY_RE.fullmatch(re.sub(r'\s+', '', match.group(1)).strip())
+            if candidate:
+                owners.append(candidate.group())
         candidates = list(dict.fromkeys(COMPANY_RE.findall(region)))
         if len(candidates) == 1:
             owners.extend(candidates)
@@ -44,6 +50,9 @@ def source_material_evidence(doc, key=''):
         for match in re.finditer(pattern, region):
             candidate = COMPANY_RE.search(match.group(1))
             if candidate:owners.append(candidate.group())
+    # Preserve row/line boundaries: a following signature line is not part of
+    # the company name and must not invalidate a valid bidder label.
+    owners.extend(named_bidders(raw))
     if key == 'bond':
         # OCR may flatten a two-column receipt by rows. Resolve the payer from
         # explicit role order, never by finding the current bidder anywhere.
@@ -59,12 +68,12 @@ def source_material_evidence(doc, key=''):
             elif len(prior)==2 and '付款人' in region and region.find('付款人') < payee and '全称' in region[:payee]:
                 owners.append(prior[0])
     tags.extend('bidder:' + owner for owner in dict.fromkeys(owners))
-    for match in re.finditer(r'(?:统一社会信用代码|社会信用代码)[:：]?[^0-9A-Z]{0,100}([0-9A-Z]{18})(?![0-9A-Z])',compact[:1500].upper()):
+    for match in re.finditer(r'(?:统一社会信用代码|社会信用代码)[:：]?[^0-9A-Z]{0,100}([0-9A-Z]{18})(?![0-9A-Z])',compact.upper()):
         tags.append('credit_code:' + match.group(1))
     return SimpleNamespace(public_id=getattr(doc,'public_id',''), summary=getattr(doc,'summary',''),
                            tags=list(dict.fromkeys(tags)), _source_evidence_key=key,
-                           _material_type_conflict=bool(detected and key
-                             and detected != key and key != 'other_materials'))
+                           _material_type_conflict=bool(detected and key in {'license','bank_permit','credit','bond','iso','finance','product','perf','id_legal','id_agent'}
+                             and detected != key))
 
 
 async def library_bidder_name(db, current=''):
@@ -105,6 +114,12 @@ def scope_performance_lines(brief):
 
 
 def document_matches_company(doc, brief, *, key=''):
+    tags = [str(tag) for tag in (getattr(doc, 'tags', None) or [])]
+    if 'material-role:template' in tags:
+        declared = [tag.removeprefix('template-bidder:') for tag in tags if tag.startswith('template-bidder:')]
+        projects = [tag.removeprefix('template-tender:') for tag in tags if tag.startswith('template-tender:')]
+        return bool(declared and projects and brief.tenderNo in projects
+                    and all(same_company(owner, brief.bidderName) for owner in declared))
     from api.services.tenders.company_identity import credit_code_from_document,credit_codes_from_document
     doc = source_material_evidence(doc, key)
     if getattr(doc, '_material_type_conflict', False):
@@ -178,7 +193,8 @@ async def scoped_library_media(db, brief, media):
         child_code=credit_code_from_document(evidence)
         parent_evidence=source_material_evidence(parent,key) if parent is not None else None
         parent_code=credit_code_from_document(parent_evidence) if parent_evidence is not None else ''
-        if len(credit_codes_from_document(evidence))>1 or (parent_code and child_code and parent_code!=child_code):
+        is_template = 'material-role:template' in (doc.tags or [])
+        if not is_template and (len(credit_codes_from_document(evidence))>1 or (parent_code and child_code and parent_code!=child_code)):
             matched=False
         elif not matched and parent is not None and not company_from_document(evidence) and not getattr(evidence,'_material_type_conflict',False):
             if not child_code or (parent_code and child_code==parent_code):
@@ -213,7 +229,7 @@ async def scoped_library_media(db, brief, media):
                 if source_key and source_key!=key:
                     from api.services.tenders.placeholders import DEFAULT_SLOTS
                     from api.services.tenders.match import find_catalog_item
-                    target=next((s for s in DEFAULT_SLOTS if s.key==key),None)
+                    target=next((s for s in [*DEFAULT_SLOTS, *brief.extraPlaceholders] if s.key==key),None)
                     source_title=getattr(parent,'name','') if parent is not None else getattr(doc,'name','')
                     explicit_request = source_key == 'other_materials' and 'material-key:' + key in (doc.tags or [])
                     if not explicit_request and (target is None or find_catalog_item([target],title=source_title) is None):

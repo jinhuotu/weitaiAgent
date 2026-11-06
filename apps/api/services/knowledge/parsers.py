@@ -142,7 +142,7 @@ async def _ocr_image(raw: bytes) -> str:
     return await asyncio.to_thread(provider.recognize, raw)
 
 
-async def extract_text_from_file(path: Path, *, ext: str | None = None) -> ExtractResult:
+async def extract_text_from_file(path: Path, *, ext: str | None = None, ocr_budget: int | None = None) -> ExtractResult:
     kind = assert_supported(ext or path.suffix.lower().lstrip("."))
     if not path.is_file():
         raise AppError(ErrorCode.NOT_FOUND, "uploaded file missing on disk", status_code=500)
@@ -158,9 +158,9 @@ async def extract_text_from_file(path: Path, *, ext: str | None = None) -> Extra
     elif kind == "xml":
         result = ExtractResult(text=_read_xml(path), page_count=1)
     elif kind == "pdf":
-        result = await _read_pdf(path)
+        result = await _read_pdf(path, **({"ocr_budget": ocr_budget} if ocr_budget is not None else {}))
     elif kind == "docx":
-        result = await _read_docx(path)
+        result = await _read_docx(path, **({"ocr_budget": ocr_budget} if ocr_budget is not None else {}))
     elif kind == "doc":
         with tempfile.TemporaryDirectory(prefix="legacy-word-") as temp:
             converted = Path(temp) / "document.docx"
@@ -169,13 +169,13 @@ async def extract_text_from_file(path: Path, *, ext: str | None = None) -> Extra
             except (WordConversionError, OSError) as exc:
                 logger.warning("legacy Word conversion failed file=%r: %s", path.name, exc)
                 raise AppError(ErrorCode.VALIDATION, LEGACY_WORD_HINT, status_code=422) from exc
-            result = await _read_docx(converted)
+            result = await _read_docx(converted, **({"ocr_budget": ocr_budget} if ocr_budget is not None else {}))
     elif kind == "xlsx":
-        result = await _read_xlsx(path)
+        result = await _read_xlsx(path, **({"ocr_budget": ocr_budget} if ocr_budget is not None else {}))
     elif kind == "xls":
         result = await _read_xls(path)
     elif kind == "pptx":
-        result = await _read_pptx(path)
+        result = await _read_pptx(path, **({"ocr_budget": ocr_budget} if ocr_budget is not None else {}))
     elif kind in IMAGE_EXTENSIONS:
         result = await _read_image(path)
     elif kind in {"mp4", "webm"}:
@@ -499,12 +499,12 @@ def _ruled_page_text(plumber_page) -> str:
     return _compose_ruled_page(lines, tables)
 
 
-async def _read_pdf(path: Path) -> ExtractResult:
+async def _read_pdf(path: Path, *, ocr_budget: int | None = None) -> ExtractResult:
     from pypdf import PdfReader
 
     settings = get_settings()
     min_chars = max(8, int(settings.ocr_page_text_min_chars))
-    max_ocr = max(0, int(settings.ocr_max_pages))
+    max_ocr = max(0, int(settings.ocr_max_pages if ocr_budget is None else ocr_budget))
 
     try:
         reader = PdfReader(str(path))
@@ -573,13 +573,13 @@ async def _read_pdf(path: Path) -> ExtractResult:
     )
 
 
-async def _read_docx(path: Path) -> ExtractResult:
+async def _read_docx(path: Path, *, ocr_budget: int | None = None) -> ExtractResult:
     from docx import Document
     from docx.table import Table
     from docx.text.paragraph import Paragraph
 
     settings = get_settings()
-    max_ocr = max(0, int(settings.ocr_max_pages))
+    max_ocr = max(0, int(settings.ocr_max_pages if ocr_budget is None else ocr_budget))
 
     try:
         doc = Document(str(path))
@@ -607,13 +607,16 @@ async def _read_docx(path: Path) -> ExtractResult:
                 continue
             if not blob or len(blob) < 4000:
                 continue
+            if ocr_budget is not None:
+                ocr_used += 1
             try:
                 ocr_text = _normalize(await _ocr_image(blob))
             except AppError:
                 continue
             if _count_chars(ocr_text) >= 4:
                 parts.append(f"[图]\n{ocr_text}")
-                ocr_used += 1
+                if ocr_budget is None:
+                    ocr_used += 1
 
     for block in doc.element.body:
         tag = block.tag.rsplit("}", 1)[-1]
@@ -656,11 +659,11 @@ def _xlsx_cell_text(cached: object, formula: object) -> tuple[str, bool]:
     return fallback, False
 
 
-async def _read_xlsx(path: Path) -> ExtractResult:
+async def _read_xlsx(path: Path, *, ocr_budget: int | None = None) -> ExtractResult:
     from openpyxl import load_workbook
 
     settings = get_settings()
-    max_ocr = max(0, int(settings.ocr_max_pages))
+    max_ocr = max(0, int(settings.ocr_max_pages if ocr_budget is None else ocr_budget))
 
     wb_data = None
     wb_form = None
@@ -784,12 +787,12 @@ async def _read_xls(path: Path) -> ExtractResult:
     return ExtractResult(text="\n\n".join(parts), page_count=len(book.sheets()))
 
 
-async def _read_pptx(path: Path) -> ExtractResult:
+async def _read_pptx(path: Path, *, ocr_budget: int | None = None) -> ExtractResult:
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
 
     settings = get_settings()
-    max_ocr = max(0, int(settings.ocr_max_pages))
+    max_ocr = max(0, int(settings.ocr_max_pages if ocr_budget is None else ocr_budget))
 
     try:
         prs = Presentation(str(path))

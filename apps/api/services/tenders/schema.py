@@ -27,6 +27,21 @@ class MaterialUse(BaseModel):
     targetSection: str = Field(default='', max_length=200)
 
 
+class WordMaterialBinding(BaseModel):
+    id: str = Field(min_length=1, max_length=96)
+    targetId: str = Field(min_length=1, max_length=128)
+    targetTitle: str = Field(min_length=1, max_length=255)
+    sourceItemId: str = Field(min_length=1, max_length=32)
+    sourceDocumentId: str = Field(min_length=1, max_length=32)
+    sourceTitle: str = Field(default="", max_length=255)
+    sourceHash: str = Field(pattern=r'^[a-f0-9]{64}$')
+    mode: Literal['chapter', 'table', 'reference'] = 'chapter'
+    contentScope: Literal['section', 'cover'] = 'section'
+    reviewRequired: bool = True
+    volume: str = 'full'
+    tableMappings: list[dict[str, int]] = Field(default_factory=list, max_length=300)
+
+
 class MaterialDemand(BaseModel):
     """A source-grounded material obligation, independent of the library catalog."""
 
@@ -246,6 +261,9 @@ class BidBrief(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    libraryBindings: list[WordMaterialBinding] = Field(default_factory=list, max_length=200)
+    libraryBindingReview: list[dict] = Field(default_factory=list, max_length=400)
+
     projectName: str = Field(default="")
     tenderer: str = Field(default="")
     bidContent: str = Field(default="")
@@ -343,6 +361,7 @@ class BidBrief(BaseModel):
     schedulePlan: str = Field(default="")
     techPlanNote: str = Field(default="")
     techScorecard: str = Field(default="")
+    bidTableImportId: str = Field(default="", max_length=32)
     technicalPackage: dict = Field(default_factory=dict)
     autoDraftTechPlan: bool = Field(default=False)
     autoDraftBizResp: bool = Field(default=False)
