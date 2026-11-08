@@ -4458,7 +4458,10 @@ def _fill_label_gap(el, brief, *, notes=None, line=None) -> None:
             source = "legalPersonName"
             value = str(getattr(brief, source, "") or "").strip()
         if not value:
-            if notes is not None and field.startswith("company"):
+            if notes is not None and (
+                field.startswith("company")
+                or label in {"单位性质", "地址", "传真", "网址", "邮编", "经营期限", "职务", "身份证号"}
+            ):
                 warning = f"{label} 无依据，已留空"
                 if warning not in notes:
                     notes.append(warning)

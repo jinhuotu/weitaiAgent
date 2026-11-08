@@ -27,9 +27,21 @@ def _profile_tags(raw: str, source: str) -> list[str]:
                                   "民族", "公民身份号码", "统一社会信用代码"]))
     tags = []
     for field, names in fields.items():
-        pattern = (r"(?<![\u4e00-\u9fff])(?:" + "|".join(map(re.escape, names)) +
-                   r")[ \t]*[:：][ \t]*(.*?)(?=[ \t]*(?:" + stop + r")[ \t]*[:：]|[\r\n]|$)")
-        values = {match.group(1).strip() for match in re.finditer(pattern, raw) if match.group(1).strip()}
+        label_pattern = "|".join(
+            r"[^\S\r\n]*".join(map(re.escape, name)) for name in names
+        )
+        pattern = (r"(?:^|[\r\n]|[\s\u3000]|登记内容)(?:" + label_pattern +
+                   r")[ \t:：]*(.*?)(?=[ \t]*(?:" + stop + r")[ \t:：]*|[\r\n]|$)")
+        values = set()
+        for match in re.finditer(pattern, raw):
+            value = match.group(1).strip()
+            if not value or value in labels or value in names:
+                continue
+            # A prose instruction such as “名称应与营业执照一致” is not a
+            # labelled value, even though OCR omitted the colon.
+            if "应与营业执照一致" in value:
+                continue
+            values.add(value)
         if len(values) == 1:
             tags.append(f"{field}:{source}:{next(iter(values))}")
         elif values:

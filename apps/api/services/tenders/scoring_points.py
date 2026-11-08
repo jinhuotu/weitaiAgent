@@ -224,12 +224,14 @@ _MATERIAL_TYPES = (
     (r"组织机构|机构设置|人员配备", ("项目管理机构框图", "人员配备表及证书")),
     (r"竣工|验收|结算|移交", ("竣工验收方案", "结算与移交程序")),
     (r"承诺|质保期|配合|协调", ("投标人书面承诺（须投标人签署，AI 不代写）",)),
+    (r"工程特点|项目认识|项目理解", ("项目概况说明", "施工组织设计")),
 )
 
 
 def _required_material(item):
-    return "、".join([kind for pattern, kinds in _MATERIAL_TYPES
-                     if re.search(pattern, item) for kind in kinds][:2]) or "未识别的材料类型"
+    value = "、".join([kind for pattern, kinds in _MATERIAL_TYPES
+                       if re.search(pattern, item) for kind in kinds][:2])
+    return value or f"（未能归类，请人工确认：{item}）"
 
 
 def section_blocks(points, notes, *, cited_text=None):
@@ -273,23 +275,101 @@ def word_scoring_blocks(doc):
             yield i, text(el), []
 
 
+_ENTITY_SCORE_TERMS = re.compile(
+    r"人员|姓名|性别|年龄|职务|身份证|职称|证书|项目经理|负责人|法人|代表|公司|企业|单位|住所|地址|电话|传真|网址|邮编|成立|营业期限|注册资本|信用代码|资质|业绩|财务|净资产|营收"
+)
+_EXCLUDED_CHAPTER = re.compile(r"^第[一二三四五六七八九十0-9]+章\s*(?:评标|评审)办法")
+_FORMAT_CHAPTER = re.compile(r"^第[一二三四五六七八九十0-9]+章\s*(?:投标|响应)文件格式")
+
+
+def _citation_grams(text: str) -> set[str]:
+    compact = re.sub(r"\s+", "", str(text or ""))
+    return {compact[i:i + 2] for i in range(max(0, len(compact) - 1))}
+
+
+def _citation_overlap(left: str, right: str) -> float:
+    a, b = _citation_grams(left), _citation_grams(right)
+    return len(a & b) / max(1, len(a | b))
+
+
+def _fact_records(value):
+    if isinstance(value, dict):
+        value = value.get("clauses", value.get("facts", value))
+    if isinstance(value, dict):
+        rows = []
+        for key, item in value.items():
+            if isinstance(item, dict):
+                name = str(item.get("name") or key)
+                text = str(item.get("value") or "").strip()
+                clause = str(key)
+            else:
+                name, text, clause = str(key), str(item or "").strip(), str(key)
+            if text:
+                rows.append((clause, name, text))
+        return rows
+    rows = []
+    for item in value or ():
+        if not isinstance(item, dict):
+            continue
+        clause = str(item.get("clause") or item.get("clause_no") or item.get("number") or "")
+        name = str(item.get("name") or item.get("field") or item.get("label") or "")
+        text = str(item.get("value") or item.get("text") or "").strip()
+        if text:
+            rows.append((clause, name, text))
+    return rows
+
+
 def source_citation(point, blocks, uploaded=(), library_facts=()):
-    """Use only explicit item-labelled passages, with their existing provenance."""
+    """Find a literal source excerpt using facts, full-block search, then uploads."""
     def item_value(text):
         match = re.match(r"^" + re.escape(point.item) + r"\s*[:：]\s*(.+)$", text.strip())
         if match and not re.search(r"我方承诺|本公司保证", match[1]):
             return match[1]
         return ""
 
-    technical = False
-    for number, heading, rows in blocks:
+    query = f"{point.item} {point.criterion}"
+    entity_only = bool(_ENTITY_SCORE_TERMS.search(query))
+
+    if not entity_only:
+        best = None
+        for clause, name, value in _fact_records(library_facts):
+            score = max(_citation_overlap(query, name), _citation_overlap(point.item, name))
+            if score >= 0.5 and (best is None or score > best[0]):
+                best = (score, clause, value)
+        if best is not None:
+            return best[2], f"【招标原文·前附表 {best[1]}】"
+
+    chapter_names = [str(heading).strip() for _, heading, _ in blocks if _CHAPTER.match(str(heading).strip())]
+    excluded_found = any(_EXCLUDED_CHAPTER.match(name) or _FORMAT_CHAPTER.match(name) for name in chapter_names)
+    active_chapter = ""
+    placeholder_count: dict[str, int] = {}
+    for _, heading, _ in blocks:
+        heading = str(heading).strip()
         if _CHAPTER.match(heading):
-            technical = bool(re.search(r"发包人要求|技术标准|技术要求", heading))
-        if not technical:
-            continue
-        for text in [heading, *("：".join(row) for row in rows if len(row) == 2)]:
-            if value := item_value(text):
-                return value, f"【招标原文】原版块 {number}，{point.item}"
+            active_chapter = heading
+        if any(token in heading for token in ("电子签章", "（盖单位章", "（签字）")):
+            placeholder_count[active_chapter] = placeholder_count.get(active_chapter, 0) + 1
+
+    active_chapter = ""
+    if not entity_only:
+        for number, heading, rows in blocks:
+            heading = str(heading).strip()
+            if _CHAPTER.match(heading):
+                active_chapter = heading
+            if excluded_found and (_EXCLUDED_CHAPTER.match(active_chapter) or _FORMAT_CHAPTER.match(active_chapter)):
+                continue
+            if not excluded_found and active_chapter and placeholder_count.get(active_chapter, 0) < 3:
+                continue
+            texts = [heading, *("：".join(str(cell) for cell in row if str(cell).strip()) for row in rows)]
+            for text in texts:
+                if len(text.strip()) < 60 or max(
+                    _citation_overlap(point.item, text),
+                    _citation_overlap(point.criterion, text),
+                ) < 0.5:
+                    continue
+                if not re.search(r"我方承诺|本公司保证", text):
+                    return text.strip(), f"【招标原文·原版块 {number}】"
+
     for record in uploaded:
         if record.subject_match and (value := item_value(record.text)):
             return value, record.marker()
@@ -302,7 +382,6 @@ def source_citation(point, blocks, uploaded=(), library_facts=()):
             if value := item_value(f"{field.get('name', '')}：{field.get('value', '')}"):
                 return value, f"【资料库·{fact['fileId']}】"
     return None
-
 
 def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *, toc=()):
     """Plan insertions into existing sections without mutating the Word document."""

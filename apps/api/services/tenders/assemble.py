@@ -155,8 +155,8 @@ _FIELD_HEADS = (
     "法定代表人或其委托代理人",
     "法定代表人或委托代理人",
     "措施项目费用合计",
-    "专业工程暂估价",
-    "安全生产措施费",
+    "\u4e13\u4e1a\u5de5\u7a0b\u6682\u4f30\u4ef7",
+    "\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39",
     "项目联系人电话",
     "缺陷责任期",
     "履约担保金额",
@@ -171,11 +171,11 @@ _FIELD_HEADS = (
     "项目联系人",
     "投标范围",
     "项目名称",
-    "暂列金额",
+    "\u6682\u5217\u91d1\u989d",
     "投标工期",
     "备注投标人",
     "工程质量",
-    "增值税",
+    "\u589e\u503c\u7a0e",
     "投标人",
     "传真",
     "网址",
@@ -186,9 +186,9 @@ _FIELD_HEADS = (
 )
 _FIELD_LINE = re.compile(
     r"^(?P<label>"
-    r"项目名称|投标范围|安全生产措施费(?:[（(]元[)）])?(?:大写)?|"
-    r"暂列金额|专业工程暂估价|"
-    r"投标总报价|增值税|措施项目费用合计|投标工期|工程质量|缺陷责任期|"
+    r"项目名称|投标范围|\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39(?:[（(]元[)）])?(?:大写)?|"
+    r"\u6682\u5217\u91d1\u989d|\u4e13\u4e1a\u5de5\u7a0b\u6682\u4f30\u4ef7|"
+    r"投标总报价|\u589e\u503c\u7a0e|措施项目费用合计|投标工期|工程质量|缺陷责任期|"
     r"履约担保金额|投标有效期|项目经理|注册证号|专业等级|"
     r"备注投标人|邮政编码|项目联系人电话|项目联系人|电子信箱|电子邮箱|"
     r"网址|传真|邮箱|大写|小写"
@@ -1688,8 +1688,8 @@ _APPENDIX_FIELD_MARKS = (
     "投标内容",
     "投标总报价",
     "安全生产",
-    "暂列金额",
-    "专业工程暂估价",
+    "\u6682\u5217\u91d1\u989d",
+    "\u4e13\u4e1a\u5de5\u7a0b\u6682\u4f30\u4ef7",
     "项目经理",
     "注册证号",
     "投标有效期",
@@ -1916,12 +1916,12 @@ def _unglue_plain(text: str) -> str:
         s,
     )
     s = re.sub(
-        r"(投标范围|安全生产措施费|暂列金额|专业工程暂估价|投标总报价|增值税|措施项目费用合计)"
+        r"(投标范围|\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39|\u6682\u5217\u91d1\u989d|\u4e13\u4e1a\u5de5\u7a0b\u6682\u4f30\u4ef7|投标总报价|\u589e\u503c\u7a0e|措施项目费用合计)"
         r"([（(]元[)）])?(大写)",
         r"\1\2\n\3",
         s,
     )
-    s = re.sub(r"(安全生产措施费)\s*\n\s*([（(]元[)）])\s*(大写)", r"\1\2\3", s)
+    s = re.sub(r"(\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39)\s*\n\s*([（(]元[)）])\s*(大写)", r"\1\2\3", s)
     return s
 
 
@@ -2070,7 +2070,7 @@ def _is_dup_date_line(block: str, *, wrote_date: bool) -> bool:
 def _looks_like_works_appendix(text: str) -> bool:
     n = compact_title(text or "")
     return "项目名称" in n and "投标总报价" in n and any(
-        k in n for k in ("安全生产措施费", "暂列金额", "投标工期", "缺陷责任期")
+        k in n for k in ("\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39", "\u6682\u5217\u91d1\u989d", "投标工期", "缺陷责任期")
     )
 
 
@@ -2138,89 +2138,131 @@ def _dx_pair(label: str, big: str, small: str) -> str:
     return f"{label}大写：{big_s}\n小写：{small_s}" if label else f"大写：{big_s}\n小写：{small_s}"
 
 
-def _write_works_appendix_table(doc: Document, brief: BidBrief) -> None:
-    """施工投标函附录：按招标书那张带边框的表来画，不铺成纯文字。"""
-    from api.services.tenders.document import (
-        _apply_fixed_table_widths,
-        _distribute_twips,
-        _set_tbl_borders,
-        _write_cell,
-    )
+def _write_works_appendix_table(doc: Document, brief: BidBrief, facts=None) -> list[str]:
+    """Fill the source appendix in place; create a minimal fallback only if absent."""
+    warnings: list[str] = []
 
-    price_cn = rmb_uppercase(brief.bidPriceYuan) if brief.bidPriceYuan else ""
-    price_en = rmb_figure(brief.bidPriceYuan) if brief.bidPriceYuan else ""
-    def yuan(v):
-        return rmb_pair(v) if v is not None else ""
+    def grams(value: str) -> set[str]:
+        value = compact_title(value)
+        return {value[i:i + 2] for i in range(max(0, len(value) - 1))}
 
-    safety = yuan(brief.safetyFeeYuan)
-    provisional = yuan(brief.provisionalYuan)
-    prime = yuan(brief.primeCostYuan)
-    days = f"{int(brief.deliveryDays)}日历天" if brief.deliveryDays else ""
-    valid = (
-        f"自投标截止之日起{int(brief.bidValidityDays)}日历天" if brief.bidValidityDays else ""
-    )
-    pm = (brief.pmName or "").strip()
-    grade = (brief.pmGrade or "").strip()
-    cert = (brief.pmCertNo or "").strip()
-    rows_n = 17
-    table = doc.add_table(rows=rows_n, cols=4)
-    _set_tbl_borders(table)
-    table.autofit = False
-    widths = _distribute_twips(_usable_width_twips(doc), (24, 32, 22, 22))
-    _apply_fixed_table_widths(table, widths)
+    def similarity(left: str, right: str) -> float:
+        a, b = grams(left), grams(right)
+        return len(a & b) / max(1, len(a | b))
 
-    def put(r, c, text, *, bold=False, center=True):
-        _write_cell(table.cell(r, c), text, size=10.5, bold=bold, underline=False, center=center)
+    def fact_pairs(value) -> list[tuple[str, str, str]]:
+        result: list[tuple[str, str, str]] = []
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if isinstance(item, dict):
+                    result.extend((str(key), str(v), str(src)) for v, src in item.items())
+                elif item not in (None, ""):
+                    result.append((str(key), str(item), "前附表"))
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    label = item.get("name") or item.get("field") or item.get("label")
+                    val = item.get("value") or item.get("text")
+                    src = item.get("source") or item.get("clause") or "前附表"
+                    if label and val:
+                        result.append((str(label), str(val), str(src)))
+        return result
 
-    simple = (
-        (0, "项目名称", (brief.projectName or "").strip()),
-        (1, "投标人", (brief.bidderName or "").strip()),
-        (2, "投标范围", (brief.bidContent or "").strip()),
-    )
-    for r, lab, val in simple:
-        put(r, 0, lab, bold=True)
-        table.cell(r, 1).merge(table.cell(r, 3))
-        put(r, 1, val, center=False)
+    candidates = fact_pairs(facts)
+    attrs = {
+        "projectName": getattr(brief, "projectName", ""),
+        "bidderName": getattr(brief, "bidderName", ""),
+        "bidContent": getattr(brief, "bidContent", ""),
+        "quality": getattr(brief, "quality", ""),
+        "deliveryDays": (f"{brief.deliveryDays}日历天" if getattr(brief, "deliveryDays", 0) else ""),
+        "bidValidityDays": (f"自投标截止之日起{brief.bidValidityDays}日历天" if getattr(brief, "bidValidityDays", 0) else ""),
+        "defectPeriod": getattr(brief, "defectPeriod", ""),
+        "pmName": getattr(brief, "pmName", ""),
+        "pmCertNo": getattr(brief, "pmCertNo", ""),
+        "pmGrade": getattr(brief, "pmGrade", ""),
+    }
+    attr_aliases = {
+        "projectName": ("项目",), "bidderName": ("投标人",), "bidContent": ("范围", "内容"),
+        "quality": ("质量",), "deliveryDays": ("工期", "交货期"), "bidValidityDays": ("有效期",),
+        "defectPeriod": ("缺陷责任期",), "pmName": ("项目经理", "设计负责人"),
+        "pmCertNo": ("注册证号", "证书"), "pmGrade": ("专业等级", "级别"),
+    }
 
-    table.cell(3, 0).merge(table.cell(7, 0))
-    put(3, 0, "投标总报价（元）", bold=True)
-    table.cell(3, 1).merge(table.cell(3, 3))
-    put(3, 1, _dx_pair("", price_cn, price_en), center=False)
-    nested = (
-        (4, "安全生产措施费（元）", safety),
-        (5, "暂列金额（元）", provisional),
-        (6, "专业工程暂估价（元）", prime),
-        (7, "增值税（元）", ""),
-    )
-    for r, lab, val in nested:
-        put(r, 1, lab, bold=True, center=False)
-        put(r, 2, "大写：" + (val or ""), center=False)
-        put(r, 3, "小写：", center=False)
+    def row_label(row) -> str:
+        return compact_title(row.cells[0].text if row.cells else "")
 
-    put(8, 0, "投标报价（投标总报价扣除安全生产措施费、暂列金额与专业工程暂估价、增值税）（元）", bold=True, center=False)
-    table.cell(8, 1).merge(table.cell(8, 3))
-    put(8, 1, _dx_pair("", "", ""), center=False)
-    put(9, 0, "措施项目费用合计（不含安全生产措施费）（元）", bold=True, center=False)
-    table.cell(9, 1).merge(table.cell(9, 3))
-    put(9, 1, _dx_pair("", "", ""), center=False)
-    tail = (
-        (10, "投标工期", days),
-        (11, "投标质量", (brief.quality or "").strip()),
-        (12, "投标有效期", valid),
-        (13, "缺陷责任期", (brief.defectPeriod or "").strip()),
-        (14, "技术标准和要求", ""),
-    )
-    for r, lab, val in tail:
-        put(r, 0, lab, bold=True)
-        table.cell(r, 1).merge(table.cell(r, 3))
-        put(r, 1, val, center=False)
-    put(15, 0, "项目经理", bold=True)
-    put(15, 1, f"姓名 {pm}".strip(), center=False)
-    put(15, 2, f"级别 {grade}".strip(), center=False)
-    put(15, 3, f"注册证号 {cert}".strip(), center=False)
-    put(16, 0, "备注", bold=True)
-    table.cell(16, 1).merge(table.cell(16, 3))
-    put(16, 1, "", center=False)
+    tables = [table for table in doc.tables if any(row_label(row) for row in table.rows)]
+    table = next((candidate for candidate in tables if any("附录" in compact_title(cell.text) for row in candidate.rows for cell in row.cells)), None)
+    if table is None and tables:
+        table = tables[0]
+    if table is None:
+        # Last resort: recover labels from the copied appendix text, then
+        # create only the missing shell.  No business row list is invented.
+        recovered: list[str] = []
+        started = False
+        for para in doc.paragraphs:
+            text = (para.text or "").strip()
+            compact = compact_title(text)
+            if "附录" in compact:
+                started = True
+                continue
+            if started and text and (text.startswith("第") or compact.startswith("投标函")):
+                break
+            if started and text and len(compact) <= 80:
+                label = re.split(r"[：:]", text, maxsplit=1)[0].strip()
+                if label and label not in recovered:
+                    recovered.append(label)
+        if not recovered:
+            return warnings
+        from api.services.tenders.document import _write_cell
+
+        table = doc.add_table(rows=len(recovered) + 1, cols=2)
+        table.cell(0, 0).text = "行名"
+        table.cell(0, 1).text = "约定内容"
+        for index, label in enumerate(recovered, start=1):
+            _write_cell(table.cell(index, 0), label, underline=False)
+
+    header_text = "".join(cell.text for row in table.rows[:2] for cell in row.cells)
+    destination = next((i for i, cell in enumerate(table.rows[0].cells) if "约定内容" in compact_title(cell.text)), None)
+    if destination is None:
+        destination = len(table.rows[0].cells) - 1
+
+    def resolve(label: str) -> tuple[str, str]:
+        if "联合体成员" in label:
+            return "", ""
+        if "\u6743\u5229\u4e49\u52a1" in label or "\u5176\u4ed6\u5b9e\u8d28\u6027\u6761\u6b3e" in label:
+            chapter = next(
+                (
+                    re.match(r"(第[一二三四五六七八九十0-9]+章)", p.text.strip()).group(1)
+                    for p in doc.paragraphs
+                    if re.match(r"第[一二三四五六七八九十0-9]+章\s*合同(?:条款|条件)", p.text.strip())
+                ),
+                "",
+            )
+            suffix = f"{chapter}" if chapter else ""
+            return f"完全响应招标文件{suffix}合同条款及格式的约定，无偏离", "合同条款"
+        if candidates:
+            best = max(candidates, key=lambda item: similarity(label, item[0]))
+            if similarity(label, best[0]) >= 0.7:
+                return best[1], best[2]
+        for attr, value in attrs.items():
+            if value and any(alias in label for alias in attr_aliases.get(attr, ())):
+                return str(value).strip(), f"brief.{attr}"
+        return "", ""
+
+    for row in table.rows[1:] if header_text else table.rows:
+        label = row_label(row)
+        if not label or destination >= len(row.cells):
+            continue
+        target = row.cells[destination]
+        if target.text.strip():
+            continue
+        value, source = resolve(label)
+        if not value:
+            warnings.append(f"{label} 无依据，已留空")
+            continue
+        target.text = value
+    return warnings
 
 
 def _write_copied_form(
@@ -3371,7 +3413,7 @@ def _collect_table_rows(lines: list[str], start: int, ncols: int) -> tuple[list[
     return rows, i
 
 
-_APPENDIX_FEE_MARK = ("安全生产措施费", "暂列金额", "暂估价", "投标保证金", "保证金")
+_APPENDIX_FEE_MARK = ("\u5b89\u5168\u751f\u4ea7\u63aa\u65bd\u8d39", "\u6682\u5217\u91d1\u989d", "暂估价", "投标保证金", "保证金")
 _APPENDIX_UNDER_MARK = ("项目经理", "注册证号", "证书编号", "履约担保", "缺陷责任期")
 
 

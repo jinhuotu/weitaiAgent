@@ -2160,7 +2160,7 @@ def _fill_paragraphs(
     if note:logger.info(note)
     price_cn = rmb_uppercase(brief.bidPriceYuan)
     price_en = rmb_figure(brief.bidPriceYuan)
-    extra = (brief.extraNote or "").strip() or "无"
+    extra = (brief.extraNote or "").strip()
     year, month, day = _ymd(brief.bidDate)
     section = "cover"
     drop: list[Paragraph] = []
@@ -2277,11 +2277,11 @@ def _fill_paragraphs(
                 )
                 _scrub_hints(para, hints_project)
             elif "其他补充说明" in n:
-                _remove_line_drawings(para)
-                _ensure_blank_underline(para)
-                _fill_blanks(para, extra)
-                if not _blank_runs(para):
-                    _write_para(para, extra, size=12)
+                if extra:
+                    appended = _insert_paragraph_after(para)
+                    _clear_runs(appended)
+                    run = appended.add_run(f"9．（其他补充说明）：{extra}。")
+                    _style_fill_run(run, appended, underline=False)
             elif n.startswith("投标人") and "盖单位公章" in n:
                 if not letter_sign_gapped:
                     _insert_bottom_sign_spacer_before(para, sign_cm=3.2)
@@ -2910,44 +2910,53 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
     from api.services.tenders.outline import _clean_pm_name
 
     notes: list[str] = []
-    pm = _clean_pm_name(brief.pmName or "") or "________"
+    pm = _clean_pm_name(brief.pmName or "")
     cert = (brief.pmCertNo or "").strip()
     if cert in {"", "/", "／", "无"}:
-        cert = "________"
+        cert = ""
     grade = (brief.pmGrade or "").strip()
-    if grade in {"", "/", "／"}:
-        grade = "无"
+    if grade in {"/", "／", "无"}:
+        grade = ""
     valid = ""
     if brief.bidValidityDays:
         valid = f"自投标截止之日起{int(brief.bidValidityDays)}日历天"
+    if price_cn and price_en:
+        total_price = f"（大写）{price_cn}（¥{price_en}元）"
+    elif price_cn:
+        total_price = f"（大写）{price_cn}"
+    elif price_en:
+        total_price = f"（¥{price_en}元）"
+    else:
+        total_price = ""
+    invitation = "invitation:"
     mapping = {
-        "项目名称": brief.projectName or "________",
-        "投标人": brief.bidderName or "________",
-        "投标总报价": f"（大写）{price_cn}（¥{price_en}元）",
-        "投标范围": (brief.bidContent or "").strip() or "________",
-        "投标内容": (brief.bidContent or "").strip() or "________",
-        "投标质量": brief.quality,
-        "交货期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
-        "工期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
-        "投标工期": f"{brief.deliveryDays}日历天" if brief.deliveryDays else "",
-        "质保期": f"基础要求{brief.warrantyYears}年" if brief.warrantyYears else "",
-        "投标有效期": valid or "________",
-        "安全生产措施费": rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "",
-        "暂列金额": rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "",
-        "专业工程暂估价": rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "",
-        "项目经理": pm,
-        "注册证号": cert,
-        "专业等级": grade,
-        "缺陷责任期": (brief.defectPeriod or "").strip() or "________",
-        "履约担保金额": (brief.perfBond or "").strip() or "________",
-        "履约担保": (brief.perfBond or "").strip() or "________",
-        "需要说明的问题": (brief.extraNote or "").strip() or "无",
+        "项目名称": (brief.projectName or "", invitation),
+        "投标人": (brief.bidderName or "", invitation),
+        "投标总报价": (total_price, invitation),
+        "投标范围": ((brief.bidContent or "").strip(), invitation),
+        "投标内容": ((brief.bidContent or "").strip(), invitation),
+        "投标质量": (brief.quality, invitation),
+        "交货期": (f"{brief.deliveryDays}日历天" if brief.deliveryDays else "", invitation),
+        "工期": (f"{brief.deliveryDays}日历天" if brief.deliveryDays else "", invitation),
+        "投标工期": (f"{brief.deliveryDays}日历天" if brief.deliveryDays else "", invitation),
+        "质保期": (f"基础要求{brief.warrantyYears}年" if brief.warrantyYears else "", invitation),
+        "投标有效期": (valid, invitation),
+        "安全生产措施费": (rmb_pair(brief.safetyFeeYuan) if brief.safetyFeeYuan is not None else "", invitation),
+        "暂列金额": (rmb_pair(brief.provisionalYuan) if brief.provisionalYuan is not None else "", invitation),
+        "专业工程暂估价": (rmb_pair(brief.primeCostYuan) if brief.primeCostYuan is not None else "", invitation),
+        "项目经理": (pm, "qual:"),
+        "注册证号": (cert, "qual:"),
+        "专业等级": (grade, "qual:"),
+        "缺陷责任期": ((brief.defectPeriod or "").strip(), invitation),
+        "履约担保金额": ((brief.perfBond or "").strip(), invitation),
+        "履约担保": ((brief.perfBond or "").strip(), invitation),
+        "需要说明的问题": ((brief.extraNote or "").strip(), ""),
     }
     if facts:
         from api.services.tenders.facts import fact_fill
 
         for key in ("项目经理", "注册证号", "专业等级"):
-            cur = mapping.get(key) or ""
+            cur = mapping.get(key, ("", ""))[0]
             blank = {"", "________", "无"} if key == "专业等级" else {"", "________"}
             if cur and cur not in blank:
                 continue
@@ -2955,12 +2964,17 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
             if note and note not in notes:
                 notes.append(note)
             if val:
-                mapping[key] = val
+                mapping[key] = (val, "qual:")
     seen: set[str] = set()
     for row in table.rows:
         label = _compact(row.cells[0].text)
-        for key, value in mapping.items():
+        for key, (raw_value, source) in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
             if key in label:
+                value = raw_value if should_fill(key, source, raw_value) else ""
+                if not value:
+                    warning = f"{key} 无依据，已留空"
+                    if warning not in notes:
+                        notes.append(warning)
                 _write_cell(row.cells[-1], value, underline=False)
                 seen.add(key)
                 break
@@ -2989,7 +3003,13 @@ def _fill_appendix_table(table: Table, brief: BidBrief, price_cn: str, price_en:
         row = table.add_row()
         _write_cell(row.cells[0], key, underline=False, bold=True, center=True, bottom_line=False)
         if len(row.cells) > 1:
-            _write_cell(row.cells[-1], mapping.get(key, "________"), underline=False)
+            raw_value, source = mapping.get(key, ("", ""))
+            value = raw_value if should_fill(key, source, raw_value) else ""
+            if not value:
+                warning = f"{key} 无依据，已留空"
+                if warning not in notes:
+                    notes.append(warning)
+            _write_cell(row.cells[-1], value, underline=False)
     return notes
 
 
@@ -3987,6 +4007,8 @@ def build_bid_docx(
     warnings.extend(missing_library_notes(slots, media, volume=volume))
     inlined_ids: set[str] = set()
     quote_anchor = _fill_paragraphs(doc, brief, media=media, inlined=inlined_ids)
+    if not (brief.extraNote or "").strip():
+        warnings.append("其他补充说明 无依据，已留空")
     # 先清掉模板旧目录，避免填写技术标时把目录行的「其他材料」当成正文标题。
     _ensure_toc_entries(
         doc,
