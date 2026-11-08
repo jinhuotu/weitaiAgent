@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
+import traceback
 from pathlib import Path
 from datetime import UTC, date, datetime
 from uuid import uuid4
@@ -319,6 +320,7 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
         return {}
     if client is None:
         client = await build_llm_client(db, "pro")
+    print("评分叙述模型客户端：", type(client).__name__)
     from api.services.tenders.tender_facts import extract_tender_facts
 
     detail = extract_tender_facts(invitation)
@@ -363,6 +365,7 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
         return point.item, str(raw or "").strip()
     results = await ordered_generation([lambda point=point: generate(point) for point in points],
                                        stage="scoring_narrative", labels=[p.item for p in points])
+    print("评分叙述模型返回：", len(results), "非空：", sum(bool(body) for _, body in results))
     return {item: body for item, body in results if item and body}
 
 
@@ -585,10 +588,13 @@ async def _prepare_and_generate(
     draft_notes: list[str] = []
     scoring_drafts = {}
     if both or vol in {"business", "full"}:
+        print("评分叙述预生成条件：", {"vol": vol, "both": both})
         try:
             scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
             print(f"记录层评分叙述预生成写入 {len(scoring_drafts)} 条")
         except Exception as exc:  # model failure leaves downstream fallback intact
+            print("评分叙述预生成异常类型：", type(exc).__name__)
+            traceback.print_exc()
             draft_notes.append(f"评分叙述预生成失败，已走降级：{exc}")
     technical_package_active = False
     if both or vol == 'technical':

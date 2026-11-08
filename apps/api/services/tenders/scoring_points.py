@@ -500,6 +500,7 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
     if isinstance(citations, list):
         drafted = next((item.get("_scoring_drafts") for item in citations
                         if isinstance(item, dict) and isinstance(item.get("_scoring_drafts"), dict)), {}) or {}
+    print("scoring drafts 提取：", len(drafted), "citations 类型：", type(citations).__name__)
     texts = []
     for title, anchor in anchors.items():
         selected = [point for point in points if point.target_section == title]
