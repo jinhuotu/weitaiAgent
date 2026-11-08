@@ -3,6 +3,7 @@
 from dataclasses import dataclass, replace
 import re
 import unicodedata
+from copy import deepcopy
 
 
 _EVIDENCE_TERMS = ("证书", "执照", "证明", "扫描件", "截图", "合同", "报表", "报告", "许可证", "发票", "凭证", "资质文件", "缴税", "社保", "信用中国", "公示系统")
@@ -298,18 +299,17 @@ def section_blocks(points, notes, *, cited_text=None, facts=None, generator=None
     result = []
     pending = 0
     for point in points:
-        label = f"（对应评分项 {point.item}，{_score_label(point)}）"
         commitment = re.search(r"承诺|不拖欠|质保期(?:内|外)|协调.{0,15}周边|与招标人的配合",
                                point.group + point.criterion)
         if commitment:
-            result.append(f"{label}\n{_narrative_for_point(point, facts=facts, generator=generator)}")
+            result.append(_narrative_for_point(point, facts=facts, generator=generator))
         else:
             citation = cited_text(point) if cited_text else None
             if citation:
                 excerpt, source = citation
-                result.append(f"{label}\n{excerpt}\n依据：{source}")
+                result.append(f"{excerpt}\n依据：{source}")
                 continue
-            result.append(f"{label}\n{_narrative_for_point(point, facts=facts, generator=generator, with_reference=score_item_kind(point.item, point.criterion) == 'mixed')}")
+            result.append(_narrative_for_point(point, facts=facts, generator=generator, with_reference=score_item_kind(point.item, point.criterion) == 'mixed'))
     return result
 
 
@@ -445,6 +445,38 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
     def _paragraph_text(el):
         return "".join(node.text or "" for node in el.iter(qn("w:t")))
 
+    def _strip_scoring_label(anchor):
+        """Remove the label and its break from OOXML without flattening runs."""
+        label = "（对应评分项"
+        if not _paragraph_text(anchor).lstrip().startswith(label):
+            return
+        children = list(anchor)
+        found = False
+        for child in children:
+            if found:
+                break
+            text = "".join(node.text or "" for node in child.iter(qn("w:t")))
+            if child.tag == qn("w:pPr"):
+                continue
+            anchor.remove(child)
+            if child.tag == qn("w:r") and child.find(".//" + qn("w:br")) is not None:
+                found = True
+
+    def _inherit_body_style(anchor):
+        """Make the insertion anchor inherit a normal body paragraph style."""
+        candidates = [el for el in doc.element.body if el.tag == qn("w:p")
+                      and len(_paragraph_text(el)) >= 80
+                      and not _paragraph_text(el).lstrip().startswith("（对应评分项")]
+        if not candidates:
+            return
+        source = candidates[0].find(qn("w:pPr"))
+        if source is None:
+            return
+        old = anchor.find(qn("w:pPr"))
+        if old is not None:
+            anchor.remove(old)
+        anchor.insert(0, deepcopy(source))
+
     notes = []
     original = format_path.parent / f"{brief.invitationId}.docx"
     blocks = list(word_scoring_blocks(Document(original))) if original.is_file() else []
@@ -508,6 +540,8 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
             continue
         if anchor.getnext() is not None and _paragraph_text(anchor.getnext()).startswith("（对应评分项 "):
             continue
+        _strip_scoring_label(anchor)
+        _inherit_body_style(anchor)
         rendered = section_blocks(selected, notes, facts=facts,
             generator=lambda point, facts_map: drafted.get(point.item, ""),
             cited_text=lambda point: source_citation(
