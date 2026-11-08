@@ -269,38 +269,31 @@ def _score_label(point):
     return f"{point.item_score_min}-{point.item_score_max} 分"
 
 
-def _narrative_for_point(point, *, with_reference: bool = False) -> str:
-    """Write a distinct four-part declaration from the scoring point itself."""
+def _narrative_for_point(point, *, facts=None, generator=None, with_reference: bool = False) -> str:
+    """Use an injected model generator, with a data-only generic fallback."""
+    if generator is not None:
+        try:
+            generated = generator(point, facts or {})
+            if generated:
+                return str(generated).strip()
+        except Exception:  # model failure falls through to deterministic prose
+            pass
     terms = criterion_terms(point.criterion or point.item)
-    focus = "、".join(terms[:6]) or point.item
-    variants = (
-        "我方将先核对项目边界、接口条件和交付要求，再按责任界面组织实施；我方已建立过程记录、复核确认和问题销项机制。",
-        "我方围绕项目目标拆分工作包，明确前置条件、检查节点和成果标准；我方承诺将意见闭环到责任人和交付物。",
-        "我方将把关键风险纳入计划管理，按照识别、预防、检查、纠偏的顺序推进；我方以可追溯记录保证措施落地。",
-        "我方承诺结合现场条件优化组织安排，持续复核进度、质量和接口状态；我方发现偏差即启动纠偏并完成复盘。",
-    )
-    variant = variants[sum(ord(ch) for ch in point.item) % len(variants)]
-    stems = (
-        f"本项目的{point.item}，我方依据工程范围、工期、质量标准和安全要求承接工作。",
-        f"结合本项目现场边界与交付目标，我方将{point.item}作为主线安排资源和接口。",
-        f"针对本项目的{point.item}，我方先核定条件，再组织专业协同和成果确认。",
-        f"本项目推进{point.item}时，我方以可执行、可检查、可追溯作为基本要求。",
-    )
-    bodies = (
-        f"我方围绕{focus}建立{point.item}专用台账，逐项登记输入、责任界面与交付结果；{variant}",
-        f"我方把{point.item}拆为前置核验、过程控制、阶段复查和收口移交，针对{focus}设置问题登记与销项链条。",
-        f"我方对{point.item}采用节点记录、周度复盘和阶段验收，遇到{focus}相关接口变化时同步说明影响并更新成果。",
-        f"我方承诺以{point.item}作为验收重点，围绕{focus}持续协调、检查和改进，使承诺内容与本项目实际条件保持一致。",
-    )
-    offset = sum(ord(ch) for ch in point.item) % len(bodies)
-    signature = f"专项安排围绕{point.item}展开：{focus}、{point.item}、{focus}分别对应准备、实施与验收，相关记录均以{point.item}为索引。"
-    text = "\n\n".join((stems[offset % len(stems)], bodies[offset], bodies[(offset + 1) % len(bodies)], bodies[(offset + 2) % len(bodies)] + signature))
+    focus = "、".join(terms) or point.item
+    fact_text = "；".join(f"{k}：{v}" for k, v in (facts or {}).items() if v not in (None, ""))
+    fact_text = fact_text or "招标文件载明的项目条件"
+    text = "\n\n".join((
+        f"{fact_text}。我方将{point.item}放入本项目实施边界，先核对输入条件，再明确责任接口和交付要求。",
+        f"评分细则涉及{focus}，我方据此建立工作清单，逐项安排审查、沟通、记录和结果确认，确保criterion原文要求可追踪。".replace("criterion原文", "评分原文"),
+        f"我方按招标文件节点组织{point.item}，以过程记录、阶段检查和验收资料形成闭环；事实中的数量、期限和指标均按原文执行。",
+        f"我方承诺持续协调、复核和改进{point.item}，在项目条件发生变化时及时更新安排并保留可核验记录。",
+    ))
     if with_reference:
         text += "\n相关人员证书及证明材料见本章资格审查资料。"
     return text
 
 
-def section_blocks(points, notes, *, cited_text=None):
+def section_blocks(points, notes, *, cited_text=None, facts=None, generator=None):
     """Render each scoring point as a declaration or a cited excerpt."""
     result = []
     pending = 0
@@ -309,14 +302,14 @@ def section_blocks(points, notes, *, cited_text=None):
         commitment = re.search(r"承诺|不拖欠|质保期(?:内|外)|协调.{0,15}周边|与招标人的配合",
                                point.group + point.criterion)
         if commitment:
-            result.append(f"{label}\n{_narrative_for_point(point)}")
+            result.append(f"{label}\n{_narrative_for_point(point, facts=facts, generator=generator)}")
         else:
             citation = cited_text(point) if cited_text else None
             if citation:
                 excerpt, source = citation
                 result.append(f"{label}\n{excerpt}\n依据：{source}")
                 continue
-            result.append(f"{label}\n{_narrative_for_point(point, with_reference=score_item_kind(point.item, point.criterion) == 'mixed')}")
+            result.append(f"{label}\n{_narrative_for_point(point, facts=facts, generator=generator, with_reference=score_item_kind(point.item, point.criterion) == 'mixed')}")
     return result
 
 
@@ -506,3 +499,4 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         ))
         texts.extend((anchor, text) for text in rendered)
     return texts, notes
+

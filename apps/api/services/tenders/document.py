@@ -1977,7 +1977,7 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
                 seq="1",
                 requirement="【待响应】尚未抽出技术条款",
                 response="【待响应】",
-                deviation="待确认",
+                deviation="\u5f85\u786e\u8ba4",
             ),
         ]
     rows: list[tuple[str, str, str, str]] = []
@@ -1990,10 +1990,10 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
                 str(i),
                 req,
                 (line.response or "【待响应】").strip() or "【待响应】",
-                (line.deviation or "待确认").strip() or "待确认",
+                (line.deviation or "\u5f85\u786e\u8ba4").strip() or "\u5f85\u786e\u8ba4",
             )
         )
-    return rows or [("1", "【待响应】尚未抽出技术条款", "【待响应】", "待确认")]
+    return rows or [("1", "【待响应】尚未抽出技术条款", "【待响应】", "\u5f85\u786e\u8ba4")]
 
 
 def _technical_dev_rows(brief: BidBrief) -> list[tuple[str, str, str, str, str]]:
@@ -2030,7 +2030,7 @@ def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, ...]]:
                 continue
             clause = requirement if re.search(r"\b\d+[.．]\d+", requirement) else f"商务条款-{index}"
             response = (line.response or "").strip()
-            rows.append((str(len(rows) + 1), clause, response, (line.deviation or "待确认").strip(), (line.explanation or "").strip()))
+            rows.append((str(len(rows) + 1), clause, response, (line.deviation or "\u5f85\u786e\u8ba4").strip(), (line.explanation or "").strip()))
         if rows:
             return rows
     rows: list[tuple[str, str, str, str]] = []
@@ -2771,8 +2771,8 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
         re.compile(r"状态：待投标人确认"),
         re.compile(r"其他资料（待核对归属）"),
         re.compile(r"其他资料\(待核对归属\)"),
-        re.compile(r"【待补充】[^\n]*"),
-        re.compile(r"待核实[^\n。]{0,40}"),
+        re.compile(r"\u3010\u5f85\u8865\u5145\u3011[^\n]*"),
+        re.compile(r"\u5f85\u6838\u5b9e[^\n。]{0,40}"),
     )
     for element in list(doc.element.body.iter(qn("w:p"))):
         para = Paragraph(element, doc)
@@ -2780,7 +2780,7 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
         text = original
         for pattern in patterns:
             text = pattern.sub("", text)
-        text = text.replace("【待补充】", "").replace("需补充材料", "")
+        text = text.replace("\u3010\u5f85\u8865\u5145\u3011", "").replace("需补充材料", "")
         if text == original:
             continue
         if not text.strip():
@@ -4336,3 +4336,4 @@ def build_bid_format_skeleton(brief: BidBrief, dest: Path) -> Path:
     dest.parent.mkdir(parents=True, exist_ok=True)
     doc.save(dest)
     return dest
+
