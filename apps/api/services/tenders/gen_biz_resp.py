@@ -180,7 +180,7 @@ def _business_scores(brief: BidBrief, invitation: str) -> list[tuple[str, str]]:
         seen.add(key)
         weight = re.search(r"(\d+(?:\.\d+)?)\s*分", text)
         result.append(
-            (text, stated_weight or (f"{weight.group(1)}分" if weight else "权重待核实"))
+            (text, stated_weight or (f"{weight.group(1)}分" if weight else "权重【待补充】"))
         )
         if len(result) >= 30:
             break
@@ -241,7 +241,7 @@ def _chapter_role(item: OutlineItem) -> str:
 
 def _evidence(brief: BidBrief, library_facts: list[dict]) -> str:
     lines = [f"项目名称：{brief.projectName}"] if brief.projectName else []
-    lines.append(f"本次投标人：{brief.bidderName or '待核实'}")
+    lines.append(f"本次投标人：{brief.bidderName or '【待补充】'}")
     if brief.bidContent:
         lines.append(f"项目内容：{brief.bidContent}")
     if (brief.extraNote or "").strip():
@@ -249,7 +249,7 @@ def _evidence(brief: BidBrief, library_facts: list[dict]) -> str:
     if brief.bidPriceYuan > 0:
         lines.append(f"用户报价：{brief.bidPriceYuan} 元")
     for row in brief.performanceLines:
-        if row.includeInBid and row.projectName and row.projectName not in {"待补充", "待核实"}:
+        if row.includeInBid and row.projectName and row.projectName not in {"待补充", "【待补充】"}:
             lines.append(
                 f"用户选定业绩：{row.projectName}；{row.summary or row.spec or '详情待核'}"
             )
@@ -278,7 +278,7 @@ def _evidence(brief: BidBrief, library_facts: list[dict]) -> str:
     if hits:
         lines.append(format_records(hits, budget=settings.evidence_section_budget))
     else:
-        lines.append("待核实未检索到本卷要求对应的证据片段")
+        lines.append("【待补充】未检索到本卷要求对应的证据片段")
     lines.append("仅 marker 内的内容可作为事实，其余一律不得补造数字与承诺")
     return "\n".join(lines)
 
@@ -312,19 +312,19 @@ def _safe_response(
     supplied_numbers = set(re.findall(r"\d+(?:\.\d+)?", requirement + evidence))
     numbers = re.findall(r"\d+(?:\.\d+)?", response)
     if any(n not in supplied_numbers for n in numbers):
-        return "待核实响应含未核实的金额或数量，请人工核对", "待确认"
+        return "【待补充】响应含未核实的金额或数量，请人工核对", "待确认"
     needs_performance = "业绩" in requirement
     needs_qualification = any(w in requirement for w in ("资质", "资格", "证书", "许可"))
     if needs_performance and "用户选定业绩：" not in evidence and "资料库 perf" not in evidence:
-        return "待核实业绩证明尚未核实", "待确认"
+        return "【待补充】业绩证明尚未核实", "待确认"
     if needs_qualification and "资料库 iso" not in evidence and "资料库 license" not in evidence:
-        return "待核实资格证明尚未核实", "待确认"
+        return "【待补充】资格证明尚未核实", "待确认"
     if any(word in requirement for word in ("价格", "报价金额")) and "用户报价：" not in evidence:
-        return "待核实报价事实尚未核实", "待确认"
+        return "【待补充】报价事实尚未核实", "待确认"
     if "优惠" in requirement and "用户商务补充说明：" not in evidence:
-        return "待核实优惠条件尚未核实", "待确认"
-    if not response or "待核实" in response or "待确认" in response:
-        return response or "待核实", "待确认"
+        return "【待补充】优惠条件尚未核实", "待确认"
+    if not response or "【待补充】" in response or "待确认" in response:
+        return response or "【待补充】", "待确认"
     return response, deviation if deviation in {
         "无偏离",
         "正偏离",
@@ -345,7 +345,7 @@ def _completeness_table(
         if not row or not substantive_response(row.response) or row.deviation in {"负偏离", "待确认"}:
             gaps += 1
     if not substantial:
-        return "商务响应完整性核对表\n待核实未识别实质性商务条款，请核对招标商务章", 1
+        return "商务响应完整性核对表\n【待补充】未识别实质性商务条款，请核对招标商务章", 1
     return "商务响应完整性核对表\n" + (pending_summary(gaps) if gaps else "实质性商务条款已响应，请核对证明材料。"), gaps
 
 
@@ -403,7 +403,7 @@ async def draft_business_response(
     if protected:
         notes.append("商务标：已保护原版固定承诺/声明，未自动扩写：" + "、".join(sorted(protected)))
     if not invitation:
-        notes.append("商务标：邀请书正文为空，商务条款依据待核实；请重新识别邀请书")
+        notes.append("商务标：邀请书正文为空，商务条款依据【待补充】；请重新识别邀请书")
     roles = {_chapter_role(i) for i in sections}
     for role, label in (
         ("deviation", "商务偏离表"),
@@ -415,14 +415,14 @@ async def draft_business_response(
     if not editable:
         return brief, [
             *notes,
-            "商务标：没有可自动填写的商务响应章节，需核对的响应待核实；已保留人工内容和原大纲",
+            "商务标：没有可自动填写的商务响应章节，需核对的响应【待补充】；已保留人工内容和原大纲",
         ]
     if not requirements:
         updated = [
             item.model_copy(
                 update={
                     "draftBody": (
-                        "商务响应完整性核对表\n待核实未识别可逐条响应的商务条款，请核对招标商务章"
+                        "商务响应完整性核对表\n【待补充】未识别可逐条响应的商务条款，请核对招标商务章"
                     ),
                     "draftStatus": "drafted",
                 }
@@ -434,12 +434,12 @@ async def draft_business_response(
         pending_rows = brief.bizDeviationLines
         if not pending_rows and any(_chapter_role(item) == "deviation" for item in editable):
             pending_rows = [DeviationLine(
-                seq="1", requirement="待核实未识别可逐条响应的商务条款",
-                response="待核实请核对招标商务章", deviation="待确认",
+                seq="1", requirement="【待补充】未识别可逐条响应的商务条款",
+                response="【待补充】请核对招标商务章", deviation="待确认",
             )]
         return brief.model_copy(update={"outlineItems": updated, "bizDeviationLines": pending_rows}), [
             *notes,
-            "商务标：未提取到商务要求，已在核对表标待核实",
+            "商务标：未提取到商务要求，已在核对表标【待补充】",
         ]
     evidence = _evidence(brief, library_facts or [])
     selected_ids = [
@@ -507,7 +507,7 @@ async def draft_business_response(
                         + "\n【商务评分项与权重】\n"
                         + (
                             "\n".join(f"{text}（{weight}）" for text, weight in scoring)
-                            or "待核实未识别商务评分项"
+                            or "【待补充】未识别商务评分项"
                         )
                         + "\n【所选知识库写法参考，不可引用其项目事实】\n"
                         + (style or "（无）")
@@ -559,12 +559,12 @@ async def draft_business_response(
                     returned_chapters.add(title)
         chapter_gaps.update(chapter_titles - returned_chapters)
     if clause_gaps:
-        notes.append("商务标：模型未完整返回逐条响应，缺失条款已标待核实，投标文件继续生成")
+        notes.append("商务标：模型未完整返回逐条响应，缺失条款已标【待补充】，投标文件继续生成")
     if chapter_gaps:
-        notes.append("商务标：模型未完整返回章节正文，缺失正文已标待核实，投标文件继续生成")
+        notes.append("商务标：模型未完整返回章节正文，缺失正文已标【待补充】，投标文件继续生成")
         for title in chapter_gaps:
             if not body_parts[title]:
-                body_parts[title].append("待核实商务响应章节正文未完整生成，请核对后补充。")
+                body_parts[title].append("【待补充】商务响应章节正文未完整生成，请核对后补充。")
     existing = {re.sub(r"\s+", "", d.requirement) for d in brief.bizDeviationLines}
     rows = list(brief.bizDeviationLines)
     for req in requirements:
@@ -596,7 +596,7 @@ async def draft_business_response(
         explanation = str(answer.get("explanation") or "").strip()
         known_numbers = set(re.findall(r"\d+(?:\.\d+)?", req.text + evidence))
         if not all(n in known_numbers for n in re.findall(r"\d+(?:\.\d+)?", explanation)):
-            explanation = "待核实说明包含未核实数量或金额"
+            explanation = "【待补充】说明包含未核实数量或金额"
         rows.append(
             DeviationLine(
                 seq=str(len(rows) + 1),
@@ -663,13 +663,13 @@ async def draft_business_response(
         body = bodies.get(item.title, "")
         if item in editable and _chapter_role(item) != "deviation":
             if not body:
-                body = "待核实本章节正文尚未生成，请核对后补充。"
+                body = "【待补充】本章节正文尚未生成，请核对后补充。"
             if body and _chapter_role(item) == "offer" and not (brief.extraNote or "").strip():
-                body = "待核实未提供可核实的商务优惠条件或特殊承诺。"
+                body = "【待补充】未提供可核实的商务优惠条件或特殊承诺。"
             known_numbers = set(re.findall(r"\d+(?:\.\d+)?", invitation + evidence))
             safe_numbers = all(n in known_numbers for n in re.findall(r"\d+(?:\.\d+)?", body))
             if not safe_numbers:
-                body = "待核实正文包含未核实数量或金额，请人工核对。"
+                body = "【待补充】正文包含未核实数量或金额，请人工核对。"
             updated.append(
                 item.model_copy(update={"draftBody": body, "draftStatus": "drafted"})
                 if body
@@ -688,4 +688,5 @@ async def draft_business_response(
         *notes,
         f"商务标：已对照 {len(rows)} 条商务要求起草响应",
     ]
+
 

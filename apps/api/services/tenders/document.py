@@ -2771,6 +2771,8 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
         re.compile(r"状态：待投标人确认"),
         re.compile(r"其他资料（待核对归属）"),
         re.compile(r"其他资料\(待核对归属\)"),
+        re.compile(r"【待补充】[^\n]*"),
+        re.compile(r"待核实[^\n。]{0,40}"),
     )
     for element in list(doc.element.body.iter(qn("w:p"))):
         para = Paragraph(element, doc)
