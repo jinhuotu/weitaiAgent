@@ -47,6 +47,42 @@ def criterion_terms(text: str) -> list[str]:
     return list(dict.fromkeys(term for term in terms if term not in _STOP_WORDS))
 
 
+def _clean_item(text: str) -> str:
+    value = re.sub(r"\s+", " ", str(text or "")).strip()
+    return value.translate(str.maketrans("（）", "()"))
+
+
+def _fact_sentences(facts: dict) -> list[str]:
+    project = facts.get("项目名称")
+    location = facts.get("建设地点")
+    sentences = []
+    if project or location:
+        lead = "本项目"
+        if project:
+            lead += f"为{project}"
+        if location:
+            lead += f"，建设地点为{location}"
+        sentences.append(lead + "。")
+    for key in ("计划工期", "质量标准", "招标范围", "投标有效期", "投标保证金"):
+        value = facts.get(key)
+        if value in (None, ""):
+            continue
+        text = str(value).strip()
+        if len(text) > 80:
+            text = re.split(r"[；;。]", text, maxsplit=1)[0].strip()
+        if key == "投标保证金":
+            try:
+                amount = float(text)
+                if amount.is_integer():
+                    text = f"人民币{int(amount) / 10000:g}万元"
+            except (TypeError, ValueError):
+                pass
+        if key == "计划工期" and text.isdigit():
+            text += "日历天"
+        sentences.append(f"{key}为{text}。")
+    return sentences
+
+
 def validate_declaration(text: str, terms: list[str], facts: object) -> dict:
     body = text or ""
     fact_values = [str(value) for value in (facts.values() if isinstance(facts, dict) else facts or []) if value not in (None, "")]
@@ -279,15 +315,16 @@ def _narrative_for_point(point, *, facts=None, generator=None, with_reference: b
                 return str(generated).strip()
         except Exception:  # model failure falls through to deterministic prose
             pass
-    terms = criterion_terms(point.criterion or point.item)
+    item = _clean_item(point.item)
+    terms = criterion_terms(point.criterion or item)
     focus = "、".join(terms) or point.item
-    fact_text = "；".join(f"{k}：{v}" for k, v in (facts or {}).items() if v not in (None, ""))
-    fact_text = fact_text or "招标文件载明的项目条件"
+    fact_text = "".join(_fact_sentences(facts or {}))
+    fact_text = fact_text or "本项目按已核实的招标条件组织实施。"
     text = "\n\n".join((
-        f"{fact_text}。我方将{point.item}放入本项目实施边界，先核对输入条件，再明确责任接口和交付要求。",
-        f"评分细则涉及{focus}，我方据此建立工作清单，逐项安排审查、沟通、记录和结果确认，确保criterion原文要求可追踪。".replace("criterion原文", "评分原文"),
-        f"我方按招标文件节点组织{point.item}，以过程记录、阶段检查和验收资料形成闭环；事实中的数量、期限和指标均按原文执行。",
-        f"我方承诺持续协调、复核和改进{point.item}，在项目条件发生变化时及时更新安排并保留可核验记录。",
+        f"{fact_text}我方将{item}放入本项目实施边界，先核对输入条件，再明确责任接口和交付要求。",
+        f"评分细则涉及{focus}，我方据此建立工作清单，逐项安排审查、沟通、记录和结果确认，确保评分原文要求可追踪。",
+        f"我方按招标文件节点组织{item}，以过程记录、阶段检查和验收资料形成闭环；事实中的数量、期限和指标均按原文执行。",
+        f"我方承诺持续协调、复核和改进{item}，在项目条件发生变化时及时更新安排并保留可核验记录。",
     ))
     if with_reference:
         text += "\n相关人员证书及证明材料见本章资格审查资料。"

@@ -1,9 +1,9 @@
 {
   "schema": "protected-baseline/1",
-  "generated_at": "2026-11-08T12:07:28.396571+00:00",
+  "generated_at": "2026-11-08T12:11:21.132406+00:00",
   "root": "D:\\code\\LLM\\weitaiAgent",
   "file_count": 158,
-  "digest": "5fbdb3deace56e6471828f075abb2cb785d6eceed6af96a95a58fbb85ebb52a0",
+  "digest": "7c1b02cf46321cd404b9ecbbc84394966a5c4763320dd8995ffacc9669f925ea",
   "files": {
     "apps/api/routers/tenders.py": "e56c9f8492ba41bd9aaf689206323d04287e921d5b431970778df39e788e0b19",
     "apps/api/services/tender_package/GOODS_CONTRACT.md": "a65a8a51f693ef41a9d3c70c36f830ff1863ae873c3a77118be9b77111c852e1",
@@ -143,7 +143,7 @@
     "apps/api/services/tenders/requirement_bid.py": "c290e319b0a84f830ad771f5b626dcc47db4ba1c3a265221fec8a97c76e105fc",
     "apps/api/services/tenders/scan_placement.py": "ca9fc87b8c68253333a1fc17960b9ea8272f12c184bf9c0f65374e96134c2a23",
     "apps/api/services/tenders/schema.py": "e194c84f1150578b485dae538b6e8c2470196f3be0e53b4f41e14fed93e36fc7",
-    "apps/api/services/tenders/scoring_points.py": "467c0912d14422051158df22f29b3fc65d8a9a59334a6718382678c8456d1ebf",
+    "apps/api/services/tenders/scoring_points.py": "c03f99e8fbd96bd67dcdbf2c07ce8d317392861770f083eb235a156c48d54951",
     "apps/api/services/tenders/scoring_tasks.py": "a5ba62da21a41d0458748827a13e1f11e705f57aebdef66d5b8ba7a9e1c289f7",
     "apps/api/services/tenders/section_materials.py": "80c70de37a4a3659b8df900831a7650a4bede70fe6ec74ca9746902c4f233863",
     "apps/api/services/tenders/signature_check.py": "7902f079b903c1814ce1ab4b6fbb06363b1d31545373eb167f84eee6726fa10b",
