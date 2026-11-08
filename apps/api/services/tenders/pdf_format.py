@@ -2350,14 +2350,40 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
     )
     for anchor, text in reversed(texts):
         paragraph = OxmlElement("w:p")
-        properties = anchor.find(qn("w:pPr"))
-        if properties is not None:
-            paragraph.append(deepcopy(properties))
+        ppr = OxmlElement("w:pPr")
+        ind = OxmlElement("w:ind")
+        ind.set(qn("w:firstLine"), "420")
+        ppr.append(ind)
+        source_rpr = None
+        elements = list(doc.element.body)
+        try:
+            anchor_index = elements.index(anchor)
+        except ValueError:
+            anchor_index = len(elements)
+        for candidate in reversed(elements[:anchor_index]):
+            if candidate.tag != qn("w:p"):
+                continue
+            candidate_text = "".join(node.text or "" for node in candidate.iter(qn("w:t")))
+            if len(candidate_text.strip()) < 80 or candidate_text.lstrip().startswith("（对应评分项"):
+                continue
+            run = candidate.find(".//" + qn("w:r"))
+            if run is not None and run.find(qn("w:rPr")) is not None:
+                source_rpr = run.find(qn("w:rPr"))
+                break
+        paragraph.insert(0, ppr)
         anchor.addnext(paragraph)
-        run = Paragraph(paragraph, doc).add_run(text)
-        anchor_run = next((r for r in Paragraph(anchor, doc).runs if r.text.strip()), None)
-        if anchor_run is not None and anchor_run._r.rPr is not None:
-            run._r.insert(0, deepcopy(anchor_run._r.rPr))
+        parts = [part.strip() for part in re.split(r"\n\s*\n", str(text or "")) if part.strip()]
+        for index, part in enumerate(parts):
+            run = OxmlElement("w:r")
+            if source_rpr is not None:
+                run.append(deepcopy(source_rpr))
+            node = OxmlElement("w:t")
+            node.text = part
+            run.append(node)
+            paragraph.append(run)
+            if index < len(parts) - 1:
+                br = OxmlElement("w:br")
+                paragraph.append(br)
     return notes
 
 

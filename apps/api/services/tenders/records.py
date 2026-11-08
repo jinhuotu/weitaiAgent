@@ -310,11 +310,21 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     """Generate scoring prose while the record layer still owns the database session."""
     from api.services.tenders.assets import load_invitation_text
     from api.services.tenders.generation_parallel import ordered_generation
-    from api.services.tenders.scoring_points import read_scoring_points
+    from docx import Document
+    from api.services.tenders.scoring_points import read_scoring_points, word_scoring_blocks
+    from api.services.tenders.pdf_format import _word_format_file
     from api.services.models.runtime import build_llm_client
 
     invitation = load_invitation_text(brief.invitationId)
-    points = read_scoring_points(invitation, notes=[])
+    original = None
+    try:
+        original = _word_format_file(brief.invitationId)
+    except Exception as exc:
+        print("模板文件定位失败：", type(exc).__name__, exc)
+    blocks = list(word_scoring_blocks(Document(str(original)))) if original and Path(original).is_file() else []
+    print("记录层评分项输入：文本长度=", len(invitation or ""), "块数=", len(blocks))
+    points = read_scoring_points(invitation, blocks=blocks or None, notes=[])
+    print("记录层解析出评分项：", len(points), "条")
     if not points:
         print("记录层无评分项，跳过预生成")
         return {}

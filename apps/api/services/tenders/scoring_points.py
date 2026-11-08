@@ -488,16 +488,26 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         if not _paragraph_text(anchor).lstrip().startswith(label):
             return
         children = list(anchor)
-        found = False
         for child in children:
-            if found:
-                break
-            text = "".join(node.text or "" for node in child.iter(qn("w:t")))
             if child.tag == qn("w:pPr"):
                 continue
-            anchor.remove(child)
-            if child.tag == qn("w:r") and child.find(".//" + qn("w:br")) is not None:
-                found = True
+            if child.tag != qn("w:r"):
+                anchor.remove(child)
+                continue
+            br = child.find(".//" + qn("w:br"))
+            if br is None:
+                anchor.remove(child)
+                continue
+            for node in list(child):
+                if node is br:
+                    child.remove(node)
+                    break
+                if node.tag == qn("w:rPr"):
+                    continue
+                child.remove(node)
+            if not list(child.findall(".//" + qn("w:t"))):
+                anchor.remove(child)
+            break
 
     def _inherit_body_style(anchor):
         """Make the insertion anchor inherit a normal body paragraph style."""
