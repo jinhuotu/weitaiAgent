@@ -260,6 +260,20 @@ def test_duplicate_source_bookmarks_repaired_idempotently():
     assert doc.element.body.xml == before
 
 
+def test_drop_legacy_toc_bookmarks_keeps_controlled_anchors():
+    doc = Document()
+    for name in ("_Toc123", "toc_chapter_a", "_Toc456"):
+        p = doc.add_paragraph(name)
+        start, end = OxmlElement("w:bookmarkStart"), OxmlElement("w:bookmarkEnd")
+        start.set(qn("w:name"), name)
+        start.set(qn("w:id"), name)
+        end.set(qn("w:id"), name)
+        p._p.append(start)
+        p._p.append(end)
+    assert native_format.drop_legacy_toc_bookmarks(doc) == 2
+    assert [n.get(qn("w:name")) for n in doc.element.body.iter(qn("w:bookmarkStart"))] == ["toc_chapter_a"]
+
+
 def test_matching_builtin_section_copies_only_its_style_list_and_image(tmp_path):
     from PIL import Image
 

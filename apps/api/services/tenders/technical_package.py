@@ -58,7 +58,7 @@ def _score_rows(doc, chapters):
                 if not current: continue
             if not current: continue
             paired = len(cells)>=2 and not re.match(r'^\d+、',cells[0]) and not re.search(r'0\s*-\s*\d+\s*分',cells[0]) and re.search(r'0\s*-\s*\d+\s*分',cells[-1])
-            if paired and '评分标准' in cells[0]:
+            if paired and '评分标准' in re.sub(r'\s+', '', cells[0]):
                 m=re.search(r'0\s*-\s*(\d+)\s*分',cells[-1])
                 item=_clean_item(cells[-1][:m.start()]) if m else ''
                 if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))

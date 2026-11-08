@@ -572,9 +572,10 @@ def assemble_bid_docx(
 
             unify_full_docx(path, brief, link_toc=(brief.layoutMode or "").strip() == "outline")
         elif native:
-            from api.services.tenders.native_format import ensure_toc_rows
+            from api.services.tenders.native_format import drop_legacy_toc_bookmarks, ensure_toc_rows
 
             document = Document(path)
+            drop_legacy_toc_bookmarks(document)
             ensure_toc_rows(document, brief, volume=vol)
             if vol == 'technical':
                 from api.services.tenders.technical_render import sync_toc
