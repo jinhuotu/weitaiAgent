@@ -487,6 +487,21 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         from api.services.tenders.gen_tech_plan import build_source_index
 
         uploaded = build_source_index(brief.techPlanSourceIds, brief=brief, notes=notes)
+    facts = {}
+    for key, attr in (
+        ("项目名称", "projectName"), ("建设地点", "projectAddress"), ("招标范围", "bidContent"),
+        ("计划工期", "deliveryDays"), ("质量标准", "quality"), ("安全要求", "safety"),
+        ("资金来源", "fundingSource"), ("标段数", "lotCount"),
+        ("设计费最高投标限价", "designFeeLimit"), ("投标有效期", "bidValidityDays"),
+        ("投标保证金", "bidBondYuan"),
+    ):
+        value = getattr(brief, attr, None)
+        if value not in (None, "", 0, 0.0):
+            facts[key] = value
+    drafted = {}
+    if isinstance(citations, list):
+        drafted = next((item.get("_scoring_drafts") for item in citations
+                        if isinstance(item, dict) and isinstance(item.get("_scoring_drafts"), dict)), {}) or {}
     texts = []
     for title, anchor in anchors.items():
         selected = [point for point in points if point.target_section == title]
@@ -494,7 +509,9 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
             continue
         if anchor.getnext() is not None and _paragraph_text(anchor.getnext()).startswith("（对应评分项 "):
             continue
-        rendered = section_blocks(selected, notes, cited_text=lambda point: source_citation(
+        rendered = section_blocks(selected, notes, facts=facts,
+            generator=lambda point, facts_map: drafted.get(point.item, ""),
+            cited_text=lambda point: source_citation(
             point, blocks, uploaded, citations,
         ))
         texts.extend((anchor, text) for text in rendered)

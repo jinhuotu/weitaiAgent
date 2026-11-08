@@ -305,6 +305,49 @@ async def _generate_for_record(
     return await _prepare_and_generate(db, brief, peer_ready=peer_ready, **extra)
 
 
+async def _prepare_scoring_drafts(db, brief, facts):
+    """Generate scoring prose while the record layer still owns the database session."""
+    from api.services.tenders.assets import load_invitation_text
+    from api.services.tenders.generation_parallel import complete_json, ordered_generation
+    from api.services.tenders.scoring_points import read_scoring_points
+    from api.services.models.runtime import build_llm_client
+
+    invitation = load_invitation_text(brief.invitationId)
+    points = read_scoring_points(invitation, notes=[])
+    if not points:
+        print("记录层无评分项，跳过预生成")
+        return {}
+    client = await build_llm_client(db, "pro")
+    fact_map = {}
+    for item in facts:
+        if not isinstance(item, dict):
+            continue
+        if item.get("value") not in (None, ""):
+            fact_map[str(item.get("key") or item.get("name") or "事实")] = item.get("value")
+        for field in item.get("fields") or ():
+            if isinstance(field, dict) and field.get("value") not in (None, ""):
+                fact_map[str(field.get("name") or "事实")] = field.get("value")
+    async def generate(point):
+        prompt = (
+            "本项目事实：\n" + json.dumps(fact_map, ensure_ascii=False) +
+            "\n评分项：" + point.item +
+            "\n评分细则原文：" + point.criterion +
+            "\n所属章节：" + point.target_section +
+            "\n分值：" + str(point.item_score_min) + " / " + str(point.item_score_max) +
+            "\n要求：第一段承接事实并使用可用的项目名称与建设地点；第二段对应评分细则动宾结构；"
+            "第三段只使用事实中的数字进行量化安排；第四段用我方表态收口。全文四段、段间空行、180至420字。"
+            "禁止虚构人员姓名、证书编号、业绩数量、财务数字；未提供信息留空，不写无、待补充、待核实；评分项名在同一句不得重复两次以上。"
+        )
+        raw = await complete_json(client, [{"role": "user", "content": prompt}], mode="pro")
+        if isinstance(raw, dict):
+            body = str(raw.get("body") or raw.get("text") or "").strip()
+            return point.item, body
+        return point.item, ""
+    results = await ordered_generation([lambda point=point: generate(point) for point in points],
+                                       stage="scoring_narrative", labels=[p.item for p in points])
+    return {item: body for item, body in results if item and body}
+
+
 async def _prepare_and_generate(
     db: AsyncSession,
     brief: BidBrief,
@@ -522,6 +565,13 @@ async def _prepare_and_generate(
     t_prep = time.perf_counter()
     facts = [f for f in await library_facts(db) if f.get("fileId") in company_file_ids and f.get("fileId") not in word_sources]
     draft_notes: list[str] = []
+    scoring_drafts = {}
+    if both or vol in {"business", "full"}:
+        try:
+            scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
+            print(f"记录层评分叙述预生成写入 {len(scoring_drafts)} 条")
+        except Exception as exc:  # model failure leaves downstream fallback intact
+            draft_notes.append(f"评分叙述预生成失败，已走降级：{exc}")
     technical_package_active = False
     if both or vol == 'technical':
         from api.services.tenders.technical_package import draft_package
@@ -571,7 +621,10 @@ async def _prepare_and_generate(
         draft_notes.extend(biz_notes)
     media = {key: [path for path in files if Path(path).suffix.lower() not in {'.doc', '.docx'}]
              for key, files in media.items()}
-    gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=facts)
+    catalog_facts = list(facts)
+    if scoring_drafts:
+        catalog_facts.append({"_scoring_drafts": scoring_drafts})
+    gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=catalog_facts)
     if word_bindings:
         gen_kw.update(word_bindings=word_bindings, word_sources=word_sources)
     if both:
