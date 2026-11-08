@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import traceback
+import re
 from pathlib import Path
 from datetime import UTC, date, datetime
 from uuid import uuid4
@@ -256,7 +257,6 @@ async def _word_library_inputs(db, brief):
         from api.services.tenders.schema import OutlineItem
         from api.services.tenders.outline import classify_kind
         from docx.oxml.ns import qn
-        import re
         represented = {section_key(item['rawTitle'] or item['title']) for item in outline}
         source_keys = {section_key(entry['title']) for entry in entries if entry['eligible']}
         for index, node in enumerate(template.element.body):

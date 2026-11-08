@@ -2422,6 +2422,9 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
         source_rpr = None
         cursor = heading._p.getnext()
         while cursor is not None and cursor.tag == qn("w:p"):
+            candidate = Paragraph(cursor, doc)
+            if candidate.style and str(candidate.style.name).lower().startswith("heading"):
+                break
             candidate_text = "".join(node.text or "" for node in cursor.iter(qn("w:t")))
             if len(candidate_text.strip()) >= 80:
                 run = cursor.find(".//" + qn("w:r"))
