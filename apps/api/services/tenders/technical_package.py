@@ -15,66 +15,79 @@ from common.errors import AppError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
-CHAPTER_SCORING = {
-    '六、承包人建议书': [('项目详细说明和总体管理方案、目标',2),('项目管理机构设置与人员配备计划（含设计）',2),('项目质量、进度、投资、合同、信息管理与控制',2),('工程竣工验收、结算、移交管理',2)],
-    '七、设计组织技术措施': [('设计质量保证体系及措施',2),('风险防范措施合理可行',2),('重要设计节点安排等方面有针对性表述',2),('设计进度计划表及确保进度的组织技术措施',2),('限额设计的保证措施',2),('对本项目的设计意图和重点难点的理解',2),('新技术、新材料在本项目设计中的应用',2)],
-    '八、承包人实施计划': [('施工方案与技术措施',6),('设备安装方案与技术措施',6),('质量管理体系与措施',5),('安全管理体系与措施',5),('环境保护管理体系及施工现场扬尘治理措施',4),('工程进度计划与措施',3),('风险管理措施',3)],
-    '九、服务承诺': [('施工期间不拖欠农民工工资、农忙季节及业主资金不到位时连续施工',1),('质保期内、质保期外服务承诺',1),('替甲方排忧解难、协调村民及当地政府等周边关系',1),('与招标人的配合和保证措施',1),('其他实质性承诺及合理化建议',2)],
-}
+def _clean_item(s):
+    s=re.sub(r'\s+','',s or '')
+    s=re.sub(r'^[\d.、（）()]+\s*','',s)
+    return s.strip(' 、：:；;。')
 
 def _chapters_from_tables(doc):
-    from docx.table import Table
+    headings=[p.text.strip() for p in doc.paragraphs if (p.style.name or '').lower() in {'heading 1','标题 1','heading1','标题1'} and re.match(r'^[一二三四五六七八九十]+、',p.text.strip())]
     found=[]
     for tbl in doc.tables:
-        rows=[[c.text.strip() for c in r.cells] for r in tbl.rows]
-        if not rows: continue
-        header=rows[0]
-        try: factor=next(i for i,v in enumerate(header) if '评分因素' in v or '评分标准' in v)
-        except StopIteration: continue
-        try: score=next(i for i,v in enumerate(header) if '分值' in v)
-        except StopIteration: continue
-        for row in rows[1:]:
-            if factor >= len(row): continue
-            title=row[factor].strip()
-            m=re.match(r'^([一二三四五六七八九十]+、\s*.+)$',title)
-            if not m: continue
-            total=None
-            if score < len(row):
-                nums=re.findall(r'(?<!\d)(\d+)(?!\d)',row[score])
-                if nums: total=int(nums[-1])
-            found.append((m.group(1).strip(),total))
+        for row in tbl.rows:
+            cells=[c.text.strip() for c in row.cells]
+            if not cells or not re.match(r'^\d+\.\d+\.\d+[（(]\d+[）)]',cells[0].replace(' ','').replace('\n','').replace('\r','')): continue
+            label=(cells[1].replace(' ','').replace('\n','').replace('\r','')) if len(cells)>1 else ''
+            label=re.sub(r'评分标准','',label)
+            label=re.sub(r'[（(]\s*\d+\s*分[）)]','',label)
+            label=re.sub(r'评分标准','',label).strip()
+            mapped=next((h for h in headings if label and label in h),None)
+            if mapped is None and label in {'实施方案','其他评分因素'}:
+                mapped=next((h for h in headings if ('实施' in label and '实施' in h) or ('其他' in label and '服务' in h)),None)
+            if mapped:
+                nums=re.findall(r'(?<!\d)(\d+)\s*分', cells[1] if len(cells)>1 else '')
+                found.append((mapped,int(nums[-1]) if nums else None))
     return found
 
 
 def _score_rows(doc, chapters):
-    from docx.table import Table
     names=[c[0] if isinstance(c,tuple) else c for c in chapters]
-    out={c:[] for c in names}; totals={c:(c[1] if isinstance(c,tuple) else None) for c in chapters}; current=None
-    allowed=set(out)
+    out={c:[] for c in names}; totals={c[0]:(c[1] if isinstance(c,tuple) else None) for c in chapters}; pending={c:[] for c in names}; current=None
     for tbl in doc.tables:
-        rows=[[c.text.strip() for c in r.cells] for r in tbl.rows]
-        if not rows: continue
-        header=rows[0]
-        try: factor=next(i for i,v in enumerate(header) if '评分因素' in v or '评分标准' in v)
-        except StopIteration: continue
-        try: score=next(i for i,v in enumerate(header) if '分值' in v)
-        except StopIteration: continue
-        for row in rows[1:]:
-            if factor >= len(row): continue
-            raw=row[factor].strip()
-            if raw in allowed:
-                current=raw; continue
-            if not current or not raw: continue
-            item=re.sub(r'^[\d.（）()]+\s*','',raw).strip()
-            if not item: continue
-            value=None
-            if score < len(row):
-                nums=re.findall(r'(?<!\d)(\d+)(?!\d)',row[score])
-                if nums: value=int(nums[-1])
-            if value is None:
-                nums=re.findall(r'(?<!\d)(\d+)(?:\.\d+)?(?!\d)', ' '.join(row))
-                if nums: value=int(nums[-1])
-            if value is not None: out[current].append((item,value))
+        for row in tbl.rows:
+            rawcells=[c.text.strip() for c in row.cells]
+            cells=list(dict.fromkeys(x for x in rawcells if x))
+            if not cells: continue
+            if re.match(r'^\d+\.\d+\.\d+[（(]\d+[）)]',cells[0].replace(' ','').replace('\n','').replace('\r','')):
+                label=(cells[1].replace(' ','').replace('\n','').replace('\r','')) if len(cells)>1 else ''
+                label=re.sub(r'评分标准|[（(]\d+分[）)]','',label)
+                current=next((p.text.strip() for p in doc.paragraphs if (p.style.name or '').lower() in {'heading 1','标题 1','heading1','标题1'} and label and label in p.text),None)
+                if current is None and label in {'实施方案','其他评分因素'}:
+                    current=next((p.text.strip() for p in doc.paragraphs if (p.style.name or '').lower() in {'heading 1','标题 1','heading1','标题1'} and (('实施' in label and '实施' in p.text) or ('其他' in label and '服务' in p.text))),None)
+                cells=cells[2:]
+                if not current: continue
+            if not current: continue
+            paired = len(cells)>=2 and not re.match(r'^\d+、',cells[0]) and not re.search(r'0\s*-\s*\d+\s*分',cells[0]) and re.search(r'0\s*-\s*\d+\s*分',cells[-1])
+            if paired and '评分标准' in cells[0]:
+                m=re.search(r'0\s*-\s*(\d+)\s*分',cells[-1])
+                item=_clean_item(cells[-1][:m.start()]) if m else ''
+                if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
+                cells=cells[:-1]; paired=False
+            for cell in (cells[:-1] if paired else cells):
+                joined=re.sub(r'\s+','',cell)
+                for m in re.finditer(r'([^0-9]+?)0\s*-\s*(\d+)\s*分',joined):
+                    line=m.group(1)
+                    line=line.strip()
+                    if not line or line.startswith('注：') or '评分标准' in line or re.match(r'^\d+、',line) and not re.search(r'0\s*-\s*\d+\s*分',line): continue
+                    item=_clean_item(line)
+                    if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(2))))
+            if len(cells)>=2 and '评分标准' not in cells[0] and '评分因素' not in cells[0] and not re.search(r'0\s*-\s*\d+\s*分',' '.join(cells[0:-1])):
+                m=re.search(r'0\s*-\s*(\d+)\s*分',cells[-1])
+                if m and cells[0] and not re.match(r'^\d+、',cells[0]):
+                    item=_clean_item(cells[0])
+                    if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
+            candidate=next((x for x in cells if re.match(r'^[（(]\s*\d+\s*[）)]',x)),None)
+            if current and candidate and not re.search(r'0\s*-\s*\d+\s*分',' '.join(cells)):
+                pending[current].append(_clean_item(candidate))
+    for chapter,items in pending.items():
+        if not items: continue
+        remaining=totals.get(chapter)
+        used=sum(v for _,v in out[chapter])
+        if remaining is not None and (remaining-used)%len(items)==0:
+            share=(remaining-used)//len(items)
+            out[chapter].extend((item,share) for item in items)
+        else:
+            logger.warning('评分项差额无法均摊：%s',chapter)
     return out,totals
 
 
@@ -140,7 +153,7 @@ def structure(brief, doc=None):
         for node,value in headings:
             idx=positions[id(node)]
             first=text(blocks[idx+1]).strip() if idx+1 < len(blocks) and blocks[idx+1].tag==qn('w:p') else ''
-            if re.search(r'根据.*评分标准.*编制',first) or (value.startswith('九、') and qualified): qualified.append((node,value))
+            if re.search(r'根据.*评分标准.*编制',first) or (re.match(r'^[一二三四五六七八九十]+、',value) and '服务' in value and qualified): qualified.append((node,value))
             elif qualified: break
         if len(qualified) >= 3:
             logger.warning('技术标章节清单 fallback：未找到评分表')
