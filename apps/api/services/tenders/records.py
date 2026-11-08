@@ -320,14 +320,20 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     if client is None:
         client = await build_llm_client(db, "pro")
     fact_map = {}
-    for item in facts:
-        if not isinstance(item, dict):
-            continue
-        if item.get("value") not in (None, ""):
-            fact_map[str(item.get("key") or item.get("name") or "事实")] = item.get("value")
-        for field in item.get("fields") or ():
-            if isinstance(field, dict) and field.get("value") not in (None, ""):
-                fact_map[str(field.get("name") or "事实")] = field.get("value")
+    for key, attr in (
+        ("项目名称", "projectName"), ("建设地点", "projectAddress"), ("招标范围", "bidContent"),
+        ("计划工期", "deliveryDays"), ("质量标准", "quality"), ("安全要求", "safety"),
+        ("资金来源", "fundingSource"), ("标段数", "lotCount"),
+        ("设计费最高投标限价", "designFeeLimit"), ("投标有效期", "bidValidityDays"),
+        ("投标保证金", "bidBondYuan"),
+    ):
+        value = getattr(brief, attr, None)
+        if value not in (None, "", 0, 0.0):
+            fact_map[key] = value
+    if "项目名称" not in fact_map:
+        match = re.search(r"项目名称\s*[：:]\s*([^\r\n；;，,]+)", invitation)
+        if match and match.group(1).strip():
+            fact_map["项目名称"] = match.group(1).strip()
     async def generate(point):
         prompt = (
             "本项目事实：\n" + json.dumps(fact_map, ensure_ascii=False) +
