@@ -33,6 +33,7 @@ from api.services.tenders.document import (
     _rewrite_labeled_underline,
     _sect_starts_new_page,
     _set_word_wrap,
+    normalize_table_layout,
     _underline_value,
     _ymd,
     _em_len,
@@ -1098,6 +1099,7 @@ def assemble_bid_docx(
     dest.parent.mkdir(parents=True, exist_ok=True)
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
+    normalize_table_layout(doc)
     doc.save(str(dest))
     return finish(dest, warnings)
 

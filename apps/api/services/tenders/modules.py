@@ -23,6 +23,7 @@ from api.services.tenders.document import (
     _forbid_row_split,
     _glue_sign_off,
     _deviation_rows,
+    _technical_dev_rows,
     _distribute_twips,
     _fill_quote_section,
     _form_run,
@@ -608,7 +609,7 @@ _HANDLERS = {
 
 
 def _dev_table(doc: Document, brief: BidBrief, item: OutlineItem) -> None:
-    rows = _commercial_dev_rows(brief) if item.kind == "biz_dev" else _deviation_rows(brief)
+    rows = _commercial_dev_rows(brief) if item.kind == "biz_dev" else _technical_dev_rows(brief)
     layout = resolve_dev_layout(brief, item)
     titles = list(layout.titles)
     roles = list(layout.roles)

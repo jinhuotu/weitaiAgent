@@ -31,6 +31,7 @@ from api.services.tenders.format_rules import (
     section_page_flags,
     title_canon,
     toc_page_cache,
+    toc_display_title,
 )
 from api.services.tenders.outline import tech_chapter_titles, toc_title_key
 from api.services.tenders.money import rmb_figure, rmb_lowercase, rmb_pair, rmb_uppercase
@@ -1523,6 +1524,10 @@ def _write_toc_line(
     with_pages: bool = True,
     level: int = 1,
 ) -> None:
+    title = toc_display_title(title)
+    if not title:
+        _clear_runs(para)
+        return
     _strip_toc_numbering(para)
     _apply_toc_indent(para, level)
     if label is not None:
@@ -1982,7 +1987,7 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
             continue
         rows.append(
             (
-                (line.seq or str(i)).strip() or str(i),
+                str(i),
                 req,
                 (line.response or "【待响应】").strip() or "【待响应】",
                 (line.deviation or "待确认").strip() or "待确认",
@@ -1991,12 +1996,43 @@ def _deviation_rows(brief: BidBrief) -> list[tuple[str, str, str, str]]:
     return rows or [("1", "【待响应】尚未抽出技术条款", "【待响应】", "待确认")]
 
 
+def _technical_dev_rows(brief: BidBrief) -> list[tuple[str, str, str, str, str]]:
+    """Build technical deviations from parameter excerpts, independently of business rows."""
+    pattern = re.compile(
+        r"(?P<name>[\u4e00-\u9fff]{2,12}[：:]?)?\s*"
+        r"(?P<val>[≤≥<>＝=±]?\s*[\d.]+(?:\s*[~～-]\s*[\d.]+)?\s*"
+        r"(?:mm|kV|V|A|Ω|℃|kg|m|%|次|年|min|h)?)"
+    )
+    rows: list[tuple[str, str, str, str, str]] = []
+    for item in brief.outlineItems or []:
+        if item.kind not in {"tech_dev", "tech_chapter", "tech_plan"}:
+            continue
+        source = (item.inviteExcerpt or item.body or "").strip()
+        for match in pattern.finditer(source):
+            value = match.group("val").strip()
+            if not value or not re.search(r"[≤≥±]", value):
+                continue
+            name = (match.group("name") or "参数项").rstrip("：:").strip()
+            clause = f"{item.title}"
+            rows.append((str(len(rows) + 1), clause, f"{name}：{value}", f"完全响应，满足{name}{value}", "无偏差"))
+    if rows:
+        return rows
+    return [("1", "", "其他：—", "", "")]
+
+
 def _commercial_dev_rows(brief: BidBrief) -> list[tuple[str, ...]]:
     """商务偏离只写交货/质保/付款等条款，不用报价单技术参数顶。"""
-    if getattr(brief, "autoDraftBizResp", False) and getattr(brief, "bizDeviationLines", None):
-        from api.services.tenders.business_render import commercial_rows
-
-        return commercial_rows(brief)
+    if getattr(brief, "bizDeviationLines", None):
+        rows = []
+        for index, line in enumerate(brief.bizDeviationLines, 1):
+            requirement = (line.requirement or "").strip()
+            if not requirement:
+                continue
+            clause = requirement if re.search(r"\b\d+[.．]\d+", requirement) else f"商务条款-{index}"
+            response = (line.response or "").strip()
+            rows.append((str(len(rows) + 1), clause, response, (line.deviation or "待确认").strip(), (line.explanation or "").strip()))
+        if rows:
+            return rows
     rows: list[tuple[str, str, str, str]] = []
 
     def add(title: str, req: str, resp: str) -> None:
@@ -2708,6 +2744,82 @@ def _set_tbl_borders(table: Table) -> None:
         el.set(qn("w:color"), "000000")
         borders.append(el)
     tbl_pr.append(borders)
+
+
+def apply_uniform_border(table: Table, sz: int = 4) -> None:
+    """Make table borders explicit and consistent across Word renderers."""
+    tbl_pr = table._tbl.tblPr
+    if tbl_pr is None:
+        tbl_pr = OxmlElement("w:tblPr")
+        table._tbl.insert(0, tbl_pr)
+    for old in list(tbl_pr.findall(qn("w:tblBorders"))):
+        tbl_pr.remove(old)
+    borders = OxmlElement("w:tblBorders")
+    for edge in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        node = OxmlElement(f"w:{edge}")
+        node.set(qn("w:val"), "single")
+        node.set(qn("w:sz"), str(sz))
+        node.set(qn("w:space"), "0")
+        node.set(qn("w:color"), "000000")
+        borders.append(node)
+    tbl_pr.append(borders)
+
+
+def clamp_table_width(table: Table, avail_width: int) -> None:
+    """Clamp tblGrid, tblW and every tcW together, leaving 2% page margin."""
+    tbl = table._tbl
+    grid = tbl.find(qn("w:tblGrid"))
+    if grid is None:
+        return
+    cols = grid.findall(qn("w:gridCol"))
+    widths = [int(col.get(qn("w:w"), "0") or 0) for col in cols]
+    total = sum(widths)
+    if total <= 0 or total <= avail_width:
+        return
+    target = max(1, int(avail_width * 0.98))
+    ratio = target / total
+    scaled = [max(1, int(width * ratio)) for width in widths]
+    scaled[-1] += target - sum(scaled)
+    for col, width in zip(cols, scaled, strict=True):
+        col.set(qn("w:w"), str(width))
+    tbl_pr = tbl.tblPr
+    if tbl_pr is None:
+        tbl_pr = OxmlElement("w:tblPr")
+        tbl.insert(0, tbl_pr)
+    for old in list(tbl_pr.findall(qn("w:tblW"))):
+        tbl_pr.remove(old)
+    tbl_w = OxmlElement("w:tblW")
+    tbl_w.set(qn("w:type"), "dxa")
+    tbl_w.set(qn("w:w"), str(target))
+    tbl_pr.append(tbl_w)
+    for row in table.rows:
+        for index, cell in enumerate(row.cells):
+            if index >= len(scaled):
+                continue
+            tc_pr = cell._tc.get_or_add_tcPr()
+            tc_w = tc_pr.find(qn("w:tcW"))
+            if tc_w is None:
+                tc_w = OxmlElement("w:tcW")
+                tc_pr.append(tc_w)
+            tc_w.set(qn("w:type"), "dxa")
+            tc_w.set(qn("w:w"), str(scaled[index]))
+
+
+def normalize_table_layout(doc: Document, avail_width: int | None = None) -> None:
+    """Apply width clamps and explicit single borders to generated tables."""
+    if avail_width is None:
+        avail_width = max(
+            1,
+            int(doc.sections[0].page_width.twips)
+            - int(doc.sections[0].left_margin.twips)
+            - int(doc.sections[0].right_margin.twips),
+        )
+    for table in doc.tables:
+        clamp_table_width(table, avail_width)
+        borders = table._tbl.tblPr.find(qn("w:tblBorders")) if table._tbl.tblPr is not None else None
+        values = {node.get(qn("w:val"), "") for node in borders} if borders is not None else set()
+        if borders is None or values & {"none", "nil", "0", ""}:
+            apply_uniform_border(table)
 
 
 def _forbid_row_split(table: Table) -> None:
@@ -4088,6 +4200,7 @@ def build_bid_docx(
     })
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
+    normalize_table_layout(doc)
     doc.save(str(dest))
     warnings.append(
         "封面与目录不编页码，从正文首页起编。目录条目已预填页码；"

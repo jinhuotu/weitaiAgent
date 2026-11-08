@@ -242,6 +242,24 @@ def toc_numbered_lines(rows: list[tuple[int, str]]) -> list[str]:
     return out
 
 
+def toc_display_title(text: str) -> str:
+    """Clean only the directory display label; never mutate the body heading."""
+
+    raw = (text or "").strip()
+    if not raw:
+        return ""
+    numbered = re.match(r"^([（(][一二三四五六七八九十0-9]+[）)])\s*(.*)$", raw)
+    prefix, body = (numbered.group(1), numbered.group(2).strip()) if numbered else ("", raw)
+    if not prefix and re.fullmatch(r"[（(].*[）)]", body):
+        print(f"TOC 剔除说明性段落：{body[:30]}")
+        return ""
+    body = re.sub(r"（[^（）]*）|\([^()]*\)", "", body)
+    body = body.rstrip(" \t，,。；;：:、")
+    if len(body) < 2:
+        return ""
+    return f"{prefix}{body}" if prefix else body
+
+
 def section_page_flags(
     section_index: int, fmt: DocumentFormat, *, body_section: int
 ) -> tuple[bool, bool]:
