@@ -34,6 +34,8 @@ from api.services.tenders.document import (
     _sect_starts_new_page,
     _set_word_wrap,
     normalize_table_layout,
+    normalize_signoff_block,
+    clean_visible_prompts,
     _underline_value,
     _ymd,
     _em_len,
@@ -1099,6 +1101,8 @@ def assemble_bid_docx(
     dest.parent.mkdir(parents=True, exist_ok=True)
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
+    clean_visible_prompts(doc)
+    normalize_signoff_block(doc.paragraphs)
     normalize_table_layout(doc)
     doc.save(str(dest))
     return finish(dest, warnings)
@@ -1647,7 +1651,7 @@ def _write_copied_salute(doc: Document, block: str, *, plain: bool = False) -> N
     para = doc.add_paragraph()
     _rewrite_labeled_underline(
         para,
-        [("致：", co, "：")],
+        [("致：", co, "")],
         align=WD_ALIGN_PARAGRAPH.LEFT,
         left_indent_cm=0,
         right_indent_cm=0.4,

@@ -21,6 +21,7 @@ from api.services.tenders.assets import load_invitation_text, tender_assets_dir
 from api.services.tenders.categories import is_tech_chapter_kind
 from api.services.tenders.evidence import Evidence, evidence_chunks, format_records, make_evidence, retrieve
 from api.services.tenders.schema import BidBrief, BidRequirement, DeviationLine
+from api.services.tenders.scoring_points import score_item_kind
 from common.errors import AppError, ErrorCode
 from common.config import get_settings
 
@@ -402,6 +403,19 @@ def _scorecard(
     return "\n".join(lines)
 
 
+def _narrative_fallback(title: str, requirements: list[BidRequirement], brief: BidBrief) -> str:
+    """Deterministic narrative fallback when no evidence source is available."""
+    names = [req.text.strip() for req in requirements if score_item_kind(req.text, req.text) != "evidence"]
+    topic = "；".join(names[:5]) or title
+    project = (brief.projectName or "本项目").strip()
+    quality = (brief.quality or "质量要求").strip()
+    return (
+        f"{project}围绕{topic}组织本章响应，依据评分细则逐项说明实施思路。\n"
+        f"我方理解，本章重点是把目标、组织、管理、控制和验收衔接起来，形成可执行的工作闭环。\n"
+        f"我方将结合项目实际安排工作界面、过程检查、风险识别和纠偏程序，持续核对{quality}，并保留必要记录。"
+    )
+
+
 def _decode_payload(raw: str, titles: list[str]) -> tuple[list[tuple[str, str]], list[dict]]:
     text = (raw or "").lstrip("\ufeff \t\r\n")
     try:
@@ -469,9 +483,13 @@ async def draft_technical_plan(
         source_notes.append("待核验资料：" + "\n".join(
             f"{row['label']}｜{row['状态']}｜{row['原因']}｜{row['首段 40 字']}" for row in pending
         ))
-    pending_without_evidence = bool(pending and not source_index)
-    user_source_text = "" if evidence_enabled else _user_sources(source_ids, brief=brief, notes=source_notes)
     all_requirements = _technical_requirements(brief, invitation)
+    pending_without_evidence = bool(
+        pending
+        and not source_index
+        and not any(score_item_kind(req.text, req.text) in {"narrative", "mixed"} for req in all_requirements)
+    )
+    user_source_text = "" if evidence_enabled else _user_sources(source_ids, brief=brief, notes=source_notes)
     scoring = [r for r in all_requirements if _is_scoring(r)]
     requirements = [r for r in all_requirements if not _is_scoring(r)][:60]
     score_texts = {re.sub(r'\s+', '', r.text) for r in scoring}
@@ -532,7 +550,9 @@ async def draft_technical_plan(
     style = _style_guide(
         [str(x.get("content") or "") for x in knowledge[:4] if isinstance(x, dict)] + historical[:8]
     )
-    if client is None and not pending_without_evidence:
+    if client is None and not pending_without_evidence and not any(
+        score_item_kind(req.text, req.text) in {"narrative", "mixed"} for req in all_requirements
+    ):
         from api.services.models.runtime import build_llm_client
 
         client = await build_llm_client(db, "pro")
@@ -578,6 +598,18 @@ async def draft_technical_plan(
         nonlocal pro_call_count
         if pending_without_evidence:
             return [(title, "【待补充】本卷无可检索的上传资料") for title in group], []
+        if client is None:
+            return [
+                (
+                    title,
+                    _narrative_fallback(
+                        title,
+                        [req for req in all_requirements if req.targetTitle == title],
+                        brief,
+                    ),
+                )
+                for title in group
+            ], []
         pro_call_count += 1
         raw = await complete_json(client,
             [
@@ -633,6 +665,9 @@ async def draft_technical_plan(
     deviations = list(brief.deviationLines)
     for req in requirements:
         if re.sub(r"\s+", "", req.text) in existing:
+            continue
+        kind = score_item_kind(req.text, req.text)
+        if kind in {"narrative", "mixed"}:
             continue
         hit = next(
             (

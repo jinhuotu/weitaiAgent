@@ -5,6 +5,22 @@ import re
 import unicodedata
 
 
+_EVIDENCE_TERMS = ("证书", "执照", "证明", "扫描件", "截图", "合同", "报表", "报告", "许可证", "发票", "凭证", "资质文件", "缴税", "社保", "信用中国", "公示系统")
+_NARRATIVE_TERMS = ("方案", "措施", "计划", "体系", "管理", "控制", "组织", "部署", "承诺", "建议", "理解", "分析", "目标", "安排", "程序", "说明", "流程", "构想", "对策")
+
+
+def score_item_kind(item_name: str, criterion: str) -> str:
+    """Classify a score item before choosing evidence or narrative generation."""
+    text = f"{item_name or ''}{criterion or ''}"
+    evidence = any(term in text for term in _EVIDENCE_TERMS)
+    narrative = any(term in text for term in _NARRATIVE_TERMS)
+    if evidence and narrative:
+        return "mixed"
+    if evidence:
+        return "evidence"
+    return "narrative"
+
+
 @dataclass(frozen=True)
 class ScoringPoint:
     clause_no: str

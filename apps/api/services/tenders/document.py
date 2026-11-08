@@ -2728,6 +2728,71 @@ def _hide_proofing_marks(doc: Document) -> None:
         root.remove(old)
 
 
+_SIGNOFF_START = re.compile(
+    r"^(?:投标人|法定代表人|地址|电话|传真|邮编|邮政编码|网址|承诺人|授权委托人|项目经理|日期|\d{4}年)"
+)
+
+
+def normalize_signoff_block(paragraphs) -> None:
+    """Normalize contiguous sign-off paragraphs without changing their text."""
+    group = []
+
+    def flush() -> None:
+        nonlocal group
+        if not group:
+            return
+        centered = group[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+        for para in group:
+            para.paragraph_format.first_line_indent = Twips(0 if centered else 420)
+            para.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
+        group = []
+
+    for para in paragraphs:
+        text = (para.text or "").strip()
+        if not text or not _SIGNOFF_START.match(text):
+            flush()
+            continue
+        if len(group) < 8:
+            group.append(para)
+        else:
+            flush()
+            group.append(para)
+    flush()
+
+
+def clean_visible_prompts(doc: Document) -> tuple[int, int]:
+    """Remove user-facing placeholder prompts from generated body paragraphs."""
+    from docx.text.paragraph import Paragraph
+
+    removed = 0
+    blanked = 0
+    patterns = (
+        re.compile(r"对应\s*[^；\n]{1,120}；所需材料：[^\n]+"),
+        re.compile(r"状态：待投标人确认"),
+        re.compile(r"其他资料（待核对归属）"),
+        re.compile(r"其他资料\(待核对归属\)"),
+    )
+    for element in list(doc.element.body.iter(qn("w:p"))):
+        para = Paragraph(element, doc)
+        original = para.text or ""
+        text = original
+        for pattern in patterns:
+            text = pattern.sub("", text)
+        text = text.replace("【待补充】", "").replace("需补充材料", "")
+        if text == original:
+            continue
+        if not text.strip():
+            parent = element.getparent()
+            if parent is not None:
+                parent.remove(element)
+                removed += 1
+        else:
+            _clear_runs(para)
+            para.add_run(text)
+            blanked += 1
+    return removed, blanked
+
+
 def _set_tbl_borders(table: Table) -> None:
     tbl_pr = table._tbl.tblPr
     if tbl_pr is None:
@@ -4200,6 +4265,8 @@ def build_bid_docx(
     })
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
+    clean_visible_prompts(doc)
+    normalize_signoff_block(doc.paragraphs)
     normalize_table_layout(doc)
     doc.save(str(dest))
     warnings.append(
