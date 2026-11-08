@@ -1,0 +1,79 @@
+services:
+  api:
+    image: weitai-agent:offline
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["/app/api/main.bin"]
+    ports:
+      - "8100:8100"
+    volumes:
+      - weitai_storage:/app/storage
+      - weitai_logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  worker:
+    image: weitai-agent:offline
+    restart: unless-stopped
+    env_file: .env.production
+    entrypoint: ["/app/worker/stream_consumer_main.bin"]
+    volumes:
+      - weitai_storage:/app/storage
+      - weitai_logs:/app/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env.production}
+      MYSQL_DATABASE: weitai_agent
+      MYSQL_USER: weitai
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set in .env.production}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    expose:
+      - "3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set in .env.production}"]
+    volumes:
+      - redis_data:/data
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    restart: unless-stopped
+    volumes:
+      - qdrant_data:/qdrant/storage
+    expose:
+      - "6333"
+
+volumes:
+  mysql_data:
+  redis_data:
+  qdrant_data:
+  weitai_storage:
+  weitai_logs:
