@@ -36,6 +36,7 @@ PROTECTED_FILES = [
     "apps/api/routers/tenders.py",
 ]
 EXTERNAL_FILES = [
+    "D:/code/LLM/weitaiAgentui/src/views/TendersView.vue",
     "E:/code/python/weitaiAgentui/src/views/TendersView.vue",
 ]
 
@@ -45,9 +46,8 @@ SKIP_SUFFIXES = {".pyc", ".pyo"}
 
 def sha256_file(path: Path) -> str:
     h = hashlib.sha256()
-    with path.open("rb") as f:
-        for block in iter(lambda: f.read(1 << 20), b""):
-            h.update(block)
+    data = path.read_bytes().replace(b"\r\n", b"\n")
+    h.update(data)
     return h.hexdigest()
 
 
@@ -74,10 +74,15 @@ def collect() -> dict[str, str]:
         p = ROOT / rel
         if p.is_file():
             entries[rel] = sha256_file(p)
+    external_found = False
     for raw in EXTERNAL_FILES:
         p = Path(raw)
         if p.is_file():
-            entries[f"external::{p.as_posix()}"] = sha256_file(p)
+            external_found = True
+            root = next((parent for parent in p.parents if parent.name == "weitaiAgentui"), p.parent)
+            entries[f"external::{p.relative_to(root).as_posix()}"] = sha256_file(p)
+    if not external_found:
+        print("[SKIP] 外部保护文件未找到，已跳过")
     return dict(sorted(entries.items()))
 
 
