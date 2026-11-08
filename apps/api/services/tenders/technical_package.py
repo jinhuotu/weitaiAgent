@@ -22,25 +22,60 @@ CHAPTER_SCORING = {
     '九、服务承诺': [('施工期间不拖欠农民工工资、农忙季节及业主资金不到位时连续施工',1),('质保期内、质保期外服务承诺',1),('替甲方排忧解难、协调村民及当地政府等周边关系',1),('与招标人的配合和保证措施',1),('其他实质性承诺及合理化建议',2)],
 }
 
-def _score_rows(doc, chapters):
-    """Extract chapter scoring rows from source tables; constants are regression hints only."""
+def _chapters_from_tables(doc):
     from docx.table import Table
-    out={c:[] for c in chapters}
+    found=[]
     for tbl in doc.tables:
         rows=[[c.text.strip() for c in r.cells] for r in tbl.rows]
-        header=' '.join(rows[0]) if rows else ''
-        if not re.search(r'评分因素|评分标准|分值',header): continue
-        current=None
+        if not rows: continue
+        header=rows[0]
+        try: factor=next(i for i,v in enumerate(header) if '评分因素' in v or '评分标准' in v)
+        except StopIteration: continue
+        try: score=next(i for i,v in enumerate(header) if '分值' in v)
+        except StopIteration: continue
         for row in rows[1:]:
-            blob=' '.join(x for x in row if x)
-            for c in chapters:
-                if c in blob: current=c; break
-            if not current or not blob: continue
-            nums=re.findall(r'(?<!\d)(\d+)(?:\.\d+)?分?',blob)
-            item=re.sub(r'^\s*[（(]?\d+[）).、]?\s*','',row[0] or blob).strip()
-            if item and nums:
-                out[current].append((item,int(nums[-1])))
-    return out
+            if factor >= len(row): continue
+            title=row[factor].strip()
+            m=re.match(r'^([一二三四五六七八九十]+、\s*.+)$',title)
+            if not m: continue
+            total=None
+            if score < len(row):
+                nums=re.findall(r'(?<!\d)(\d+)(?!\d)',row[score])
+                if nums: total=int(nums[-1])
+            found.append((m.group(1).strip(),total))
+    return found
+
+
+def _score_rows(doc, chapters):
+    from docx.table import Table
+    names=[c[0] if isinstance(c,tuple) else c for c in chapters]
+    out={c:[] for c in names}; totals={c:(c[1] if isinstance(c,tuple) else None) for c in chapters}; current=None
+    allowed=set(out)
+    for tbl in doc.tables:
+        rows=[[c.text.strip() for c in r.cells] for r in tbl.rows]
+        if not rows: continue
+        header=rows[0]
+        try: factor=next(i for i,v in enumerate(header) if '评分因素' in v or '评分标准' in v)
+        except StopIteration: continue
+        try: score=next(i for i,v in enumerate(header) if '分值' in v)
+        except StopIteration: continue
+        for row in rows[1:]:
+            if factor >= len(row): continue
+            raw=row[factor].strip()
+            if raw in allowed:
+                current=raw; continue
+            if not current or not raw: continue
+            item=re.sub(r'^[\d.（）()]+\s*','',raw).strip()
+            if not item: continue
+            value=None
+            if score < len(row):
+                nums=re.findall(r'(?<!\d)(\d+)(?!\d)',row[score])
+                if nums: value=int(nums[-1])
+            if value is None:
+                nums=re.findall(r'(?<!\d)(\d+)(?:\.\d+)?(?!\d)', ' '.join(row))
+                if nums: value=int(nums[-1])
+            if value is not None: out[current].append((item,value))
+    return out,totals
 
 
 def key(text):
@@ -71,23 +106,27 @@ def structure(brief, doc=None):
         style_name=(Paragraph(node,doc).style.name or '').lower()
         if (level == 0 or style_name in {'heading 1','标题 1','heading1','标题1'}) and re.match(r'^[一二三四五六七八九十]+、', value):
             headings.append((node,value))
-    if len(headings) >= 3:
+    table_chapters=_chapters_from_tables(doc)
+    if table_chapters:
+        chapter_names=[x[0] for x in table_chapters]
         qualified=[]
-        for node,value in headings:
-            idx=positions[id(node)]
-            first=text(blocks[idx+1]).strip() if idx+1 < len(blocks) and blocks[idx+1].tag==qn('w:p') else ''
-            if re.search(r'根据.*评分标准.*编制',first): qualified.append((node,value))
-            elif qualified: break
-        if len(qualified) >= 3:
+        for title,total in table_chapters:
+            node=next((n for n,v in headings if v==title),None)
+            if node is None:
+                logger.warning('技术标章节标题未找到落位：%s',title); continue
+            qualified.append((node,title,total))
+        if qualified:
             logger.info('技术标模板类型：chapter_heading')
-            chapters=[v for _,v in qualified]
-            logger.info('识别到章节 %d 个：%s',len(chapters),' / '.join(chapters))
-            extracted=_score_rows(doc,chapters)
+            chapters=[(v,t) for _,v,t in qualified]
+            logger.info('识别到章节 %d 个：%s',len(chapters),' / '.join(v for v,_ in chapters))
+            extracted,totals=_score_rows(doc,chapters)
             sections=[]
-            for _,title in qualified:
+            usable=[]
+            for _,title,total in qualified:
                 rows=extracted.get(title) or []
-                if rows is None:
-                    rows=[]
+                if total is not None and sum(v for _,v in rows)!=total:
+                    logger.warning('技术标章节分值对账失败：%s expected=%s actual=%s',title,total,sum(v for _,v in rows)); continue
+                usable.append(title)
                 if not rows:
                     rows=[(title+'总体目标',2),(title+'组织实施',2),(title+'质量与验证',2)]
                     logger.warning('技术标章节评分项 fallback：%s',title)
@@ -95,7 +134,26 @@ def structure(brief, doc=None):
                 for item,score in rows:
                     identity='tp_'+hashlib.sha256((title+'\0'+item).encode()).hexdigest()[:16]
                     sections.append({'id':identity,'title':item,'chapter':title,'score':score})
-            return {'template_kind':'chapter_heading','chapters':[{'title':v,'level':1} for _,v in headings], 'sections':sections,'tables':[],'figures':[]}
+            return {'template_kind':'chapter_heading','chapters':[{'title':v,'level':1} for v in usable], 'sections':sections,'tables':[],'figures':[]}
+    if len(headings) >= 3:
+        qualified=[]
+        for node,value in headings:
+            idx=positions[id(node)]
+            first=text(blocks[idx+1]).strip() if idx+1 < len(blocks) and blocks[idx+1].tag==qn('w:p') else ''
+            if re.search(r'根据.*评分标准.*编制',first) or (value.startswith('九、') and qualified): qualified.append((node,value))
+            elif qualified: break
+        if len(qualified) >= 3:
+            logger.warning('技术标章节清单 fallback：未找到评分表')
+            logger.info('技术标模板类型：chapter_heading')
+            chapters=[v for _,v in qualified]; extracted={c:[] for c in chapters}
+            sections=[]
+            for _,title in qualified:
+                rows=[(title+'总体目标',2),(title+'组织实施',2),(title+'质量与验证',2)]
+                logger.warning('技术标章节评分项 fallback：%s',title)
+                for item,score in rows:
+                    identity='tp_'+hashlib.sha256((title+'\0'+item).encode()).hexdigest()[:16]
+                    sections.append({'id':identity,'title':item,'chapter':title,'score':score})
+            return {'template_kind':'chapter_heading','chapters':[{'title':v,'level':1} for _,v in qualified], 'sections':sections,'tables':[],'figures':[]}
         logger.info('技术标模板类型：numbered_points')
     def number_id(node):
         from docx.text.paragraph import Paragraph
