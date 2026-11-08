@@ -7,6 +7,10 @@ import unicodedata
 
 _EVIDENCE_TERMS = ("证书", "执照", "证明", "扫描件", "截图", "合同", "报表", "报告", "许可证", "发票", "凭证", "资质文件", "缴税", "社保", "信用中国", "公示系统")
 _NARRATIVE_TERMS = ("方案", "措施", "计划", "体系", "管理", "控制", "组织", "部署", "承诺", "建议", "理解", "分析", "目标", "安排", "程序", "说明", "流程", "构想", "对策")
+_RESPONSE_SCHEME = ("承诺", "保证", "确保", "建立", "执行", "遵守", "实施", "满足", "方案", "措施", "计划", "体系", "管理", "控制", "组织", "部署", "安排")
+_RESPONSE_PROOF = ("提供", "附", "证明", "扫描件", "证书", "业绩", "财务报表", "营业执照", "合同", "发票", "许可证", "缴税凭证", "编号")
+_RESPONSE_REF = ("人员", "证书", "业绩", "资质", "证明")
+_STOP_WORDS = set("的与及和或按根据本项目我方应当必须进行相关以及等其中要求" )
 
 
 def score_item_kind(item_name: str, criterion: str) -> str:
@@ -19,6 +23,42 @@ def score_item_kind(item_name: str, criterion: str) -> str:
     if evidence:
         return "evidence"
     return "narrative"
+
+
+def classify_response(item_name: str, criterion: str, chapter: str = "") -> str:
+    """Route scoring prose: declarations are the safe default."""
+    text = f"{item_name or ''}{criterion or ''}"
+    if "服务承诺" in chapter:
+        return "declare"
+    scheme = any(term in text for term in _RESPONSE_SCHEME)
+    proof = any(term in item_name for term in _RESPONSE_PROOF)
+    reference = any(term in text for term in _RESPONSE_REF)
+    if proof and not scheme:
+        return "provide_only"
+    if scheme and reference:
+        return "declare_with_ref"
+    return "declare"
+
+
+def criterion_terms(text: str) -> list[str]:
+    compact = re.sub(r"[\d①②③④⑤⑥⑦⑧⑨⑩一二三四五六七八九十]+(?:[、.)）]|分)?", " ", text or "")
+    terms = re.findall(r"[一-龥]{2,}|[A-Za-z]{2,}", compact)
+    return list(dict.fromkeys(term for term in terms if term not in _STOP_WORDS))
+
+
+def validate_declaration(text: str, terms: list[str], facts: object) -> dict:
+    body = text or ""
+    fact_values = [str(value) for value in (facts.values() if isinstance(facts, dict) else facts or []) if value not in (None, "")]
+    hits = {term: term in body for term in terms}
+    numbers = re.findall(r"\d+(?:\.\d+)?\s*(?:小时|天|次|级|元|人|座|%|日历天)?", body)
+    quantitative = bool(numbers) or bool(re.search(r"每周|每月|节点|频次|阈值|响应时间|验收", body))
+    third_person = any(term in body for term in ("承包人应", "投标人须"))
+    coverage = sum(hits.values()) / len(hits) if hits else 1.0
+    result = {"passed": coverage >= .8 and any(value in body for value in fact_values) and quantitative and body.count("我方") >= 3 and not third_person,
+              "coverage": coverage, "missing_terms": [term for term, hit in hits.items() if not hit],
+              "fact_hits": [value for value in fact_values if value in body], "quantitative": quantitative,
+              "first_person_count": body.count("我方"), "third_person": third_person}
+    return result
 
 
 @dataclass(frozen=True)
