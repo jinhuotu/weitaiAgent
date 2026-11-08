@@ -143,6 +143,23 @@ def render(doc,brief):
     source_path=_word_format_file(brief.invitationId)
     source=Document(source_path) if source_path else None
     source_props={key(p.text):p._p.pPr for p in source.paragraphs} if source is not None else {}
+    if package.get('template_kind') == 'chapter_heading':
+        chapter_nodes={key(p.text):p for p in paragraphs}
+        for chapter in package.get('chapters',[]):
+            head=chapter_nodes.get(key(chapter['title']))
+            if head is None: continue
+            cursor=head._p
+            for point in [x for x in package['sections'] if x.get('chapter')==chapter['title']]:
+                el=OxmlElement('w:p'); cursor.addnext(el); sub=Paragraph(el,doc)
+                sub.style=head.style
+                sub.add_run(point['title'])
+                cursor=el
+                end=_after(doc,cursor,point['body'],brief)
+                cursor=end
+                _bookmark_paragraph(sub,'toc_technical_'+point['id'])
+        notes.append(f"技术卷：已写入 {len(package['sections'])} 个评分项")
+        prune_unreferenced_images(doc)
+        return notes
     for point in package['sections']:
         marker='technical_'+point['id']
         head_marker='toc_technical_'+point['id']

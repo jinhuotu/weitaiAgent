@@ -15,6 +15,33 @@ from common.errors import AppError, ErrorCode
 
 logger = logging.getLogger(__name__)
 
+CHAPTER_SCORING = {
+    '六、承包人建议书': [('项目详细说明和总体管理方案、目标',2),('项目管理机构设置与人员配备计划（含设计）',2),('项目质量、进度、投资、合同、信息管理与控制',2),('工程竣工验收、结算、移交管理',2)],
+    '七、设计组织技术措施': [('设计质量保证体系及措施',2),('风险防范措施合理可行',2),('重要设计节点安排等方面有针对性表述',2),('设计进度计划表及确保进度的组织技术措施',2),('限额设计的保证措施',2),('对本项目的设计意图和重点难点的理解',2),('新技术、新材料在本项目设计中的应用',2)],
+    '八、承包人实施计划': [('施工方案与技术措施',6),('设备安装方案与技术措施',6),('质量管理体系与措施',5),('安全管理体系与措施',5),('环境保护管理体系及施工现场扬尘治理措施',4),('工程进度计划与措施',3),('风险管理措施',3)],
+    '九、服务承诺': [('施工期间不拖欠农民工工资、农忙季节及业主资金不到位时连续施工',1),('质保期内、质保期外服务承诺',1),('替甲方排忧解难、协调村民及当地政府等周边关系',1),('与招标人的配合和保证措施',1),('其他实质性承诺及合理化建议',2)],
+}
+
+def _score_rows(doc, chapters):
+    """Extract chapter scoring rows from source tables; constants are regression hints only."""
+    from docx.table import Table
+    out={c:[] for c in chapters}
+    for tbl in doc.tables:
+        rows=[[c.text.strip() for c in r.cells] for r in tbl.rows]
+        header=' '.join(rows[0]) if rows else ''
+        if not re.search(r'评分因素|评分标准|分值',header): continue
+        current=None
+        for row in rows[1:]:
+            blob=' '.join(x for x in row if x)
+            for c in chapters:
+                if c in blob: current=c; break
+            if not current or not blob: continue
+            nums=re.findall(r'(?<!\d)(\d+)(?:\.\d+)?分?',blob)
+            item=re.sub(r'^\s*[（(]?\d+[）).、]?\s*','',row[0] or blob).strip()
+            if item and nums:
+                out[current].append((item,int(nums[-1])))
+    return out
+
 
 def key(text):
     return re.sub(r'[^\w\u4e00-\u9fff]', '', str(text)).casefold()
@@ -33,6 +60,43 @@ def structure(brief, doc=None):
             return {}
         doc = Document(path)
     blocks = list(doc.element.body)
+    from api.services.tenders.word_structure import outline_level
+    headings=[]; positions={id(node):i for i,node in enumerate(blocks)}
+    for node in blocks:
+        if node.tag != qn('w:p'):
+            continue
+        value=text(node).strip()
+        level=outline_level(doc,node)
+        from docx.text.paragraph import Paragraph
+        style_name=(Paragraph(node,doc).style.name or '').lower()
+        if (level == 0 or style_name in {'heading 1','标题 1','heading1','标题1'}) and re.match(r'^[一二三四五六七八九十]+、', value):
+            headings.append((node,value))
+    if len(headings) >= 3:
+        qualified=[]
+        for node,value in headings:
+            idx=positions[id(node)]
+            first=text(blocks[idx+1]).strip() if idx+1 < len(blocks) and blocks[idx+1].tag==qn('w:p') else ''
+            if re.search(r'根据.*评分标准.*编制',first): qualified.append((node,value))
+            elif qualified: break
+        if len(qualified) >= 3:
+            logger.info('技术标模板类型：chapter_heading')
+            chapters=[v for _,v in qualified]
+            logger.info('识别到章节 %d 个：%s',len(chapters),' / '.join(chapters))
+            extracted=_score_rows(doc,chapters)
+            sections=[]
+            for _,title in qualified:
+                rows=extracted.get(title) or []
+                if rows is None:
+                    rows=[]
+                if not rows:
+                    rows=[(title+'总体目标',2),(title+'组织实施',2),(title+'质量与验证',2)]
+                    logger.warning('技术标章节评分项 fallback：%s',title)
+                logger.info('每章评分项 %s：%d 条',title,len(rows))
+                for item,score in rows:
+                    identity='tp_'+hashlib.sha256((title+'\0'+item).encode()).hexdigest()[:16]
+                    sections.append({'id':identity,'title':item,'chapter':title,'score':score})
+            return {'template_kind':'chapter_heading','chapters':[{'title':v,'level':1} for _,v in headings], 'sections':sections,'tables':[],'figures':[]}
+        logger.info('技术标模板类型：numbered_points')
     def number_id(node):
         from docx.text.paragraph import Paragraph
         props=node.find('w:pPr/w:numPr',node.nsmap)
@@ -122,9 +186,15 @@ async def draft_package(db, brief, *, client=None):
     from api.services.tenders.gen_tech_plan import _user_sources
     notes=[]
     sources=_user_sources(brief.techPlanSourceIds,brief=brief,notes=notes)
+    from api.services.tenders.tender_facts import extract_tender_facts
+    invitation_text=load_invitation_text(brief.invitationId)
+    tender_facts=extract_tender_facts(invitation_text)
     facts={'projectName':brief.projectName,'scope':brief.bidContent,'durationDays':brief.deliveryDays,
            'quality':brief.quality,'technicalInput':brief.techPlanNote,
-           'invitation':load_invitation_text(brief.invitationId)[:24000],'userSources':sources}
+           'constructionSite':tender_facts.get('constructionSite') or tender_facts.get('site') or '',
+           'contractScope':brief.bidContent or tender_facts.get('scope') or '',
+           'engineeringObject':tender_facts.get('engineeringObject') or tender_facts.get('projectType') or '',
+           'invitation':invitation_text[:24000],'userSources':sources}
     from api.services.tenders.categories import LEGACY_TECH_FIELDS
     entered={name:getattr(brief,name) for name in LEGACY_TECH_FIELDS if getattr(brief,name,'').strip()}
     if entered:facts['userTechnicalFields']=entered
@@ -154,7 +224,7 @@ async def draft_package(db, brief, *, client=None):
         from api.services.models.runtime import build_llm_client
         client=await build_llm_client(db,'pro')
     async def generate(group):
-        raw=await complete_json(client,[{'role':'system','content':get_prompt('technical_package_system')},
+        raw=await complete_json(client,[{'role':'system','content':get_prompt('technical_package_system')+'\n每个评分项正文必须覆盖做什么、怎么做、达到什么标准、谁负责、如何验证五要素；只写表态型内容，不编造人名、证书、业绩、财务或人数。'},
             {'role':'user','content':context+'\n'+json.dumps({'anonymous':brief.techAnonymous,'sections':group},ensure_ascii=False)}],mode='pro')
         return _payload(raw).get('sections',[])
     groups=[missing[i:i+2] for i in range(0,len(missing),2)]

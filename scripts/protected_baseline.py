@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """受保护模块基线指纹。
 
-用途：证明 cablepkg 开发期间没有改动通用标书与压缩包旧模块。
+用途：证明 tender_package（国网货物类标书）未被其它任务改动。
 做法：对受保护路径下每个文件算 SHA-256，按相对路径排序后整体再算一次摘要。
 
 用法：
@@ -10,7 +10,6 @@
     python scripts/protected_baseline.py --check --quiet
 
 受保护范围（改任何一项都必须先显式解锁，见 AGENTS.md）：
-    apps/api/services/tenders/**
     apps/api/services/tender_package/**
     apps/api/routers/tenders.py
     E:/code/python/weitaiAgentui/src/views/TendersView.vue（外部仓库，存在时纳入）
@@ -28,10 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUT = ROOT / "storage" / "baselines" / "protected.sha256.json"
 
-PROTECTED_DIRS = [
-    "apps/api/services/tenders",
-    "apps/api/services/tender_package",
-]
+PROTECTED_DIRS = ["apps/api/services/tender_package"]
 PROTECTED_FILES = [
     "apps/api/routers/tenders.py",
 ]

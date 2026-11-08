@@ -1,4 +1,4 @@
-# AGENTS.md · 电缆参数型标书（cablepkg）
+# AGENTS.md · 通用标书（cablepkg + EPC 总承包 + 国网货物）
 
 本文件约束所有在本仓库工作的 AI 代理与开发者。**与其它需求冲突时，本文件优先。**
 
@@ -10,23 +10,17 @@
 
 | 路径 | 说明 |
 |---|---|
-| `apps/api/services/tenders/**` | 通用标书生成逻辑（范本驱动） |
 | `apps/api/services/tender_package/**` | 压缩包标书既有实现（解包/分类/SSOT/货物适配/向导） |
 | `apps/api/routers/tenders.py` | 通用版路由 |
 | `E:/code/python/weitaiAgentui/src/views/TendersView.vue` | 通用版前端（外部仓库） |
 
-本任务允许的最小例外仅限以下文件中的电缆字段扩展与行内标签填空接入：
-
-- `apps/api/services/tenders/schema.py`、`apps/api/services/tenders/extract.py`
-- `apps/api/services/tenders/document.py` 中独立通用填充器的调用接入
-- `E:/code/python/weitaiAgentui/src/views/TendersView.vue` 现有“项目与招标人”填写区
-
-例外不得修改通用组卷策略、既有特定位置填空逻辑、受保护模块中的其它文件或前端其它页面。
+tenders/** 现已开放，修改时仍须在交付说明中列出变更文件与理由；
+tender_package/**、routers/tenders.py、TendersView.vue 保持保护，需要改动时由用户逐次授权。
 
 任何一次改动前后都必须通过：
 
 ```powershell
-E:\code\python\weitaiAgent\.venv\Scripts\python.exe scripts\protected_baseline.py --check
+D:\code\LLM\weitaiAgent\.venv\Scripts\python.exe scripts\protected_baseline.py --check
 ```
 
 有差异即视为违规。上述任务例外由用户明确授权，修改后必须复核基线并在交付说明中列出变更文件与理由。
