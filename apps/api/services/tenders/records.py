@@ -319,12 +319,14 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
         return {}
     if client is None:
         client = await build_llm_client(db, "pro")
+    from api.services.tenders.tender_facts import extract_tender_facts
+
+    detail = extract_tender_facts(invitation)
+    tender = detail.get("facts") or {}
     fact_map = {}
     for key, attr in (
-        ("项目名称", "projectName"), ("建设地点", "projectAddress"), ("招标范围", "bidContent"),
-        ("计划工期", "deliveryDays"), ("质量标准", "quality"), ("安全要求", "safety"),
-        ("资金来源", "fundingSource"), ("标段数", "lotCount"),
-        ("设计费最高投标限价", "designFeeLimit"), ("投标有效期", "bidValidityDays"),
+        ("招标范围", "bidContent"), ("质量标准", "quality"),
+        ("计划工期", "deliveryDays"), ("投标有效期", "bidValidityDays"),
         ("投标保证金", "bidBondYuan"),
     ):
         value = getattr(brief, attr, None)
@@ -334,6 +336,18 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
         match = re.search(r"项目名称\s*[：:]\s*([^\r\n；;，,]+)", invitation)
         if match and match.group(1).strip():
             fact_map["项目名称"] = match.group(1).strip()
+    if "项目名称" not in fact_map:
+        value = str(tender.get("项目名称") or "").strip()
+        if value:
+            fact_map["项目名称"] = value
+    for key in ("建设地点", "资金来源", "安全要求", "工程概况", "招标范围", "质量标准", "计划工期"):
+        value = str(tender.get(key) or "").strip()
+        if len(value) > 80:
+            value = re.split(r"[。；，,]", value, maxsplit=1)[0].strip()
+        if value and value not in {"无", "见招标文件", "/", "—"}:
+            fact_map.setdefault(key, value)
+    if not tender:
+        print("邀请书里没有可识别的项目信息：", detail.get("notes") or [])
     async def generate(point):
         prompt = (
             "本项目事实：\n" + json.dumps(fact_map, ensure_ascii=False) +

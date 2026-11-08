@@ -489,11 +489,9 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         uploaded = build_source_index(brief.techPlanSourceIds, brief=brief, notes=notes)
     facts = {}
     for key, attr in (
-        ("项目名称", "projectName"), ("建设地点", "projectAddress"), ("招标范围", "bidContent"),
-        ("计划工期", "deliveryDays"), ("质量标准", "quality"), ("安全要求", "safety"),
-        ("资金来源", "fundingSource"), ("标段数", "lotCount"),
-        ("设计费最高投标限价", "designFeeLimit"), ("投标有效期", "bidValidityDays"),
-        ("投标保证金", "bidBondYuan"),
+        ("项目名称", "projectName"), ("招标范围", "bidContent"),
+        ("计划工期", "deliveryDays"), ("质量标准", "quality"),
+        ("投标有效期", "bidValidityDays"), ("投标保证金", "bidBondYuan"),
     ):
         value = getattr(brief, attr, None)
         if value not in (None, "", 0, 0.0):
