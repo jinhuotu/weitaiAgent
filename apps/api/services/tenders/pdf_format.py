@@ -2373,6 +2373,8 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
         paragraph.insert(0, ppr)
         anchor.addnext(paragraph)
         parts = [part.strip() for part in re.split(r"\n\s*\n", str(text or "")) if part.strip()]
+        if len(parts) <= 1:
+            parts = [part.strip() for part in re.split(r"\n", str(text or "")) if part.strip()]
         for index, part in enumerate(parts):
             run = OxmlElement("w:r")
             if source_rpr is not None:

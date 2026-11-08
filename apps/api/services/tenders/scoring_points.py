@@ -3,7 +3,6 @@
 from dataclasses import dataclass, replace
 import re
 import unicodedata
-from copy import deepcopy
 
 
 _EVIDENCE_TERMS = ("证书", "执照", "证明", "扫描件", "截图", "合同", "报表", "报告", "许可证", "发票", "凭证", "资质文件", "缴税", "社保", "信用中国", "公示系统")
@@ -487,6 +486,11 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         label = "（对应评分项"
         if not _paragraph_text(anchor).lstrip().startswith(label):
             return
+        br = anchor.find(".//" + qn("w:br"))
+        if br is None:
+            for node in anchor.findall(".//" + qn("w:t")):
+                node.text = ""
+            return
         children = list(anchor)
         for child in children:
             if child.tag == qn("w:pPr"):
@@ -508,21 +512,6 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
             if not list(child.findall(".//" + qn("w:t"))):
                 anchor.remove(child)
             break
-
-    def _inherit_body_style(anchor):
-        """Make the insertion anchor inherit a normal body paragraph style."""
-        candidates = [el for el in doc.element.body if el.tag == qn("w:p")
-                      and len(_paragraph_text(el)) >= 80
-                      and not _paragraph_text(el).lstrip().startswith("（对应评分项")]
-        if not candidates:
-            return
-        source = candidates[0].find(qn("w:pPr"))
-        if source is None:
-            return
-        old = anchor.find(qn("w:pPr"))
-        if old is not None:
-            anchor.remove(old)
-        anchor.insert(0, deepcopy(source))
 
     notes = []
     original = format_path.parent / f"{brief.invitationId}.docx"
@@ -585,15 +574,19 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
         selected = [point for point in points if point.target_section == title]
         if not selected:
             continue
-        if anchor.getnext() is not None and _paragraph_text(anchor.getnext()).startswith("（对应评分项 "):
-            continue
-        _strip_scoring_label(anchor)
-        _inherit_body_style(anchor)
+        target = anchor
+        following = anchor.getnext()
+        if following is not None and following.tag == qn("w:p"):
+            if _paragraph_text(following).strip().startswith("（对应评分项"):
+                _strip_scoring_label(following)
+                target = following
         rendered = section_blocks(selected, notes, facts=facts,
             generator=lambda point, facts_map: drafted.get(point.item, ""),
             cited_text=lambda point: source_citation(
             point, blocks, uploaded, citations,
         ))
-        texts.extend((anchor, text) for text in rendered)
+        if not rendered:
+            continue
+        texts.extend((target, text) for text in rendered)
     return texts, notes
 
