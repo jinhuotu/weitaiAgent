@@ -8,6 +8,9 @@ import io
 import logging
 import re
 import tempfile
+import hashlib
+import json
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -587,50 +590,86 @@ async def _read_docx(path: Path, *, ocr_budget: int | None = None) -> ExtractRes
         raise AppError(ErrorCode.BAD_REQUEST, f"Word 无法打开：{exc}", status_code=400) from exc
 
     parts: list[str] = []
-    ocr_used = 0
-    ocr_capped = False
-    seen_rids: set[str] = set()
-
-    async def _ocr_blips(element) -> None:
-        nonlocal ocr_used, ocr_capped
-        for blip in element.findall(f".//{_BLIP_NS}"):
-            if ocr_used >= max_ocr:
-                ocr_capped = True
-                return
-            rid = blip.get(_EMBED_NS)
-            if not rid or rid in seen_rids:
-                continue
-            seen_rids.add(rid)
-            try:
-                blob = doc.part.related_parts[rid].blob
-            except Exception:  # noqa: BLE001
-                continue
-            if not blob or len(blob) < 4000:
-                continue
-            if ocr_budget is not None:
-                ocr_used += 1
-            try:
-                ocr_text = _normalize(await _ocr_image(blob))
-            except AppError:
-                continue
-            if _count_chars(ocr_text) >= 4:
-                parts.append(f"[图]\n{ocr_text}")
-                if ocr_budget is None:
-                    ocr_used += 1
-
+    blocks = []
+    text_chars = 0
+    nonempty = 0
     for block in doc.element.body:
         tag = block.tag.rsplit("}", 1)[-1]
-        if tag == "p":
-            text = Paragraph(block, doc).text.strip()
-            if text:
-                parts.append(text)
-            await _ocr_blips(block)
-        elif tag == "tbl":
-            table_text = _docx_table_text(Table(block, doc))
-            if table_text:
-                parts.append(table_text)
-            await _ocr_blips(block)
-    return ExtractResult(text="\n".join(parts), ocr_pages=ocr_used, ocr_capped=ocr_capped)
+        text = Paragraph(block, doc).text.strip() if tag == "p" else (_docx_table_text(Table(block, doc)) if tag == "tbl" else "")
+        blocks.append((block, text))
+        if text:
+            parts.append(text); text_chars += _count_chars(text); nonempty += 1
+    total_blocks = len(blocks) or 1
+    threshold = max(0, int(getattr(settings, "ocr_docx_text_threshold", 3000)))
+    text_layer = text_chars >= threshold and nonempty / total_blocks >= 0.2
+    ocr_used = 0; ocr_capped = False; seen_hashes: set[str] = set(); jobs = []
+    cache_dir = Path(getattr(settings, "ocr_cache_dir", "storage/ocr-cache"))
+    cache_enabled = bool(getattr(settings, "ocr_cache_enabled", True))
+    concurrency = max(1, min(8, int(getattr(settings, "ocr_concurrency", 4))))
+    # 优先处理常见招标关键页；其余内容在预算不足时跳过。
+    priority_words = ("封面", "目录", "投标人须知", "评分办法", "资格要求", "材料清单")
+    ordered_blocks = sorted(blocks, key=lambda item: (0 if any(w in item[1] for w in priority_words) else 1))
+    cache_hits = cache_misses = 0
+    skipped_pages = 0
+    skipped_image_count = 0
+    for block, _ in ( [] if text_layer else ordered_blocks ):
+        for blip in block.findall(f".//{_BLIP_NS}"):
+            rid = blip.get(_EMBED_NS)
+            if not rid:
+                continue
+            try: blob = doc.part.related_parts[rid].blob
+            except Exception: continue
+            if not blob or len(blob) < 4000: continue
+            digest = hashlib.sha256(blob).hexdigest()
+            if digest in seen_hashes: continue
+            seen_hashes.add(digest)
+            cache_file = cache_dir / f"{digest}.json"
+            if cache_enabled and cache_file.is_file():
+                if len(jobs) >= max_ocr:
+                    ocr_capped = True; skipped_pages += 1; skipped_image_count += 1; continue
+                try:
+                    payload = json.loads(cache_file.read_text(encoding="utf-8"))
+                    jobs.append((block, _normalize(payload["text"]), True)); cache_hits += 1; continue
+                except Exception: pass
+            cache_misses += 1
+            if len(jobs) >= max_ocr: ocr_capped = True; skipped_pages += 1; skipped_image_count += 1; break
+            jobs.append((block, blob, False))
+    sem = asyncio.Semaphore(concurrency)
+    async def run(item):
+        block, value, cached = item
+        if cached: return block, value
+        async with sem:
+            try: text = _normalize(await _ocr_image(value))
+            except Exception as exc:
+                # 服务限流时降低并发并重试，最终降至串行仍可完成。
+                if any(code in str(exc) for code in ("429", "503")):
+                    nonlocal concurrency
+                    concurrency = max(1, concurrency // 2)
+                    try: text = _normalize(await _ocr_image(value))
+                    except Exception: text = ""
+                else: text = ""
+        if cache_enabled and text:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            digest = hashlib.sha256(value).hexdigest()
+            cache_file = cache_dir / f"{digest}.json"
+            cache_file.write_text(json.dumps({"text": text, "provider": type(get_ocr_provider()).__name__, "version": "1"}, ensure_ascii=False), encoding="utf-8")
+        return block, text
+    results = await asyncio.gather(*(run(j) for j in jobs))
+    for _, text in results:
+        if _count_chars(text) >= 4: parts.append(f"[图]\n{text}"); ocr_used += 1
+    if cache_enabled:
+        files = sorted(cache_dir.glob("*.json"), key=lambda p: p.stat().st_atime)
+        limit = max(0, int(getattr(settings, "ocr_cache_max_bytes", 268435456)))
+        total = sum(p.stat().st_size for p in files)
+        for item in files:
+            if total <= limit: break
+            try: total -= item.stat().st_size; item.unlink()
+            except OSError: pass
+    total_pages = len(blocks)
+    logger.info("docx OCR stats total_pages=%s text_layer_pages=%s ocr_image_count=%s skipped_by_text_layer=%s skipped_pages=%s skipped_image_count=%s skipped_by_budget=%s ocr_budget_total=%s ocr_budget_used=%s cache_hit=%s cache_miss=%s cache_hit_rate=%.2f concurrency=%s", total_pages, total_pages if text_layer else 0, ocr_used, total_pages if text_layer else 0, skipped_pages, skipped_image_count, skipped_image_count, max(0, len(jobs)), max_ocr, max(0, len(jobs)), cache_hits, cache_misses, cache_hits / max(1, cache_hits + cache_misses), concurrency)
+    if cache_enabled and cache_hits + cache_misses and cache_hits / (cache_hits + cache_misses) < 0.3:
+        logger.warning("OCR cache hit rate below 30%%: %.2f", cache_hits / (cache_hits + cache_misses))
+    return ExtractResult(text="\n".join(parts), page_count=total_pages, ocr_pages=ocr_used, ocr_capped=ocr_capped)
 
 
 def _docx_table_text(table) -> str:

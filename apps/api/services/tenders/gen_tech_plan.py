@@ -19,8 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.services.tenders.assets import load_invitation_text, tender_assets_dir
 from api.services.tenders.categories import is_tech_chapter_kind
+from api.services.tenders.evidence import Evidence, evidence_chunks, format_records, make_evidence, retrieve
 from api.services.tenders.schema import BidBrief, BidRequirement, DeviationLine
 from common.errors import AppError, ErrorCode
+from common.config import get_settings
 
 logger = logging.getLogger("api.tenders.gen_tech_plan")
 _SOURCE_ID = re.compile(r"^[a-f0-9]{16}$")
@@ -46,6 +48,49 @@ def _source_dir() -> Path:
     return path
 
 
+def _docx_source_rows(path: Path, text: str, *, has_ocr: bool) -> list[dict]:
+    from docx import Document
+    from docx.oxml.ns import qn
+
+    body = Document(path).element.body
+    rendered = qn("w:lastRenderedPageBreak")
+    explicit = qn("w:br")
+    text_tag = qn("w:t")
+    page_type = qn("w:type")
+    use_rendered = next(body.iter(rendered), None) is not None
+    has_break = use_rendered or any(node.get(page_type) == "page" for node in body.iter(explicit))
+    page = 1
+    blocks = []
+    for paragraph in body.iter(qn("w:p")):
+        parts = []
+        for node in paragraph.iter():
+            if node.tag == text_tag:
+                parts.append(node.text or "")
+            elif node.tag == rendered or (not use_rendered and node.tag == explicit
+                                          and node.get(page_type) == "page"):
+                blocks.append((page, "".join(parts)))
+                parts.clear()
+                page += 1
+        blocks.append((page, "".join(parts)))
+    if has_break:
+        pages: dict[int, list[str]] = {}
+        for number, block in blocks:
+            if block.strip():
+                pages.setdefault(number, []).append(block)
+        rows = [{"page": number, "text": "\n".join(parts)} for number, parts in pages.items()]
+    else:
+        rows = []
+    # OCR text is appended by the existing parser without image-to-page mapping.
+    ocr_blocks = re.split(r"(?m)^\[图\]\s*\n", text)[1:] if has_ocr else []
+    unpaged = ([] if has_break else [block for _, block in blocks]) + ocr_blocks
+    if not rows and not any(block.strip() for block in unpaged):
+        unpaged = list(evidence_chunks(text))
+    unpaged = [block for block in unpaged if block.strip()]
+    rows.extend({"page": None, "text": block, "blockIndex": i, "blockTotal": len(unpaged)}
+                for i, block in enumerate(unpaged, 1))
+    return rows
+
+
 async def save_tech_source(data: bytes, filename: str) -> dict[str, str]:
     """Parse a user DOCX/PDF once and keep its extracted text for this bid."""
     ext = Path(filename or "").suffix.lower().lstrip(".")
@@ -54,61 +99,175 @@ async def save_tech_source(data: bytes, filename: str) -> dict[str, str]:
             ErrorCode.VALIDATION, "技术资料须为非空且不超过 20 MB 的 docx/pdf", status_code=422
         )
     source_id = uuid4().hex[:16]
-    path = _source_dir() / f"{source_id}.{ext}"
+    root = _source_dir()
+    path = root / f"{source_id}.{ext}"
+    index_path = root / f"{source_id}.jsonl"
+    metadata_path = root / f"{source_id}.meta.json"
     path.write_bytes(data)
     try:
         from api.services.knowledge.parsers import extract_text_from_file
 
         extracted = await extract_text_from_file(path, ext=ext)
-        text = (extracted.text or "").strip()[:_MAX_SOURCE_CHARS]
+        text = (extracted.text or "").strip()
         if not text:
             raise AppError(
                 ErrorCode.VALIDATION,
                 "技术资料未提取到文字，请上传可读取的 docx/pdf",
                 status_code=422,
             )
-        (_source_dir() / f"{source_id}.txt").write_text(text, encoding="utf-8")
-        (_source_dir() / f"{source_id}.meta.json").write_text(
+        rows = [{"page": None, "text": text}]
+        if ext == "docx":
+            rows = _docx_source_rows(path, text, has_ocr=bool(extracted.ocr_pages))
+        if ext == "pdf":
+            markers = list(re.finditer(r"(?m)^\[第([1-9]\d*)页\][ \t]*$", text))
+            numbers = [int(marker[1]) for marker in markers]
+            if (markers and numbers == sorted(set(numbers))
+                    and numbers[-1] <= extracted.page_count):
+                preamble = text[:markers[0].start()].strip()
+                rows = [
+                    {"page": number, "text": text[marker.end():next_marker.start() if next_marker else len(text)].strip()}
+                    for number, marker, next_marker in zip(numbers, markers, [*markers[1:], None])
+                ]
+                if preamble:
+                    rows.insert(0, {"page": None, "text": preamble})
+            else:
+                rows[0]["unreliablePageMarkers"] = True
+        index_path.write_text("".join(
+            json.dumps({"fileId": source_id, **row}, ensure_ascii=False) + "\n"
+            for row in rows if row["text"]
+        ), encoding="utf-8")
+        metadata_path.write_text(
             json.dumps({'filename': Path(filename).name}, ensure_ascii=False), encoding='utf-8',
         )
     except Exception:
-        path.unlink(missing_ok=True)
+        for artifact in (path, index_path, metadata_path):
+            artifact.unlink(missing_ok=True)
         raise
     return {"sourceId": source_id, "filename": Path(filename).name, "chars": str(len(text))}
 
 
-def _user_sources(ids: list[str], *, brief: BidBrief, notes: list[str]) -> str:
+def _source_file_limit(settings, *, strict: bool = False) -> int:
+    max_files = getattr(settings, "evidence_max_files", 0)
+    if not hasattr(settings, "evidence_max_files"):
+        logger.warning("配置 evidence_max_files 缺失，按不限文件数处理，请重启后端")
+        if strict:
+            raise AttributeError("evidence_max_files")
+    return max_files
+
+
+def _matched_sources(ids, *, brief, notes, pending=None):
     from api.services.tenders.source_match import match_source, require_source_match
 
-    parts = []
-    for raw in ids[:5]:
-        source_id = str(raw or "").strip().lower()
+    ids = list(dict.fromkeys(str(raw or "").strip().lower() for raw in ids))
+    max_files = _source_file_limit(get_settings())
+    if 0 < max_files < len(ids):
+        logger.warning("技术资料文件上限：截断 %d 份，总计 %d 份", len(ids) - max_files, len(ids))
+        ids = ids[:max_files]
+    root = _source_dir()
+    for source_id in ids:
         if not _SOURCE_ID.fullmatch(source_id):
             notes.append('技术资料来源：无效资料编号；未匹配，未采用')
             continue
-        path = _source_dir() / f"{source_id}.txt"
+        path = root / f"{source_id}.txt"
+        index_path = root / f"{source_id}.jsonl"
         label = source_id
-        metadata = _source_dir() / f'{source_id}.meta.json'
+        metadata = root / f'{source_id}.meta.json'
         if metadata.is_file():
             try:
                 label = str(json.loads(metadata.read_text(encoding='utf-8')).get('filename') or label)
             except (ValueError, AttributeError):
                 pass
-        if not path.is_file():
+        if index_path.is_file():
+            rows = [json.loads(line) for line in index_path.read_text(encoding="utf-8").splitlines()]
+        elif path.is_file():
+            rows = [{"page": None, "text": path.read_text(encoding="utf-8")}]
+        else:
             notes.append(f'技术资料来源：{label}；未匹配，文件不存在，未采用')
             continue
-        text = path.read_text(encoding='utf-8')[:_MAX_SOURCE_CHARS]
+        text = "\n\n".join(row["text"] for row in rows)
         title = next((line.strip() for line in text.splitlines() if line.strip()), '')[:120]
-        result = require_source_match(match_source(
+        candidate = match_source(
             brief, title=title, text=text, source_name=label,
-        ))
-        status = {'matched': '已匹配', 'unmatched': '未匹配', 'unverified': '待核验'}[result.status]
-        notes.append(f'技术资料来源：{label}；{status}；'
-                     + ('与本次标书不匹配，未采用' if result.status == 'unmatched' else '校验通过')
-                     + f'（{result.reason}）')
-        if result.status != 'unmatched':
-            parts.append(text)
-    return "\n\n".join(parts)[:_MAX_SOURCE_CHARS]
+        )
+        result = require_source_match(candidate)
+        if candidate.status in {"unknown", "unverified"}:
+            if pending is not None:
+                pending.append({"label": label, "状态": "待核验未采用", "原因": result.reason,
+                                "首段 40 字": " ".join(text.split())[:40]})
+            notes.append(f"技术资料来源：{label}；待核验未采用（{result.reason}）")
+        elif result.status == "matched":
+            notes.append(f"技术资料来源：{label}；已匹配（{result.reason}）")
+            yield source_id, label, title, rows
+        else:
+            notes.append(f"技术资料来源：{label}；未匹配，未采用（{result.reason}）")
+
+
+def pending_sources(ids, *, brief, notes) -> list[dict]:
+    pending = []
+    for _ in _matched_sources(ids, brief=brief, notes=notes, pending=pending):
+        pass
+    return pending
+
+
+def build_source_index(ids, *, brief, notes, pending=None) -> list[Evidence]:
+    from types import SimpleNamespace
+    from api.services.tenders.material_identity import standard_material_key
+
+    index = []
+    for source_id, label, title, rows in _matched_sources(ids, brief=brief, notes=notes, pending=pending):
+        if any(row.get("blockIndex") for row in rows):
+            if not any(row["page"] for row in rows):
+                notes.append(f"该 docx 无分页信息，按块定位：{source_id}")
+            else:
+                notes.append(f"该 docx 部分内容无分页信息，按块定位：{source_id}")
+        elif any(row.get("unreliablePageMarkers") for row in rows):
+            notes.append(f"该文件无可靠页标：{source_id}")
+        elif any(row["page"] is None for row in rows):
+            notes.append(f"证据缺页码：{source_id}")
+        kinds = {standard_material_key(SimpleNamespace(key="", title=name))
+                 for name in (title, Path(label).stem)} - {""}
+        kind = next(iter(kinds)) if len(kinds) == 1 else ""
+        chunks = ((row, chunk) for row in rows for chunk in evidence_chunks(row["text"]))
+        index.extend(make_evidence(label, chunk, matched=True, kind=kind, page=row["page"], seq=seq,
+                                   block_index=row.get("blockIndex"), block_total=row.get("blockTotal"))
+                     for seq, (row, chunk) in enumerate(chunks, 1))
+    return index
+
+
+def user_sources_for(index, *, chapter_title, requirements, notes) -> str:
+    from types import SimpleNamespace
+    from api.services.tenders.material_identity import standard_material_key
+
+    kinds = {standard_material_key(SimpleNamespace(key=req.slotKey, title=req.text))
+             for req in requirements}
+    kind = next(iter(kinds)) if len(kinds) == 1 else ""
+    query = "；".join([chapter_title, *(req.text for req in requirements)])
+    hits = retrieve(query, index, requirement_kind=kind)
+    rendered = format_records(hits, budget=get_settings().evidence_section_budget)
+    review_note = "主体未能确认，请人工核对"
+    if any(not rec.subject_match for rec in hits) or (index and not any(rec.subject_match for rec in index)):
+        notes.append(f"技术章节「{chapter_title}」：{review_note}")
+        if not any(rec.subject_match for rec in hits):
+            return "\n".join(part for part in (f"【待核验】{review_note}", rendered) if part)
+    if not rendered:
+        if re.search(r"评审(?:标准|规则|办法|程序|细则)?\s*$", chapter_title):
+            return "本章为评审规则，材料来自招标文件"
+        if not index:
+            notes.append(f"技术章节「{chapter_title}」：本卷无可检索的上传资料")
+            return "【待补充】本卷无可检索的上传资料"
+        notes.append(f"技术章节「{chapter_title}」证据未命中：建议补充与章节要求对应的证明材料")
+        return "【待补充】缺少与本章节要求匹配的上传资料"
+    return rendered
+
+
+def _user_sources(ids: list[str], *, brief: BidBrief, notes: list[str]) -> str:
+    if get_settings().evidence_enabled:
+        return user_sources_for(build_source_index(ids, brief=brief, notes=notes),
+                                chapter_title=brief.projectName or brief.bidContent,
+                                requirements=(), notes=notes)
+    return "\n\n".join(row["text"] for _, _, _, rows in
+                       _matched_sources(ids, brief=brief, notes=notes)
+                       for row in rows)[:_MAX_SOURCE_CHARS]
 
 
 def _facts(brief: BidBrief) -> str:
@@ -302,9 +461,16 @@ async def draft_technical_plan(
         if not invitation
         else []
     )
-    user_source_text = _user_sources(
-        getattr(brief, 'techPlanSourceIds', []), brief=brief, notes=source_notes,
-    )
+    source_ids = brief.techPlanSourceIds
+    evidence_enabled = get_settings().evidence_enabled
+    pending = []
+    source_index = build_source_index(source_ids, brief=brief, notes=source_notes, pending=pending) if evidence_enabled else []
+    if pending:
+        source_notes.append("待核验资料：" + "\n".join(
+            f"{row['label']}｜{row['状态']}｜{row['原因']}｜{row['首段 40 字']}" for row in pending
+        ))
+    pending_without_evidence = bool(pending and not source_index)
+    user_source_text = "" if evidence_enabled else _user_sources(source_ids, brief=brief, notes=source_notes)
     all_requirements = _technical_requirements(brief, invitation)
     scoring = [r for r in all_requirements if _is_scoring(r)]
     requirements = [r for r in all_requirements if not _is_scoring(r)][:60]
@@ -366,7 +532,7 @@ async def draft_technical_plan(
     style = _style_guide(
         [str(x.get("content") or "") for x in knowledge[:4] if isinstance(x, dict)] + historical[:8]
     )
-    if client is None:
+    if client is None and not pending_without_evidence:
         from api.services.models.runtime import build_llm_client
 
         client = await build_llm_client(db, "pro")
@@ -392,8 +558,26 @@ async def draft_technical_plan(
     missing_titles: list[str] = []
     generated_count = 0
     pro_call_count = 0
+    chapter_sources = {}
+    if evidence_enabled:
+        for title in titles:
+            chapter_sources[title] = user_sources_for(
+                source_index, chapter_title=title,
+                requirements=[req for req in all_requirements if req.targetTitle == title],
+                notes=source_notes,
+            )
+
+    def source_sections(group):
+        if not evidence_enabled:
+            return []
+        return ["仅使用本章节已核验的证据作为事实。缺件保留【待补充】，不得编造事实。", *(
+            f"【章节证据：{title}】\n{chapter_sources[title]}" for title in group
+        )]
+
     async def generate_group(group):
         nonlocal pro_call_count
+        if pending_without_evidence:
+            return [(title, "【待补充】本卷无可检索的上传资料") for title in group], []
         pro_call_count += 1
         raw = await complete_json(client,
             [
@@ -408,6 +592,7 @@ async def draft_technical_plan(
                     "content": "\n\n".join(
                         [
                             *sections,
+                            *source_sections(group),
                             "【本轮仅允许填充的既有章节标题，按此顺序】\n" + "\n".join(group),
                         ]
                     ),
@@ -424,7 +609,7 @@ async def draft_technical_plan(
             pro_call_count += 1
             retry = await complete_json(client,
                 [{"role": "system", "content": get_prompt("tech_plan_system", route_label=_ROUTE_LABELS[route], route_topics=_ROUTE_TOPICS[route])},
-                 {"role": "user", "content": "\n\n".join([*sections, "Return chapters JSON with a complete body for this existing chapter only: " + title])}],
+                 {"role": "user", "content": "\n\n".join([*sections, *source_sections([title]), "Return chapters JSON with a complete body for this existing chapter only: " + title])}],
                 mode="pro",
             )
             repaired, extra_devs = _decode_payload(retry, [title])
@@ -434,7 +619,8 @@ async def draft_technical_plan(
             group_devs.extend(extra_devs)
         return group_pairs, group_devs
     from api.services.tenders.generation_parallel import ordered_generation
-    groups = [titles[start:start+2] for start in range(0, len(titles), 2)]
+    group_size = 1 if evidence_enabled else 2
+    groups = [titles[start:start + group_size] for start in range(0, len(titles), group_size)]
     results = await ordered_generation([lambda group=group: generate_group(group) for group in groups], stage='technical_plan', labels=[' / '.join(group) for group in groups])
     logger.info('generation stage=technical_plan pro_calls=%s chapters=%s', pro_call_count, len(titles))
     for group_pairs, group_devs in results:

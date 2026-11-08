@@ -2185,6 +2185,21 @@ def _looks_like_ocr_garbage(text: str) -> bool:
     return bool(re.search(r"\.html|操作手册", n, re.I))
 
 
+_PROTECTED_DATE_LABEL = re.compile(
+    r"成立时间|成立日期|经营期限|营业期限|授权期限|缺陷责任期|有效期届满|有效期|工期|成立|经营|营业|授权|缺陷责任"
+)
+
+
+def protected_date_label(text: str, start: int, end: int) -> str:
+    before = text[max(0, start - 12):start].rsplit("\n", 1)[-1]
+    after = text[end:end + 12].split("\n", 1)[0]
+    if re.search(r"(?:签订日期|签署日期|投标日期|投标时间|(?<![\u4e00-\u9fff])日期)\s*[:：]?\s*$", before):
+        return ""
+    matches = list(_PROTECTED_DATE_LABEL.finditer(before))
+    hit = matches[-1] if matches else _PROTECTED_DATE_LABEL.search(after)
+    return hit.group() if hit else ""
+
+
 def fill_copy_blanks(
     text: str,
     *,
@@ -2514,9 +2529,17 @@ def fill_copy_blanks(
             out,
         )
     if date_cn:
-        out = re.sub(r"[＿_—\-]{0,6}年[＿_—\-]{0,4}月[＿_—\-]{0,4}日", date_cn, out)
-        # 含「年 月 日四、…」粘连：先填日期，再拆行（勿用负向断言挡住）
-        out = re.sub(r"年\s*月\s*日", date_cn, out)
+        def fill_date(match):
+            label = protected_date_label(out, match.start(), match.end())
+            if label:
+                import logging
+
+                logging.getLogger(__name__).warning("%s 无依据，已留空", label)
+                return match.group()
+            return date_cn
+
+        out = re.sub(r"(?<!\d)[＿_—\-]{0,6}年[＿_—\- \t]{0,6}月[＿_—\- \t]{0,6}日",
+                     fill_date, out)
         out = re.sub(
             rf"({re.escape(date_cn)})\s*([一二三四五六七八九十]、\s*"
             r"(?:合同|偏差|偏离|报价|响应方案|响应书|承诺|授权|身份))",

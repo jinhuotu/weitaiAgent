@@ -7,6 +7,8 @@ from api.services.tenders.qa import (
     build_report,
     combine_score,
     compact_text,
+    extract_attention_items,
+    verify_attention_items,
     grade_for,
     letter_checklist,
     merge_gaps,
@@ -138,6 +140,46 @@ def test_combine_score_and_grade() -> None:
     assert grade_for(90) == "good"
     assert grade_for(75) == "fair"
     assert grade_for(40) == "risk"
+
+
+def test_extract_attention_items_keeps_rule_text_and_location() -> None:
+    invitation = """投标文件须加盖投标人公章并由法定代表人签字。\n投标文件正本一份，副本三份，统一密封。\n投标报价不得超过最高限价，税率按 13% 填报。\n使用 CA 证书进行电子签名并加密上传。\n投标有效期不得少于 90 日历天。"""
+    items = extract_attention_items(invitation)
+    assert {item["kind"] for item in items} == {
+        "signature_seal", "copies", "sealing", "price_limit", "electronic_signature", "validity"
+    }
+    price = next(item for item in items if item["kind"] == "price_limit")
+    assert "最高限价" in price["requirement"]
+    assert price["sourceLine"] == 3
+    assert price["status"] == "manual_review"
+
+
+def test_extract_attention_items_tracks_explicit_page_markers_only() -> None:
+    marked = extract_attention_items("[第2页]\n投标有效期不得少于 90 日历天。\n第 5 页\n投标文件正本一份，副本三份。")
+    validity = next(item for item in marked if item["kind"] == "validity")
+    copies = next(item for item in marked if item["kind"] == "copies")
+    assert validity["sourcePage"] == 2
+    assert copies["sourcePage"] == 5
+    unmarked = extract_attention_items("投标有效期不得少于 90 日历天。")
+    assert unmarked[0]["sourcePage"] is None
+
+
+def test_verify_attention_items_is_conservative_for_signatures() -> None:
+    items = extract_attention_items("须加盖公章并由法定代表人签字。投标有效期 90 日历天。")
+    verified = verify_attention_items(items, "投标有效期 90 日历天")
+    seal = next(item for item in verified if item["kind"] == "signature_seal")
+    validity = next(item for item in verified if item["kind"] == "validity")
+    assert seal["verificationStatus"] == "not_verifiable_from_text"
+    assert validity["verificationStatus"] == "found"
+
+
+def test_verify_attention_items_does_not_accept_copied_invitation_text() -> None:
+    invitation = "投标文件正本一份，副本三份，装订成册。"
+    items = extract_attention_items(invitation)
+    verified = verify_attention_items(items, invitation, invitation=invitation)
+    copies = next(item for item in verified if item["kind"] == "copies")
+    assert copies["verificationStatus"] == "manual_review"
+    assert "疑似引用招标原句" in copies["verificationNote"]
 
 
 def test_build_report_without_invitation() -> None:

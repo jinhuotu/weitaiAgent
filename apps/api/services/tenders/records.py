@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 from pathlib import Path
 from datetime import UTC, date, datetime
 from uuid import uuid4
@@ -709,6 +710,26 @@ async def create_record_from_generate(
     user_id: int,
     username: str,
 ) -> dict[str, object]:
+    from api.services.tenders.gen_tech_plan import _source_file_limit
+    from common.config import get_settings
+
+    try:
+        _source_file_limit(get_settings(), strict=True)
+        return await _create_record_from_generate(db, brief, user_id=user_id, username=username)
+    except (AttributeError, TypeError) as exc:
+        import logging
+
+        logging.getLogger(__name__).exception("生成入口遇到配置或代码不兼容")
+        raise AppError(ErrorCode.INTERNAL, "服务端配置未生效，请重启后端", status_code=503) from exc
+
+
+async def _create_record_from_generate(
+    db: AsyncSession,
+    brief: BidBrief,
+    *,
+    user_id: int,
+    username: str,
+) -> dict[str, object]:
     """生成 Word。未到下载定稿前记为草稿，不出现在生成记录里。"""
     extra = {'material_owner_id': user_id} if brief.bidTableImportId or any(c.enabled for c in brief.materialSelections.values()) else {}
     generated, attachment_match = await _generate_for_record(db, brief, **extra)
@@ -1364,11 +1385,38 @@ def get_saved_qa(
         return {"report": None}
     source = str(report.get("source") or "generated")
     if source == "upload":
-        report["stale"] = False
+        try:
+            from api.services.tenders.qa import qa_upload_path
+
+            path = qa_upload_path(public_id)
+            stat = path.stat()
+            current = hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode("ascii")).hexdigest()[:24]
+            stale = bool(report.get("inputFingerprint") and current != report.get("inputFingerprint"))
+            if not report.get("inputFingerprint"):
+                checked = int(report.get("checkedAt") or 0) / 1000
+                stale = stat.st_mtime > checked if checked else False
+        except (OSError, AppError):
+            stale = True
+        report["stale"] = stale
     else:
-        report["stale"] = bool(
+        stale = bool(
             docx_file and report.get("docxFile") and str(report.get("docxFile")) != str(docx_file)
         )
+        if not stale and docx_file:
+            try:
+                from api.services.tenders.generate import resolve_output_file
+
+                path = resolve_output_file(docx_file)
+                stat = path.stat()
+                if report.get("inputFingerprint"):
+                    current = hashlib.sha256(f"{stat.st_mtime_ns}:{stat.st_size}".encode("ascii")).hexdigest()[:24]
+                    stale = current != report.get("inputFingerprint")
+                else:
+                    checked = int(report.get("checkedAt") or 0) / 1000
+                    stale = stat.st_mtime > checked if checked else False
+            except (OSError, AppError):
+                stale = True
+        report["stale"] = stale
     return {"report": report}
 
 

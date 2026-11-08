@@ -279,10 +279,17 @@ class BidBrief(BaseModel):
     bidDate: str = Field(default_factory=lambda: date.today().isoformat())
     tenderNo: str = Field(default="")
     lotName: str = Field(default="")
+    lotNo: str = Field(default="")
+    packageName: str = Field(default="")
+    packageNo: str = Field(default="")
 
     bidderName: str = Field(default="")
     bidderCreditCode: str = Field(default="", max_length=18)
     bidderNature: str = Field(default="")
+    companyEstablished: str = Field(default="")
+    companyBusinessTerm: str = Field(default="")
+    companyRegisteredCapital: str = Field(default="")
+    companyFieldSources: dict[str, str] = Field(default_factory=dict)
     bidderAddress: str = Field(default="")
     bidderWebsite: str = Field(default="")
     bidderPhone: str = Field(default="")
@@ -397,6 +404,9 @@ class BidBrief(BaseModel):
 COMPANY_FIELD_KEYS: tuple[str, ...] = (
     "bidderName",
     "bidderNature",
+    "companyEstablished",
+    "companyBusinessTerm",
+    "companyRegisteredCapital",
     "bidderAddress",
     "bidderWebsite",
     "bidderPhone",

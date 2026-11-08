@@ -1081,6 +1081,7 @@ def assemble_from_word_format(
     vol = (volume or "").strip().lower()
     _drop_invite_chrome(doc)
     slice_notes: list[str] = []
+    scoring_slice_kinds = {}
     cover_nodes = []
     if native:
         fill_native_cover(doc, brief)
@@ -1099,6 +1100,11 @@ def assemble_from_word_format(
                     doc.element.body.remove(el)
             tech_front = True
     elif vol == "business" and (native or bool(getattr(brief, "splitSlice", False))):
+        if native:
+            scoring_slice_kinds = {
+                _el_text(el).strip(): mode
+                for el, mode in _business_slice_kinds(doc, brief, set(toc_block_ids(doc))).items()
+            }
         slice_notes.append(_drop_technical(doc, brief=brief if native else None))
     if native:
         # Preserve the source chapter set: never append absent catalog modules.
@@ -1108,6 +1114,13 @@ def assemble_from_word_format(
     if kind == "pdf":
         _pull_pdf_blank_lines(doc)
     blank_notes = _fill_word_blanks(doc, brief, catalog_facts)
+    if native and vol == "business":
+        for field in ("companyEstablished", "companyBusinessTerm", "companyRegisteredCapital"):
+            labels = _LABEL_FIELDS[field]
+            if not getattr(brief, field, "") and not any(
+                any(note.startswith(label + " ") for label in labels) for note in blank_notes
+            ):
+                blank_notes.append(f"{labels[0]} 无依据，未填")
     sheet_notes = _fill_slice_sheets(doc, brief)
     blanks = _open_blank_labels(doc)
     # 建立全局已贴集合，供所有贴图函数共享，实现全局去重
@@ -1121,6 +1134,9 @@ def assemble_from_word_format(
         # scrubber unconditionally removes PAGEREF, including these valid fields.
         _scrub_undefined_toc(doc)
     _separate_toc_page(doc)
+    if native and vol == "business":
+        _remove_cover_toc_residue(doc)
+        slice_notes.extend(_fill_scoring_sections(doc, brief, src, scoring_slice_kinds, catalog_facts))
     fmt = getattr(brief, "documentFormat", None)
     if fmt is not None:
         from api.services.tenders.format_rules import apply_volume_format
@@ -1178,6 +1194,10 @@ def assemble_from_word_format(
         normalize_bookmarks(doc)
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
+    if native and vol == "business":
+        for number, el in enumerate(doc.element.body, 1):
+            if el.tag == qn("w:p") and all(mark in _el_text(el) for mark in ("一、", "十三、")):
+                blank_notes.append(f"目录残留：正文第 {number} 块同时包含一、和十三、")
     doc.save(str(dest))
     if kind == "pdf":
         lead = "已按 PDF 转出的格式章组卷，预填横线收回同一行，正文表格未重排"
@@ -2321,6 +2341,55 @@ def _toc_row_label(el) -> str | None:
     return None
 
 
+def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.scoring_points import render_section_paragraphs
+
+    texts, notes = render_section_paragraphs(
+        doc, brief, format_path, slice_kinds, library_facts, toc=toc_block_ids(doc),
+    )
+    for anchor, text in reversed(texts):
+        paragraph = OxmlElement("w:p")
+        properties = anchor.find(qn("w:pPr"))
+        if properties is not None:
+            paragraph.append(deepcopy(properties))
+        anchor.addnext(paragraph)
+        run = Paragraph(paragraph, doc).add_run(text)
+        anchor_run = next((r for r in Paragraph(anchor, doc).runs if r.text.strip()), None)
+        if anchor_run is not None and anchor_run._r.rPr is not None:
+            run._r.insert(0, deepcopy(anchor_run._r.rPr))
+    return notes
+
+
+def _remove_cover_toc_residue(doc: Document) -> None:
+    body = doc.element.body
+    blocks = list(body)
+    heading = next((i for i, el in enumerate(blocks)
+                    if el.tag == qn("w:p") and _is_toc_heading(_el_text(el))), None)
+    if heading is None:
+        return
+    top = re.compile(r"[一二三四五六七八九十]+、")
+    normalize = lambda text: re.sub(r"\s+", "", text)
+    titles = set()
+    for el in toc_block_ids(doc):
+        label = _toc_row_label(el)
+        if label and top.match(label.strip()):
+            titles.add(normalize(label))
+    if len(titles) < 2:
+        return
+    for el in blocks[:heading]:
+        if el.tag != qn("w:p"):
+            continue
+        text = normalize(_el_text(el))
+        starts = list(top.finditer(text))
+        if len(starts) < 2 or starts[0].start():
+            continue
+        entries = {text[match.start():starts[i + 1].start() if i + 1 < len(starts) else len(text)]
+                   for i, match in enumerate(starts)}
+        if len(entries & titles) / max(len(entries), len(titles)) >= 0.8:
+            body.remove(el)
+
+
 def toc_block_ids(doc: Document) -> list:
     """Return the entire old directory across page/section breaks, up to body.
 
@@ -3452,13 +3521,13 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
     if note:
         logger.info(note)
         notes.append(note)
-    for el in doc.element.body.iter(qn("w:p")):
-        _fill_date_placeholders(el, brief)
+    for line, el in enumerate(doc.element.body.iter(qn("w:p")), 1):
+        _fill_date_placeholders(el, brief, notes=notes)
         _fill_mixed_hints(el, brief)
         _fill_hints(el, brief)
         _swap_tokens(el, brief)
         _fill_para_blanks(el, brief)
-        _fill_label_gap(el, brief)
+        _fill_label_gap(el, brief, notes=notes, line=line)
         _relax_signature_flow(el, doc)
     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
         _swap_tokens(tbl, brief)
@@ -3581,16 +3650,36 @@ def _mixed_hint_re():
     return re.compile(r"(?:[_＿]{2,}\s*)?(" + hints + r")(?:\s*[_＿]{2,})?")
 
 
-def _fill_date_placeholders(el, brief) -> None:
+def _fill_date_placeholders(el, brief, *, notes=None) -> None:
     """Resolve a labelled year/month/day group across all runs and tabs."""
     value = _date_value(brief)
     parts = re.fullmatch(r"(\d{4})年(\d{1,2})月(\d{1,2})日", value or '')
     if parts is None:
         return
     blob = _blank_text(el)
+    year, month, day = map(int, parts.groups())
+    date_pattern = rf"{year}年0?{month}月0?{day}日"
+    invalid = list(re.finditer(r"(?:成立时间|成立日期)\s*[:：]\s*(?P<value>"
+                               + date_pattern + r")(?!\d)", blob))
+    established = str(getattr(brief, "companyEstablished", "") or "").strip()
+    if invalid and not re.fullmatch(date_pattern, established):
+        logger.warning("成立时间被误填，已回退")
+        if notes is not None and "成立时间 无依据，已留空" not in notes:
+            notes.append("成立时间 无依据，已留空")
+        for match in reversed(invalid):
+            _write_blank_span(el, *match.span("value"), "")
+        blob = _blank_text(el)
     pattern = re.compile(r"(?<![0-9])(?P<year>[_＿ \t\u3000]*)年(?P<month>[_＿ \t\u3000]*)月(?P<day>[_＿ \t\u3000]*)日(?P<tail>[_＿]*)")
     edits = []
+    from api.services.tenders.outline import protected_date_label
+
     for match in pattern.finditer(blob):
+        label = protected_date_label(blob, match.start(), match.end())
+        if label:
+            warning = f"{label} 无依据，已留空"
+            if notes is not None and warning not in notes:
+                notes.append(warning)
+            continue
         gaps = [match.group(name) for name in ('year','month','day')]
         if not any(gaps) and not re.fullmatch(r'(?:日期[:：]?)?年月日', re.sub(r'\s+','',blob)):
             continue
@@ -4318,51 +4407,80 @@ def _blank_ranges(el):
     return list(re.finditer(r'[ _＿\u3000\t]+', blob))
 
 
-def _fill_label_gap(el, brief) -> None:
-    """整段只有标签时，把值接在标签后面，不改别的行。"""
+
+_LABEL_FIELDS = {
+    "bidderName": ("投标人", "投标人名称", "投标人全称", "供应商", "单位名称", "企业名称",
+                   "响应人", "投标人或联合体牵头人"),
+    "legalPersonName": ("法定代表人", "法定代表人姓名", "姓名"),
+    "agentName": ("委托代理人", "授权代表"),
+    "projectName": ("项目名称",),
+    "tenderNo": ("招标编号", "项目编号"),
+    "bidderNature": ("单位性质", "企业类型", "公司类型"),
+    "bidderAddress": ("地址", "住所", "注册地址", "通讯地址"),
+    "bidderPhone": ("电话", "联系电话", "项目联系人电话"),
+    "bidderFax": ("传真",),
+    "bidderWebsite": ("网址", "网站"),
+    "bidderPostcode": ("邮政编码", "邮编"),
+    "companyEstablished": ("成立时间", "成立日期"),
+    "companyBusinessTerm": ("经营期限", "营业期限"),
+    "companyRegisteredCapital": ("注册资本",),
+    "legalPersonGender": ("性别",),
+    "legalPersonAge": ("年龄",),
+    "legalPersonTitle": ("职务",),
+    "bidDate": ("日期", "签订日期", "签署日期", "投标日期", "投标时间"),
+}
+_LABEL_ATTRS = {label: field for field, labels in _LABEL_FIELDS.items() for label in labels}
+_LABEL_ATTRS["法定代表人或委托代理人"] = "agentName"
+_STAMP = r"[（(]\s*(?:加盖公章|盖单位章|盖章|电子签章|签字或盖章|签字|签名|公章)\s*[)）]"
+_LABEL_PATTERN = re.compile(
+    r"(?<![^\s_＿;；:：日])(?P<label>" + "|".join(
+        r"[^\S\r\n]*".join(map(re.escape, label))
+        for label in sorted(_LABEL_ATTRS, key=len, reverse=True)
+    ) + r")\s*(?:" + _STAMP + r")?\s*[:：]"
+)
+
+
+def _fill_label_gap(el, brief, *, notes=None, line=None) -> None:
     text = _blank_text(el)
-    blob = re.sub(r"[\s_＿]+", "", text)
-    if "年" in blob and "月" in blob and "日" in blob:
-        return
-    # Stamp instructions are not filled values. Accept common label structures,
-    # including labels without an underline and stamps before/after the colon.
-    identity = re.fullmatch(
-        r'(?:投标人(?:或联合体牵头人)?|响应人|供应商|单位名称|企业名称)(?:名称|全称)?'
-        r'(?:[（(](?:加盖公章|盖单位章|盖章)[)）])?\s*[:：]'
-        r'(?P<blank>[\s_＿]*)(?:[（(](?:加盖公章|盖单位章|盖章)[)）])?[\s_＿]*', text)
-    bidder = (brief.bidderName or '').strip()
-    if identity and bidder:
-        _write_blank_span(el, identity.start('blank'), identity.end('blank'), bidder)
-        return
-    pairs = [
-        ("招标编号：", (getattr(brief, "tenderNo", "") or "").strip()),
-        ("招标编号:", (getattr(brief, "tenderNo", "") or "").strip()),
-        ("投标人或联合体牵头人：", (brief.bidderName or "").strip()),
-        ("投标人或联合体牵头人:", (brief.bidderName or "").strip()),
-        ("投标人或联合体牵头人：（盖单位章）", (brief.bidderName or "").strip()),
-        ("投标人名称：", (brief.bidderName or "").strip()),
-        ("投标人名称:", (brief.bidderName or "").strip()),
-        ("投标人：", (brief.bidderName or "").strip()),
-        ("投标人:", (brief.bidderName or "").strip()),
-        ("项目名称：", (brief.projectName or "").strip()),
-        ("项目名称:", (brief.projectName or "").strip()),
-        ("姓名：", (getattr(brief, "legalPersonName", "") or "").strip()),
-        ("姓名:", (getattr(brief, "legalPersonName", "") or "").strip()),
-        ("法定代表人：", (getattr(brief, "legalPersonName", "") or "").strip()),
-        ("法定代表人:", (getattr(brief, "legalPersonName", "") or "").strip()),
-        ("委托代理人：", (getattr(brief, "agentName", "") or "").strip() or (getattr(brief, "legalPersonName", "") or "").strip()),
-        ("委托代理人:", (getattr(brief, "agentName", "") or "").strip() or (getattr(brief, "legalPersonName", "") or "").strip()),
-    ]
-    date_val = _date_value(brief)
-    if date_val:
-        pairs.append(("日期：", date_val))
-        pairs.append(("日期:", date_val))
-    for label, value in pairs:
-        if not value or value in blob or blob != label:
+    slots = list(_LABEL_PATTERN.finditer(text))
+    for index in range(len(slots) - 1, -1, -1):
+        slot = slots[index]
+        end = slots[index + 1].start() if index + 1 < len(slots) else len(text)
+        tail = text[slot.end():end]
+        blank = re.fullmatch(r"(?P<gap>[\s_＿]*)(?:" + _STAMP + r")?[\s_＿]*", tail)
+        label = re.sub(r"\s+", "", slot["label"])
+        field = _LABEL_ATTRS[label]
+        if not blank:
             continue
-        at = next((i for i, c in enumerate(text) if c in "：:"), len(text) - 1) + 1
-        _write_blank_span(el, at, at, value)
-        return
+        value = _date_value(brief) if field == "bidDate" else str(getattr(brief, field, "") or "").strip()
+        source = field
+        if label == "法定代表人或委托代理人" and not value:
+            source = "legalPersonName"
+            value = str(getattr(brief, source, "") or "").strip()
+        if not value:
+            if notes is not None and field.startswith("company"):
+                warning = f"{label} 无依据，已留空"
+                if warning not in notes:
+                    notes.append(warning)
+            continue
+        sources = getattr(brief, "companyFieldSources", {})
+        if label in {"住所", "注册地址"} and sources.get(source, "").startswith("id:"):
+            continue
+        gap = blank["gap"]
+        if not re.search(r"[_＿]", gap):
+            # Insert at the colon in its existing run, retaining whitespace,
+            # layout tabs and the stamp instruction exactly as stored.
+            token = next((token for token in _blank_tokens(el)
+                          if token[2] <= slot.end() - 1 < token[3]), None)
+            if token is None or token[1].tag != qn("w:t"):
+                continue
+            _, node, start, _, current = token
+            offset = slot.end() - start
+            node.text = current[:offset] + value + current[offset:]
+        else:
+            _write_blank_span(el, slot.end(), slot.end() + blank.end("gap"), value)
+        logger.info("标签填充 行=%s 标签=%s 值=%s 来源=%s", line, label, value,
+                    sources.get(source, f"brief.{source}"))
 
 
 _FEE_ATTRS = (

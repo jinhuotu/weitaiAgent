@@ -7,6 +7,103 @@ from types import SimpleNamespace
 from api.services.tenders.company_identity import company_from_document, same_company
 
 
+_PROFILE_LABELS = {
+    "biz": {
+        "nature": ("类型", "单位性质"), "address": ("住所", "地址"),
+        "established": ("成立日期",), "business_term": ("营业期限", "经营期限"),
+        "capital": ("注册资本",),
+    },
+    "id": {
+        "legal_name": ("姓名",), "gender": ("性别",),
+        "birthdate": ("出生日期", "出生"), "address": ("住址",),
+    },
+}
+
+
+def _profile_tags(raw: str, source: str) -> list[str]:
+    fields = _PROFILE_LABELS[source]
+    labels = sorted({label for names in fields.values() for label in names}, key=len, reverse=True)
+    stop = "|".join(map(re.escape, [*labels, "名称", "法定代表人", "经营范围", "登记机关",
+                                  "民族", "公民身份号码", "统一社会信用代码"]))
+    tags = []
+    for field, names in fields.items():
+        pattern = (r"(?<![\u4e00-\u9fff])(?:" + "|".join(map(re.escape, names)) +
+                   r")[ \t]*[:：][ \t]*(.*?)(?=[ \t]*(?:" + stop + r")[ \t]*[:：]|[\r\n]|$)")
+        values = {match.group(1).strip() for match in re.finditer(pattern, raw) if match.group(1).strip()}
+        if len(values) == 1:
+            tags.append(f"{field}:{source}:{next(iter(values))}")
+        elif values:
+            tags.append(f"conflict:{field}:{source}")
+    return tags
+
+
+async def library_company_profile(db, brief) -> tuple[dict, set]:
+    """Collect explicit fields from company-scoped licences and legal IDs."""
+    from api.services.tenders.library_kb import (
+        TENDER_LIB_PUBLIC_ID, _doc_file_path, _list_docs, get_base_by_public_id, key_from_tags,
+    )
+    from common.errors import AppError
+
+    try:
+        base = await get_base_by_public_id(db, TENDER_LIB_PUBLIC_ID)
+    except AppError as exc:
+        if exc.status_code == 404:
+            return {}, set()
+        raise
+    docs = await _list_docs(db, base.id)
+    by_id = {doc.public_id: doc for doc in docs}
+    mapping = {
+        "nature:biz": "bidderNature", "address:biz": "bidderAddress",
+        "established:biz": "companyEstablished", "business_term:biz": "companyBusinessTerm",
+        "capital:biz": "companyRegisteredCapital", "legal_name:id": "legalPersonName",
+        "gender:id": "legalPersonGender",
+    }
+    values = {}
+    conflicts = set()
+    id_addresses = set()
+    for doc in docs:
+        if _doc_file_path(doc) is None:
+            continue
+        parent = by_id.get(getattr(doc, "parent_id", None))
+        key = (key_from_tags(parent.tags) if parent is not None else "") or key_from_tags(doc.tags)
+        if key not in {"license", "id_legal"}:
+            continue
+        evidence = source_material_evidence(doc, key)
+        if not document_matches_company(evidence, brief, key=key):
+            continue
+        tags = evidence.tags or []
+        if key == "id_legal":
+            names = {tag.removeprefix("legal_name:id:") for tag in tags if tag.startswith("legal_name:id:")}
+            owner = company_from_document(evidence)
+            same_person = bool(brief.legalPersonName and names == {brief.legalPersonName})
+            if not same_person and not same_company(owner, brief.bidderName):
+                continue
+            id_addresses.update(tag.removeprefix("address:id:") for tag in tags if tag.startswith("address:id:"))
+            if "conflict:address:id" in tags:
+                id_addresses.add(None)
+        for tag in tags:
+            if tag.startswith("conflict:"):
+                field = mapping.get(tag.removeprefix("conflict:"))
+                if field:
+                    conflicts.add(field)
+                continue
+            parts = tag.split(":", 2)
+            field = mapping.get(":".join(parts[:2]))
+            if field and len(parts) == 3:
+                values.setdefault(field, {}).setdefault(parts[2], f"{'license' if key == 'license' else 'id'}:{doc.public_id}")
+    conflicts.update(field for field, candidates in values.items() if len(candidates) > 1)
+    if "bidderAddress" not in values and "bidderAddress" not in conflicts and len(id_addresses) == 1 and None not in id_addresses:
+        values["bidderAddress"] = {next(iter(id_addresses)): "id:住址"}
+    profile = {}
+    sources = {}
+    for field, candidates in values.items():
+        if field not in conflicts:
+            profile[field], sources[field] = next(iter(candidates.items()))
+    if sources:
+        profile["companyFieldSources"] = sources
+    return profile, conflicts
+
+
 def source_material_evidence(doc, key=''):
     """Read explicit subject evidence from retained OCR; never infer from bidder.
 
@@ -70,6 +167,10 @@ def source_material_evidence(doc, key=''):
     tags.extend('bidder:' + owner for owner in dict.fromkeys(owners))
     for match in re.finditer(r'(?:统一社会信用代码|社会信用代码)[:：]?[^0-9A-Z]{0,100}([0-9A-Z]{18})(?![0-9A-Z])',compact.upper()):
         tags.append('credit_code:' + match.group(1))
+    if detected == "license":
+        tags.extend(_profile_tags(raw, "biz"))
+    elif not detected and key in {"id_legal", "id_agent"}:
+        tags.extend(_profile_tags(raw, "id"))
     return SimpleNamespace(public_id=getattr(doc,'public_id',''), summary=getattr(doc,'summary',''),
                            tags=list(dict.fromkeys(tags)), _source_evidence_key=key,
                            _material_type_conflict=bool(detected and key in {'license','bank_permit','credit','bond','iso','finance','product','perf','id_legal','id_agent'}

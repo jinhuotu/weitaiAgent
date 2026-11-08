@@ -7,6 +7,7 @@ from api.services.tenders.prompts import get_prompt
 import json
 import logging
 import re
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.services.layouts.parse import extract_json_object
 from api.services.tenders.assets import load_invitation_text, tenders_output_dir
 from api.services.tenders.categories import HIGH_DISQUALIFY_KEYS, is_tech_chapter_kind, tech_plan_text
+from api.services.tenders.classifier import _PAGE_RE
 from api.services.tenders.outline import bid_is_works
 from api.services.tenders.schema import BidBrief, OutlineItem
 from common.errors import AppError, ErrorCode
@@ -145,12 +147,41 @@ def qa_summary(public_id: str) -> dict[str, Any]:
     report = load_qa_report(public_id)
     if not report:
         return {"qaScore": None, "qaGrade": None, "qaSource": None, "qaCheckedAt": None}
+    user_summary = report.get("userSummary") or build_user_summary(report)
     return {
         "qaScore": report.get("similarityScore"),
         "qaGrade": report.get("grade"),
         "qaSource": report.get("source") or _SOURCE_GENERATED,
         "qaCheckedAt": report.get("checkedAt"),
         "qaVolume": report.get("volume") or "business",
+        "qaSummary": user_summary,
+    }
+
+
+def build_user_summary(report: dict[str, Any]) -> dict[str, int]:
+    """Return compact, user-facing counts without changing QA decisions."""
+    coverage = report.get("requirementCoverage") or {}
+    rows = coverage.get("rows") or []
+    score_rows = ((report.get("scoringReview") or {}).get("rows") or [])
+    score_rows = [row for row in score_rows if row.get("applicability") != "unresolved"]
+    score_risk = [row for row in score_rows if row.get("status") == "nonconforming"]
+    score_pending = [row for row in score_rows if row.get("status") in {"partial", "indeterminate"}]
+    estimated = sum(
+        float(row.get("maxScore") or 0)
+        for row in score_rows
+        if row.get("status") == "conforming"
+    )
+    maximum = sum(float(row.get("maxScore") or 0) for row in score_rows)
+    return {
+        "vetoRiskCount": sum(1 for row in rows if row.get("matchStatus") == "gap"),
+        "scoreItemCount": len(score_rows),
+        "scoreRiskCount": len(score_risk),
+        "scorePendingCount": len(score_pending),
+        "attentionCount": len(report.get("attentionItems") or []) or sum(
+            1 for row in rows if row.get("matchStatus") in {"unbound", "format"}
+        ),
+        "estimatedScore": round(estimated, 2),
+        "maximumScore": round(maximum, 2),
     }
 
 
@@ -867,6 +898,115 @@ def _grade_label(grade: str) -> str:
     }.get(grade, "有缺项需核对")
 
 
+_ATTENTION_RULES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    ("signature_seal", "签字盖章要求", ("签字盖章", "签章", "盖章", "签名", "签字")),
+    ("sealing", "密封与装订要求", ("密封", "封装", "封套", "封条", "装订")),
+    ("copies", "正副本与份数要求", ("正本", "副本", "份数", "一式", "份投标文件")),
+    ("electronic_signature", "电子签名与加密要求", ("电子签名", "数字证书", "CA证书", "CA 证书", "加密")),
+    ("price_limit", "报价限制与税务要求", ("最高限价", "报价不得超过", "报价上限", "投标报价不得", "税率", "含税")),
+    ("validity", "投标有效期要求", ("投标有效期", "报价有效期", "有效期不得少于")),
+)
+
+
+def extract_attention_items(invitation: str) -> list[dict[str, Any]]:
+    """Extract easy-to-miss procedural rules with stable source locations.
+
+    This is a recall-oriented sidecar for user review. It never changes the
+    existing requirement matching or generation decisions.
+    """
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    chapter = ""
+    current_page: int | None = None
+    for line_no, raw in enumerate((invitation or "").splitlines(), start=1):
+        text = re.sub(r"\s+", " ", raw).strip()
+        page_hit = _PAGE_RE.search(text)
+        if page_hit:
+            current_page = int(page_hit.group(1))
+        if len(text) < 6:
+            continue
+        if len(text) <= 80 and re.search(r"^(?:第[一二三四五六七八九十百\d]+[章节部分]|[一二三四五六七八九十百\d]+[、.．])", text):
+            chapter = text[:120]
+        for kind, title, keywords in _ATTENTION_RULES:
+            if not any(keyword in text for keyword in keywords):
+                continue
+            normalized = compact_text(text)[:180]
+            key = (kind, normalized)
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "id": f"attention-{len(items) + 1:03d}",
+                    "kind": kind,
+                    "title": title,
+                    "requirement": text[:500],
+                    "sourceLine": line_no,
+                    "sourceText": text[:500],
+                    "sourceChapter": chapter,
+                    "sourcePage": current_page,
+                    "sourceFile": "招标文件原文",
+                    "severity": "high" if kind in {"signature_seal", "electronic_signature", "price_limit", "validity"} else "medium",
+                    "status": "manual_review",
+                }
+            )
+    return items
+
+
+def verify_attention_items(
+    items: list[dict[str, Any]],
+    bid_text: str,
+    brief: BidBrief | None = None,
+    invitation: str = "",
+) -> list[dict[str, Any]]:
+    """Attach conservative checks against the final Word text."""
+    text = bid_text or ""
+
+    def copied_invitation_text(requirement: str) -> bool:
+        needle = compact_text(requirement)
+        if len(needle) < 12:
+            return False
+        bid_blob = compact_text(text)
+        invite_lines = [compact_text(line) for line in (invitation or "").splitlines()]
+        return any(len(line) >= 12 and line == needle and line in bid_blob for line in invite_lines)
+
+    verified: list[dict[str, Any]] = []
+    for item in items:
+        kind = item.get("kind")
+        row = dict(item)
+        if kind in {"signature_seal", "sealing", "electronic_signature"}:
+            row["verificationStatus"] = "not_verifiable_from_text"
+            row["verificationNote"] = "需要人工检查签章、密封实物或电子签名容器"
+        elif kind == "price_limit":
+            limit_match = re.search(r"最高限价[^\d]{0,16}([\d,.]+)", str(item.get("requirement") or ""))
+            if limit_match and brief is not None and brief.bidPriceYuan:
+                limit = float(limit_match.group(1).replace(",", ""))
+                passed = float(brief.bidPriceYuan) <= limit
+                row["verificationStatus"] = "passed" if passed else "failed"
+                row["verificationNote"] = f"当前报价 {brief.bidPriceYuan:g}，最高限价 {limit:g}"
+            else:
+                row["verificationStatus"] = "manual_review"
+                row["verificationNote"] = "未能从规则中解析出可比较的最高限价"
+        elif kind == "validity":
+            if copied_invitation_text(str(item.get("requirement") or "")):
+                row["verificationStatus"] = "manual_review"
+                row["verificationNote"] = "疑似引用招标原句，需人工确认位置"
+            else:
+                row["verificationStatus"] = "found" if re.search(r"投标有效期|报价有效期", text) else "not_found"
+                row["verificationNote"] = "已在终稿文本中找到有效期表述" if row["verificationStatus"] == "found" else "终稿文本中未找到有效期表述"
+        elif kind == "copies":
+            if copied_invitation_text(str(item.get("requirement") or "")):
+                row["verificationStatus"] = "manual_review"
+                row["verificationNote"] = "疑似引用招标原句，需人工确认位置"
+            else:
+                row["verificationStatus"] = "found" if re.search(r"正本|副本|份数|一式", text) else "not_found"
+                row["verificationNote"] = "已找到份数或正副本表述" if row["verificationStatus"] == "found" else "终稿文本中未找到份数表述"
+        else:
+            row["verificationStatus"] = "manual_review"
+        verified.append(row)
+    return verified
+
+
 def build_report(
     *,
     record_id: str,
@@ -881,6 +1021,7 @@ def build_report(
     brief: BidBrief | None = None,
     file_counts: dict[str, int] | None = None,
     catalog: list | None = None,
+    verification_text: str | None = None,
 ) -> dict[str, Any]:
     llm_score = int(llm["similarityScore"]) if llm and "similarityScore" in llm else None
     score = combine_score(int(rule.get("score") or 0), llm_score)
@@ -899,6 +1040,12 @@ def build_report(
     vol = normalize_qa_volume(volume)
     req_cov = _requirement_coverage(
         brief, file_counts=file_counts, catalog=catalog, volume=vol
+    )
+    attention_items = verify_attention_items(
+        extract_attention_items(invitation),
+        verification_text if verification_text is not None else bid_text,
+        brief,
+        invitation,
     )
     out = {
         "recordId": record_id,
@@ -919,6 +1066,7 @@ def build_report(
         "letterChecklist": letter_checklist(brief) if brief is not None and vol != "technical" else [],
         "requirementCoverage": req_cov,
         "requirementReconcile": _reconcile(req_cov),
+        "attentionItems": attention_items,
         "checkedAt": to_epoch_ms(datetime.now(UTC)),
         "source": src,
     }
@@ -929,11 +1077,12 @@ def build_report(
     return out
 
 
-async def extract_bid_text(path: Path) -> str:
+async def extract_bid_text(path: Path, *, limit: int | None = _BID_TEXT_MAX) -> str:
     from api.services.knowledge.parsers import extract_text_from_file
 
     extracted = await extract_text_from_file(path, ext="docx")
-    return clip_text((extracted.text or "").strip(), _BID_TEXT_MAX)
+    text = (extracted.text or "").strip()
+    return clip_text(text, limit) if limit is not None else text
 
 
 async def analyze_with_llm(
@@ -1051,6 +1200,7 @@ async def inspect_bid(
     else:
         path = resolve_output_file(docx_file)
     bid_text = await extract_bid_text(path)
+    full_bid_text = await extract_bid_text(path, limit=None)
     if len(bid_text) < 20:
         raise AppError(
             ErrorCode.VALIDATION,
@@ -1087,6 +1237,7 @@ async def inspect_bid(
         brief=brief,
         file_counts=file_counts,
         catalog=catalog,
+        verification_text=full_bid_text,
     )
     try:
         from api.services.tender_comparison import compare_scoring
@@ -1102,5 +1253,17 @@ async def inspect_bid(
             "version": "scoring-review/1", "complete": False, "rows": [],
             "warnings": ["评分分析不可用，请重试；原有自检结果已保留。"],
         }
+    try:
+        stat = path.stat()
+        report["inputFingerprint"] = hashlib.sha256(
+            f"{stat.st_mtime_ns}:{stat.st_size}".encode("ascii")
+        ).hexdigest()[:24]
+    except OSError:
+        report["inputFingerprint"] = ""
+    from api.services.tenders.qa_review import preserve_reviews
+
+    previous = load_qa_report(public_id, volume=vol)
+    report = preserve_reviews(previous, report)
+    report["userSummary"] = build_user_summary(report)
     save_qa_report(public_id, report, volume=vol)
     return report

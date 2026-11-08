@@ -8,6 +8,21 @@ import uvicorn
 from common.config import get_settings
 
 
+def log_startup_config() -> None:
+    settings = get_settings()
+    log = logging.getLogger("api.main")
+    fields = (
+        "evidence_enabled", "evidence_section_budget", "evidence_score_threshold",
+        "evidence_max_files", "evidence_relative_floor", "ocr_concurrency",
+        "ocr_cache_enabled", "ocr_cache_dir", "ocr_max_pages", "ocr_priority_words",
+    )
+    values = {name: getattr(settings, name) for name in fields if hasattr(settings, name)}
+    missing = [name for name in fields if name not in values]
+    if missing:
+        log.error("启动配置缺失：%s，请重启后端", ", ".join(missing))
+    log.info("启动配置：%s", " ".join(f"{name}={values[name]!r}" for name in values))
+
+
 def run() -> None:
     settings = get_settings()
     use_reload = bool(settings.debug) and sys.platform != "win32"

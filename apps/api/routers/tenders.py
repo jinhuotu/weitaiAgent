@@ -100,6 +100,12 @@ class LibraryItemIn(BaseModel):
     key: str | None = None
 
 
+class QaReviewIn(BaseModel):
+    status: str = Field(..., pattern="^(pending|confirmed|rectified)$")
+    owner: str = Field(default="", max_length=120)
+    note: str = Field(default="", max_length=2000)
+
+
 class LibraryItemPatch(BaseModel):
     title: str | None = Field(default=None, max_length=255)
     hint: str | None = None
@@ -442,7 +448,7 @@ async def tenders_parse_invitation(
         persist_library = await kb_access.has_base_perm(
             db, user, kb_access.TENDER_LIB_PUBLIC_ID, kb_access.PERM_MANAGE
         )
-        payload = await parse_invitation(
+        payload = await asyncio.wait_for(parse_invitation(
             db,
             uploads if len(uploads) > 1 else file,
             kb_ids=parse_kb_ids(kbIds),
@@ -452,20 +458,15 @@ async def tenders_parse_invitation(
             created_by=int(user.id),
             persist_library=persist_library,
             volume_locked=volume_locked,
-        )
-    # Sidecar analysis only: never merge scoring review into the generation brief.
-    from api.services.tender_comparison import extract_scoring
-    from api.services.tenders.assets import load_invitation_text
+        ), timeout=180)
+    # Sidecar analysis is deliberately asynchronous; it must not block brief generation.
+    from api.services.tenders.scoring_tasks import create_scoring_task
     parsed_brief = payload.get("brief") or {}
-    payload["scoringReview"] = await extract_scoring(
-        db, load_invitation_text(str(parsed_brief.get("invitationId") or "")),
-        scope={key: parsed_brief.get(key, '') for key in ('lotName', 'bidContent')},
+    payload["scoringTaskId"] = create_scoring_task(
+        str(parsed_brief.get("invitationId") or ""),
+        {key: parsed_brief.get(key, '') for key in ('lotName', 'bidContent')},
+        ocr_capped=bool(payload.get("ocrCapped")),
     )
-    if payload.get("ocrCapped"):
-        payload["scoringReview"]["complete"] = False
-        payload["scoringReview"]["extractionComplete"] = False
-        payload["scoringReview"]["phase"] = "partial"
-        payload["scoringReview"]["warnings"].append("OCR reached its page limit; source review is required.")
     brief_data = payload.get("brief") if isinstance(payload.get("brief"), dict) else {}
     extras = _coerce_placeholders(brief_data.get("extraPlaceholders"))
     include_keys = [
@@ -480,6 +481,16 @@ async def tenders_parse_invitation(
     )
     payload["catalogSlots"] = await list_slots_status_kb(db)
     return ok(payload)
+
+
+@router.get("/parse-invitation/scoring/{task_id}")
+async def tenders_scoring_status(task_id: str, user: CurrentUser):
+    del user
+    from api.services.tenders.scoring_tasks import get_scoring_task
+    task = get_scoring_task(task_id)
+    if task is None:
+        raise AppError(ErrorCode.NOT_FOUND, "评分任务不存在或已过期", status_code=404)
+    return ok(task)
 
 
 @router.post("/outline/preview")
@@ -824,6 +835,44 @@ async def tenders_inspect_record_qa_upload(
             volume=vol or None,
         )
     )
+
+
+@router.post("/records/{record_id}/qa/{volume}/items/{item_id}/review")
+async def tenders_review_qa_item(
+    record_id: str,
+    volume: str,
+    item_id: str,
+    body: QaReviewIn,
+    db: DbSession,
+    user: CurrentUser,
+):
+    """独立保存一条容易忽略规则的人工确认，不触碰生成稿。"""
+    _require_qa_menu(user)
+    if volume not in {"business", "technical", "full"}:
+        raise AppError(ErrorCode.VALIDATION, "volume 只能是 business、technical 或 full", status_code=422)
+    await get_record(db, record_id)
+    from api.services.tenders.qa import load_qa_report, save_qa_report
+    from api.services.tenders.qa_review import update_review
+
+    report = load_qa_report(record_id, volume=volume)
+    if not report:
+        raise AppError(ErrorCode.NOT_FOUND, "尚未生成该卷的 QA 报告", status_code=404)
+    try:
+        report, changed = update_review(
+            report,
+            item_id,
+            status=body.status,
+            owner=body.owner,
+            note=body.note,
+            confirmed_by=str(getattr(user, "username", "") or ""),
+        )
+    except KeyError as exc:
+        raise AppError(ErrorCode.NOT_FOUND, str(exc), status_code=404) from exc
+    if changed:
+        save_qa_report(record_id, report, volume=volume)
+    return ok({"changed": changed, "itemId": item_id, "review": next(
+        item.get("review") for item in report.get("attentionItems") or [] if item.get("id") == item_id
+    )})
 
 
 @router.post("/records/{record_id}/publish")

@@ -274,6 +274,60 @@ def _fill_blanks(para: Paragraph, *values: str) -> int:
     return filled
 
 
+_INLINE_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("lotName", ("分标名称", "分标名", "标段名称")),
+    ("lotNo", ("分标编号", "分标号", "标段编号", "标段号")),
+    ("packageName", ("包名称", "包名")),
+    ("packageNo", ("包号", "包编号")),
+    ("bidDate", ("投标日期", "投标日 期", "日期")),
+)
+
+
+def _iter_inline_label_paragraphs(doc: Document):
+    """遍历正文和表格段落，供行内标签填空器使用。"""
+    def table_paragraphs(table):
+        for row in table.rows:
+            for cell in row.cells:
+                yield from cell.paragraphs
+                for nested in cell.tables:
+                    yield from table_paragraphs(nested)
+
+    yield from doc.paragraphs
+    for table in doc.tables:
+        yield from table_paragraphs(table)
+
+
+def fill_inline_labeled_blanks(doc: Document, brief: BidBrief, *, dry_run: bool = False) -> list[dict[str, str | int]]:
+    """按标签语义把结构化字段填入其后的首个下划线空位。
+
+    空值只记录为缺失，不触碰原下划线。该函数不依赖段落序号，重复标签会逐处处理。
+    """
+    from api.services.tenders.pdf_format import _blank_ranges
+
+    values = {key: str(getattr(brief, key, "") or "").strip() for key, _ in _INLINE_LABELS}
+    records: list[dict[str, str | int]] = []
+    for para in _iter_inline_label_paragraphs(doc):
+        text = para.text or ""
+        compact = re.sub(r"[\s：:、（）()【】\[\]]+", "", text)
+        for key, aliases in _INLINE_LABELS:
+            alias = next((item for item in aliases if re.sub(r"\s+", "", item) in compact), "")
+            if not alias:
+                continue
+            value = values[key]
+            blanks = _blank_ranges(para._p)
+            matched = bool(blanks)
+            record = {"field": key, "label": alias, "value": value, "filled": 0}
+            if value and matched and not dry_run:
+                record["filled"] = _fill_blanks(para, value)
+            elif value and matched:
+                record["filled"] = 1
+            elif not value:
+                record["missing"] = 1
+            records.append(record)
+            break
+    return records
+
+
 def _style_fill_run(run, para: Paragraph | None = None, *, underline: bool = True) -> None:
     """新建填空 run：样式对齐段落正文，仅下划线。"""
     ref = None
@@ -3944,6 +3998,13 @@ def build_bid_docx(
     warnings.extend(_fill_technical_section(doc, brief, media))
     warnings.extend(_fill_tables(doc, brief, catalog_facts))
     warnings.extend(_fill_quote_section(doc, brief, quote_anchor))
+    inline_records = fill_inline_labeled_blanks(doc, brief)
+    inline_filled = sum(int(item.get("filled", 0)) for item in inline_records)
+    inline_missing = sorted({str(item["field"]) for item in inline_records if item.get("missing")})
+    if inline_filled:
+        warnings.append(f"行内标签填空已填 {inline_filled} 处")
+    if inline_missing:
+        warnings.append("行内标签字段缺失，保留原下划线：" + "、".join(inline_missing))
     _normalize_blank_underlines(doc)
 
     if brief.includeCommitment:

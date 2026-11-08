@@ -234,17 +234,34 @@ def _evidence(brief: BidBrief, library_facts: list[dict]) -> str:
             lines.append(
                 f"用户选定业绩：{row.projectName}；{row.summary or row.spec or '详情待核'}"
             )
-    for fact in library_facts[:12]:
-        if not isinstance(fact, dict) or fact.get("key") not in {
-            "perf",
-            "iso",
-            "license",
-            "finance",
-        }:
+    from common.config import get_settings
+    from api.services.tenders.evidence import evidence_chunks, format_records, make_evidence, retrieve
+    settings = get_settings()
+    records = []
+    for fact in library_facts:
+        if not isinstance(fact, dict):
             continue
         fields = fact.get("fields") or []
-        lines.append(f"资料库 {fact.get('key')}，文件 {fact.get('fileId')}：{str(fields)[:250]}")
-    return "\n".join(lines)[:5000] or "（无可核实事实）"
+        text = "\n\n".join(
+            f"{field.get('name', '')}：{field.get('value', '')}"
+            if isinstance(field, dict) else str(field)
+            for field in fields
+        )
+        # records.py supplies facts already filtered by document_matches_company.
+        records.extend(
+            make_evidence(str(fact.get("fileId") or ""), chunk, matched=True,
+                          source="library", kind=str(fact.get("key") or ""), seq=seq)
+            for seq, chunk in enumerate(evidence_chunks(text), 1)
+        )
+    query = "；".join(lines)
+    hits = retrieve(query, records, limit=3, threshold=settings.evidence_score_threshold,
+                    requirement_kind="")
+    if hits:
+        lines.append(format_records(hits, budget=settings.evidence_section_budget))
+    else:
+        lines.append("【待补充】未检索到本卷要求对应的证据片段")
+    lines.append("仅 marker 内的内容可作为事实，其余一律不得补造数字与承诺")
+    return "\n".join(lines)
 
 
 def _parse(raw: str) -> dict:

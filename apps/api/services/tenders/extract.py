@@ -59,6 +59,10 @@ _PATCHABLE = frozenset(
         "projectName",
         "tenderer",
         "tenderNo",
+        "lotName",
+        "lotNo",
+        "packageName",
+        "packageNo",
         "bidContent",
         "quality",
         "deliveryDays",
@@ -251,6 +255,9 @@ def fill_empty_company_fields(
             if not text or _looks_like_other_bidder(text, key):
                 continue
             data[key] = text
+            field_source = (src.get("companyFieldSources") or {}).get(key)
+            if field_source:
+                data["companyFieldSources"][key] = field_source
             applied.append(key)
             break
     data["bidderName"] = selected

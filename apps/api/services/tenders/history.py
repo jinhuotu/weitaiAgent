@@ -121,7 +121,7 @@ def playbook_note(playbooks: list[HistoryPlaybook] | None) -> str:
     return "本公司近期组卷常用附件：" + "、".join(keys) + "（仅供对照，未自动勾选，工程量仍以本邀请书表格为准）"
 
 
-async def latest_company_profile(db: AsyncSession, *, bidder_name: str = "", limit: int = 8) -> dict[str, str]:
+async def latest_company_profile(db: AsyncSession, *, bidder_name: str = "", limit: int = 8) -> dict:
     """最近一次本公司投标里的公司/法人字段，供新邀请书空项回填。"""
     if not bidder_name.strip():
         return {}
@@ -132,6 +132,7 @@ async def latest_company_profile(db: AsyncSession, *, bidder_name: str = "", lim
         .limit(max(1, min(limit, 20)))
     )
     rows = (await db.execute(stmt)).scalars().all()
+    profile: dict = {"bidderName": bidder_name}
     for row in rows:
         raw = row.brief_json if isinstance(row.brief_json, dict) else {}
         name = str(raw.get("bidderName") or "").strip()
@@ -139,19 +140,25 @@ async def latest_company_profile(db: AsyncSession, *, bidder_name: str = "", lim
             continue
         if contains_foreign_bidder(str(raw.get("legalPersonName") or ""), bidder_name):
             continue
-        profile: dict[str, str] = {}
+        candidate = {}
         for key in COMPANY_FIELD_KEYS:
             text = str(raw.get(key) or "").strip()
             if text:
-                profile[key] = text
+                candidate[key] = text
         legal = (row.legal_person_name or "").strip()
-        if legal and not profile.get("legalPersonName"):
-            profile["legalPersonName"] = legal
-        if not profile:
+        if legal and not candidate.get("legalPersonName"):
+            candidate["legalPersonName"] = legal
+        if not candidate:
             continue
-        profile["bidderName"] = name
-        return profile
-    return {}
+        profile.update(candidate, bidderName=name)
+        break
+    from api.services.tenders.company_materials import library_company_profile
+
+    explicit, conflicts = await library_company_profile(db, BidBrief.model_validate(profile))
+    for field in conflicts:
+        profile.pop(field, None)
+    profile.update(explicit)
+    return profile
 
 
 async def latest_agent_profile(db: AsyncSession, *, bidder_name: str = "", limit: int = 8) -> dict[str, str]:

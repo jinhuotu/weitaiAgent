@@ -43,6 +43,8 @@ from common.response import fail
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """启动时滚动清理过期审计日志，避免库无限膨胀。"""
+    from api.main import log_startup_config
+
     log = logging.getLogger("api.app")
     try:
         from db.session import wait_for_db
@@ -50,6 +52,7 @@ async def _lifespan(_app: FastAPI):
         await wait_for_db()
     except Exception:  # noqa: BLE001
         log.exception("mysql unavailable at startup; skip maintenance jobs")
+        log_startup_config()
         yield
         return
     try:
@@ -84,6 +87,7 @@ async def _lifespan(_app: FastAPI):
             await prompt_configs.ensure_seed_prompt(db)
     except Exception:  # noqa: BLE001
         log.exception("prompt seed sync failed")
+    log_startup_config()
     yield
 
 

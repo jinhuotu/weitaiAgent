@@ -138,7 +138,24 @@ class Settings(BaseSettings):
     docmind_pdf_option: str = "basic"
     docmind_timeout_seconds: int = 360
     ocr_max_pages: int = 800
+    ocr_docx_text_threshold: int = 3000
+    ocr_concurrency: int = 6
+    ocr_cache_enabled: bool = True
+    ocr_cache_max_bytes: int = 268435456
+    ocr_cache_dir: str = "storage/ocr-cache"
     ocr_page_text_min_chars: int = 50
+    evidence_enabled: bool = True
+    evidence_section_budget: int = 8000
+    evidence_score_threshold: int = 6
+    evidence_relative_floor: float = 0.6
+    evidence_stop_grams: str = "的了,以及,按照,本项,应当,是否,情况,相关,以上,对于,进行,有关,其他"
+    evidence_bigram_weight: float = 2
+    evidence_trigram_weight: float = 3
+    evidence_token_weight: float = 5
+    evidence_length_scale: float = 1000
+    evidence_length_penalty_cap: float = 2.0
+    evidence_max_files: int = 0
+    ocr_priority_words: str = "封面,目录,投标人须知,评分办法,资格要求,材料清单"
     # 后台解析卡住超过该秒数，启动时标为 failed，可点重试
     kb_parse_timeout_seconds: int = 7200
 

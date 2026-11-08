@@ -15,13 +15,21 @@
 | `apps/api/routers/tenders.py` | 通用版路由 |
 | `E:/code/python/weitaiAgentui/src/views/TendersView.vue` | 通用版前端（外部仓库） |
 
+本任务允许的最小例外仅限以下文件中的电缆字段扩展与行内标签填空接入：
+
+- `apps/api/services/tenders/schema.py`、`apps/api/services/tenders/extract.py`
+- `apps/api/services/tenders/document.py` 中独立通用填充器的调用接入
+- `E:/code/python/weitaiAgentui/src/views/TendersView.vue` 现有“项目与招标人”填写区
+
+例外不得修改通用组卷策略、既有特定位置填空逻辑、受保护模块中的其它文件或前端其它页面。
+
 任何一次改动前后都必须通过：
 
 ```powershell
 E:\code\python\weitaiAgent\.venv\Scripts\python.exe scripts\protected_baseline.py --check
 ```
 
-有差异即视为违规。确需修改受保护文件时，必须先在提交信息中写明理由并刷新基线，且不得由代理自行决定。
+有差异即视为违规。上述任务例外由用户明确授权，修改后必须复核基线并在交付说明中列出变更文件与理由。
 
 ## 3. 新代码位置
 
