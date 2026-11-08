@@ -2767,7 +2767,6 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
     removed = 0
     blanked = 0
     patterns = (
-        re.compile(r"对应\s*[^；\n]{1,120}；所需材料：[^\n]+"),
         re.compile(r"状态：待投标人确认"),
         re.compile(r"其他资料（待核对归属）"),
         re.compile(r"其他资料\(待核对归属\)"),
@@ -2778,6 +2777,12 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
         para = Paragraph(element, doc)
         original = para.text or ""
         text = original
+        material_pattern = re.compile(r"对应\s*([^；\n]{1,120})；所需材料：\s*([^\n]+)")
+        def material_replacement(match):
+            name = match.group(2).strip()
+            suffix = "" if any(word in name for word in ("扫描件", "证明", "证书")) else "扫描件"
+            return f"本表后附：{name}{suffix}。"
+        text = material_pattern.sub(material_replacement, text)
         for pattern in patterns:
             text = pattern.sub("", text)
         text = text.replace("\u3010\u5f85\u8865\u5145\u3011", "").replace("需补充材料", "")

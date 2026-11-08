@@ -2344,6 +2344,7 @@ def _toc_row_label(el) -> str | None:
 def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
     from docx.text.paragraph import Paragraph
     from api.services.tenders.scoring_points import render_section_paragraphs
+    from api.services.tenders.pledge_defaults import generate_other_commitments
 
     texts, notes = render_section_paragraphs(
         doc, brief, format_path, slice_kinds, library_facts, toc=toc_block_ids(doc),
@@ -2386,6 +2387,38 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
             if index < len(parts) - 1:
                 br = OxmlElement("w:br")
                 paragraph.append(br)
+    for heading in list(doc.paragraphs):
+        if "投标人认为需要提交的其他承诺" not in (heading.text or ""):
+            continue
+        next_element = heading._p.getnext()
+        body_text = ""
+        while next_element is not None and next_element.tag == qn("w:p"):
+            candidate = Paragraph(next_element, doc)
+            if candidate.style and str(candidate.style.name).lower().startswith("heading"):
+                break
+            body_text += candidate.text or ""
+            next_element = next_element.getnext()
+        if body_text.strip():
+            continue
+        paragraphs = generate_other_commitments(brief, [p.text for p in doc.paragraphs if p is not heading])
+        if not paragraphs:
+            continue
+        target = OxmlElement("w:p")
+        ppr = OxmlElement("w:pPr")
+        ind = OxmlElement("w:ind")
+        ind.set(qn("w:firstLine"), "420")
+        ppr.append(ind)
+        target.append(ppr)
+        for index, value in enumerate(paragraphs):
+            run = OxmlElement("w:r")
+            node = OxmlElement("w:t")
+            node.text = value
+            run.append(node)
+            target.append(run)
+            if index < len(paragraphs) - 1:
+                target.append(OxmlElement("w:br"))
+        heading._p.addnext(target)
+        break
     return notes
 
 
