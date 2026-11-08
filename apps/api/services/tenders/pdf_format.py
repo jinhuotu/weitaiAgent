@@ -2345,6 +2345,9 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
     from docx.text.paragraph import Paragraph
     from api.services.tenders.scoring_points import render_section_paragraphs
     from api.services.tenders.pledge_defaults import generate_other_commitments
+    toc_ids = set(toc_block_ids(doc))
+    model_pledges = next((item.get("_other_pledges") for item in (library_facts or [])
+                          if isinstance(item, dict) and isinstance(item.get("_other_pledges"), list)), None)
 
     texts, notes = render_section_paragraphs(
         doc, brief, format_path, slice_kinds, library_facts, toc=toc_block_ids(doc),
@@ -2388,6 +2391,8 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
                 br = OxmlElement("w:br")
                 paragraph.append(br)
     for heading in list(doc.paragraphs):
+        if heading._p in toc_ids:
+            continue
         if "投标人认为需要提交的其他承诺" not in (heading.text or ""):
             continue
         next_element = heading._p.getnext()
@@ -2400,24 +2405,47 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
             next_element = next_element.getnext()
         if body_text.strip():
             continue
-        paragraphs = generate_other_commitments(brief, [p.text for p in doc.paragraphs if p is not heading])
+        chapter_titles = []
+        cursor = heading._p.getnext()
+        while cursor is not None and cursor.tag == qn("w:p"):
+            candidate = Paragraph(cursor, doc)
+            if candidate.style and str(candidate.style.name).lower().startswith("heading"):
+                break
+            if candidate.text and len(candidate.text.strip()) < 80:
+                chapter_titles.append(candidate.text.strip())
+            cursor = cursor.getnext()
+        paragraphs = [str(item).strip() for item in (model_pledges or []) if str(item).strip()]
+        if not paragraphs:
+            paragraphs = generate_other_commitments(brief, chapter_titles)
         if not paragraphs:
             continue
-        target = OxmlElement("w:p")
-        ppr = OxmlElement("w:pPr")
-        ind = OxmlElement("w:ind")
-        ind.set(qn("w:firstLine"), "420")
-        ppr.append(ind)
-        target.append(ppr)
-        for index, value in enumerate(paragraphs):
+        source_rpr = None
+        cursor = heading._p.getnext()
+        while cursor is not None and cursor.tag == qn("w:p"):
+            candidate_text = "".join(node.text or "" for node in cursor.iter(qn("w:t")))
+            if len(candidate_text.strip()) >= 80:
+                run = cursor.find(".//" + qn("w:r"))
+                if run is not None and run.find(qn("w:rPr")) is not None:
+                    source_rpr = run.find(qn("w:rPr"))
+                    break
+            cursor = cursor.getnext()
+        insertion = heading._p
+        for value in paragraphs:
+            target = OxmlElement("w:p")
+            ppr = OxmlElement("w:pPr")
+            ind = OxmlElement("w:ind")
+            ind.set(qn("w:firstLine"), "420")
+            ppr.append(ind)
+            target.append(ppr)
             run = OxmlElement("w:r")
+            if source_rpr is not None:
+                run.append(deepcopy(source_rpr))
             node = OxmlElement("w:t")
             node.text = value
             run.append(node)
             target.append(run)
-            if index < len(paragraphs) - 1:
-                target.append(OxmlElement("w:br"))
-        heading._p.addnext(target)
+            insertion.addnext(target)
+            insertion = target
         break
     return notes
 

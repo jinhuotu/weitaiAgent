@@ -379,6 +379,23 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     return {item: body for item, body in results if item and body}
 
 
+async def _prepare_other_pledges(db, brief, existing_titles, *, client=None):
+    from api.services.tenders.generation_parallel import ordered_generation
+    from api.services.models.runtime import build_llm_client
+    if client is None:
+        client = await build_llm_client(db, "pro")
+    prompt = (
+        '角色：投标人。任务：为“（十）投标人认为需要提交的其他承诺”写8至10条承诺，总字数1000至1600。'
+        '只能写“我方承诺”“我方将”“我方保证”表态句，每条100至180字、独立成段，不用分号串多个主题。'
+        '严禁人名、证书编号、业绩项目名称与数量、财务数字、人员编制具体数；严禁出现无、暂无、待补充。'
+        '不要复述项目名或招标范围全文，最多提及项目名称一次。已提交主题不得重复：企业信誉、扬尘防治、廉政、项目经理无在建、反商业贿赂、履约情况、招标活动、其他承诺。'
+        '已有承诺子节：' + '、'.join(existing_titles)
+    )
+    raw = await client.complete([{"role": "user", "content": prompt}], mode="pro")
+    text = str(raw or "").strip()
+    return [part.strip() for part in re.split(r"\n\s*\n|\n", text) if part.strip()]
+
+
 async def _prepare_and_generate(
     db: AsyncSession,
     brief: BidBrief,
@@ -597,11 +614,19 @@ async def _prepare_and_generate(
     facts = [f for f in await library_facts(db) if f.get("fileId") in company_file_ids and f.get("fileId") not in word_sources]
     draft_notes: list[str] = []
     scoring_drafts = {}
+    other_pledges = []
     if both or vol in {"business", "full"}:
         print("评分叙述预生成条件：", {"vol": vol, "both": both})
         try:
             scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
             print(f"记录层评分叙述预生成写入 {len(scoring_drafts)} 条")
+            existing_titles = [item.title for item in brief.outlineItems if "承诺" in (item.title or "")]
+            try:
+                other_pledges = await _prepare_other_pledges(db, brief, existing_titles)
+                print(f"记录层其他承诺模型生成 {len(other_pledges)} 条")
+            except Exception as exc:
+                print("其他承诺模型生成异常类型：", type(exc).__name__)
+                traceback.print_exc()
         except Exception as exc:  # model failure leaves downstream fallback intact
             print("评分叙述预生成异常类型：", type(exc).__name__)
             traceback.print_exc()
@@ -658,6 +683,8 @@ async def _prepare_and_generate(
     catalog_facts = list(facts)
     if scoring_drafts:
         catalog_facts.append({"_scoring_drafts": scoring_drafts})
+    if other_pledges:
+        catalog_facts.append({"_other_pledges": other_pledges})
     gen_kw = dict(catalog_slots=slots, catalog_media=media, catalog_facts=catalog_facts)
     if word_bindings:
         gen_kw.update(word_bindings=word_bindings, word_sources=word_sources)
