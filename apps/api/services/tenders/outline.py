@@ -1974,7 +1974,54 @@ def is_outline_chapter(item: OutlineItem) -> bool:
 def mark_outline_chapters(items: list[OutlineItem]) -> list[OutlineItem]:
     for item in items:
         item.tocEligible = is_outline_chapter(item)
-    return items
+    return renumber_outline(items)
+
+
+_OUTLINE_PREFIX = re.compile(
+    r"^\s*(?:第[一二三四五六七八九十百零〇0-9]+[章节部分]\s*|"
+    r"[一二三四五六七八九十百零〇0-9]+[、.．]\s*|"
+    r"[（(][一二三四五六七八九十百零〇0-9]+[）)]\s*)"
+)
+def _cn_ordinal(number: int) -> str:
+    if number <= 10:
+        return "一二三四五六七八九十"[number - 1]
+    if number < 20:
+        return "十" + ("" if number == 10 else "一二三四五六七八九"[number - 11])
+    if number < 100:
+        tens, ones = divmod(number, 10)
+        return "一二三四五六七八九"[tens - 1] + "十" + ("" if not ones else "一二三四五六七八九"[ones - 1])
+    return str(number)
+
+
+def _strip_outline_prefix(text: str) -> str:
+    value = (text or "").strip()
+    return _OUTLINE_PREFIX.sub("", value, count=1).strip() or value
+
+
+def renumber_outline(items: list[OutlineItem]) -> list[OutlineItem]:
+    """Renumber chapter-level skeleton items once; children never receive chapter numbers."""
+    out: list[OutlineItem] = []
+    chapter_no = 0
+    for item in items:
+        current = item.model_copy(deep=True)
+        level = int(getattr(current, "level", 1) or 1)
+        synthetic_group = current.id.startswith("req-group-")
+        parenthesized_child = bool(re.match(r"^\s*[（(][一二三四五六七八九十百零〇0-9]+[）)]", current.title or ""))
+        clean_title = current.title.strip() if parenthesized_child else _strip_outline_prefix(current.title)
+        clean_raw = current.rawTitle.strip() if parenthesized_child else _strip_outline_prefix(current.rawTitle)
+        if level <= 1 and not synthetic_group and not parenthesized_child:
+            prefix = f"{_cn_ordinal(chapter_no + 1)}、"
+            chapter_no += 1
+            clean_title = prefix + clean_title
+            if clean_raw:
+                clean_raw = prefix + clean_raw
+        elif level > 1:
+            clean_title = _strip_outline_prefix(current.title)
+            clean_raw = _strip_outline_prefix(current.rawTitle)
+        current.title = clean_title
+        current.rawTitle = clean_raw if clean_raw and clean_raw != clean_title else ""
+        out.append(current)
+    return out
 
 
 def extract_outline(text: str) -> tuple[str, list[OutlineItem]]:
@@ -2211,6 +2258,7 @@ def fill_copy_blanks(
     phone: str = "",
     address: str = "",
     contact: str = "",
+    agent: str = "",
     delivery_days: int | None = None,
     validity_days: int | None = None,
     quality: str = "",
@@ -2241,6 +2289,7 @@ def fill_copy_blanks(
     phone = (phone or "").strip()
     address = (address or "").strip()
     contact = (contact or "").strip()
+    agent = (agent or "").strip()
     quality = (quality or "").strip()
     extra_note = (extra_note or "").strip() or "无"
     website = (website or "").strip()
@@ -2270,6 +2319,23 @@ def fill_copy_blanks(
     for needle, value in pairs:
         if value:
             out = out.replace(needle, value)
+    # 授权委托书的两个姓名槽位按语义定位：法人只取 legal，代理人只取本次 agent。
+    # 代理人未填时保留下划线，绝不回退到法人姓名。
+    if "现委托" in out and "为我方代理人" in out:
+        legal_slot = legal or "________"
+        agent_slot = agent or "________"
+        out = re.sub(
+            r"(本人)\s*(?:（姓名）|\(姓名\)|[＿_—\-－]{2,})",
+            rf"\1 {legal_slot}",
+            out,
+            count=1,
+        )
+        out = re.sub(
+            r"(现委托)\s*(?:（姓名）|\(姓名\)|[＿_—\-－]{2,})",
+            rf"\1 {agent_slot}",
+            out,
+            count=1,
+        )
     if tenderer:
         out = re.sub(r"致[：:]\s*[＿_—\-]{2,}", f"致：{tenderer}", out)
         out = re.sub(
@@ -2430,6 +2496,12 @@ def fill_copy_blanks(
             out = re.sub(
                 r"(投标保证金[^\n]{0,80}小写[：:]?[￥¥]?)[＿_—\-－\s　]*(?=元)",
                 rf"\g<1>{pair.group(2)}",
+                out,
+                count=1,
+            )
+            out = re.sub(
+                r"([（(]¥)\s*[）)])",
+                rf"\g<1>{pair.group(2)}）",
                 out,
                 count=1,
             )

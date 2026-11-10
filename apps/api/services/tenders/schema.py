@@ -309,7 +309,12 @@ class BidBrief(BaseModel):
 
     agentName: str = Field(default="")
     agentIdNo: str = Field(default="")
+    # 来源仅用于审计：只有本次用户明确填写的代理人信息才参与渲染。
+    agentNameSource: str = Field(default="")
+    agentIdNoSource: str = Field(default="")
     agentAuthUntil: str = Field(default="")
+    # 评分正文生成的降级标记和内容诊断，供生成回执与 QA sidecar 使用。
+    scoringMetadata: dict[str, object] = Field(default_factory=dict)
     # required=招标书强制委托；optional=有格式页但法人可自签；空=未抽出
     authNeed: str = Field(default="")
     # 经办人开关：默认关，关着不校验委托人；打开才入卷并要填姓名/证号

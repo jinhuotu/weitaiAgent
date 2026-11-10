@@ -681,7 +681,7 @@ def _add_sign_line(doc: Document, rows: list[tuple[str, str, str]], kw: dict, **
 def _letter_sign_block(doc: Document, brief: BidBrief) -> None:
     spacer = _add_bottom_sign_spacer(doc, sign_cm=2.4)
     kw = _LETTER_SIGN_RIGHT_KW
-    agent = (brief.agentName or "").strip()
+    signer = (brief.legalPersonName or "").strip() or (brief.agentName or "").strip()
     lines = [
         _add_sign_line(
             doc,
@@ -691,7 +691,7 @@ def _letter_sign_block(doc: Document, brief: BidBrief) -> None:
         ),
         _add_sign_line(
             doc,
-            [("法定代表人或其委托代理人：", agent, "（签字或盖章）")],
+            [("法定代表人或其委托代理人：", signer, "（签字或盖章）")],
             kw,
         ),
     ]
@@ -719,7 +719,7 @@ def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
         ),
         _add_sign_line(
             doc,
-            [("身份证号码：", (brief.legalPersonIdNo or "").strip(), "")],
+            [("身份证号码：", "", "")],
             kw,
         ),
         _add_sign_line(
@@ -729,7 +729,7 @@ def _auth_sign_block(doc: Document, brief: BidBrief) -> None:
         ),
         _add_sign_line(
             doc,
-            [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
+            [("身份证号码：", "", "")],
             kw,
         ),
     ]

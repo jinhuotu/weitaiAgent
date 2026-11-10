@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from io import BytesIO
+import logging
 import re
 
 from docx.oxml import OxmlElement
@@ -11,6 +12,60 @@ from docx.shared import Cm
 from docx.text.paragraph import Paragraph
 
 from api.services.tenders.technical_package import key,text
+from api.services.tenders.format_rules import peel_toc_lead
+from api.services.tenders.outline import subset_toc_titles
+from api.services.tenders.schema import OutlineItem
+
+logger = logging.getLogger("api.tenders.technical_render")
+
+
+def _title_key(value):
+    return key(peel_toc_lead(str(value or "")))
+
+
+def _child_heading_style(doc, parent):
+    for style in doc.styles:
+        name = (style.name or "").lower()
+        if name in {"heading 2", "标题 2", "heading2", "标题2"}:
+            return style.name
+    return parent.style.name
+
+
+def _package_display_titles(package):
+    from api.services.tenders.style_roles import clean_generated_text
+
+    rows = []
+    refs = []
+    for chapter_index, chapter in enumerate(package.get("chapters", [])):
+        chapter_title = str(chapter.get("title", "")).strip()
+        rows.append(OutlineItem(id=f"chapter-{chapter_index}", title=clean_generated_text(chapter_title), level=1))
+        refs.append(("chapter", chapter_title))
+        for point in [p for p in package.get("sections", []) if p.get("chapter") == chapter_title]:
+            point_id = str(point.get("id", ""))
+            rows.append(OutlineItem(id=point_id, title=clean_generated_text(str(point.get("title", ""))), level=2))
+            refs.append(("point", point_id))
+    shows = subset_toc_titles(rows)
+    chapter_titles = {}
+    point_titles = {}
+    for (kind, ref), shown in zip(refs, shows, strict=True):
+        if kind == "chapter":
+            chapter_titles[ref] = shown
+        else:
+            point_titles[ref] = shown
+    return chapter_titles, point_titles
+
+
+def _replace_paragraph_text(paragraph, value):
+    from api.services.tenders.style_roles import clean_generated_text
+
+    value = clean_generated_text(value)
+    runs = paragraph.runs
+    if not runs:
+        paragraph.add_run(value)
+        return
+    runs[0].text = value
+    for run in runs[1:]:
+        run.text = ""
 
 
 def anonymous_text(value, brief):
@@ -60,10 +115,16 @@ def prune_unreferenced_images(doc):
                 part.drop_rel(rel.rId)
 
 
-def _after(doc,node,body,brief):
+def _after(doc,node,body,brief, *, size=None):
     """Insert whole paragraphs, preserving the source heading and its next block."""
     cursor=node
+    from api.services.tenders.style_roles import most_common_body_style
+
+    body_style = most_common_body_style(doc)
+    from api.services.tenders.style_roles import clean_generated_text
+
     for line in str(body).splitlines():
+        line = clean_generated_text(line)
         if not line.strip():continue
         el=OxmlElement('w:p');node.addnext(el) if cursor is node else cursor.addnext(el)
         para=Paragraph(el,doc)
@@ -71,11 +132,90 @@ def _after(doc,node,body,brief):
         props=node.find(qn('w:pPr'))
         if props is not None:
             copy=deepcopy(props)
-            for tag in ['numPr','outlineLvl','pageBreakBefore','keepNext']:
+            for tag in ['pStyle','numPr','outlineLvl','pageBreakBefore','keepNext']:
                 for child in list(copy.findall(qn('w:'+tag))):copy.remove(child)
+            if body_style:
+                p_style = OxmlElement('w:pStyle')
+                p_style.set(qn('w:val'), doc.styles[body_style].style_id)
+                copy.insert(0, p_style)
             el.append(copy)
-        para.add_run(_clean(line,brief));cursor=el
+        run = para.add_run(_clean(line,brief))
+        if size is not None:
+            run.font.size = size
+            run.bold = False
+        cursor=el
     return cursor
+
+
+def _chapter_intro(chapter, brief):
+    package = brief.technicalPackage if isinstance(brief.technicalPackage, dict) else {}
+    chapter_title = str(chapter or '').strip() or '本章'
+    sections = [
+        str(row.get('title') or '').strip()
+        for row in package.get('sections', [])
+        if isinstance(row, dict) and str(row.get('chapter') or '').strip() == chapter_title
+    ]
+    sections = list(dict.fromkeys(item for item in sections if item))
+    facts = package.get('chapterFacts') if isinstance(package.get('chapterFacts'), dict) else {}
+    fact_parts = []
+    if (brief.projectName or '').strip():
+        fact_parts.append(f"项目名称为{brief.projectName.strip()}")
+    for key, value in facts.items():
+        value = str(value or '').strip()
+        if not value or key == '项目名称' or key in chapter_title:
+            continue
+        fact_parts.append(f"{key}为{value}")
+        if len(fact_parts) >= 3:
+            break
+    point_text = '、'.join(sections[:4])
+    intro = f"本章围绕“{chapter_title}”展开"
+    if point_text:
+        intro += f"，重点处理{point_text}"
+    if fact_parts:
+        intro += f"；结合{'，'.join(fact_parts)}"
+    return intro + "，形成本章可执行、可检查、可追溯的工作安排。"
+
+
+def _clean_machine_paragraphs(doc):
+    from api.services.tenders.style_roles import clean_generated_text, machine_trace_hits
+
+    removed = 0
+    for paragraph in list(doc.paragraphs):
+        if not machine_trace_hits(paragraph.text):
+            continue
+        cleaned = clean_generated_text(paragraph.text)
+        if cleaned:
+            _replace_paragraph_text(paragraph, cleaned)
+        else:
+            parent = paragraph._p.getparent()
+            if parent is not None:
+                parent.remove(paragraph._p)
+                removed += 1
+    return removed
+
+
+def _insert_progress_table(doc, cursor, table_data, size):
+    """Insert the non-empty schedule immediately after the implementation intro."""
+    columns = list(table_data.get('columns') or [])
+    rows = list(table_data.get('rows') or [])
+    if not columns or not rows:
+        return cursor
+    table = doc.add_table(rows=1, cols=len(columns))
+    table.style = 'Table Grid'
+    for cell, value in zip(table.rows[0].cells, columns, strict=True):
+        cell.text = str(value)
+    for row in rows:
+        cells = table.add_row().cells
+        for cell, value in zip(cells, row, strict=True):
+            cell.text = str(value)
+    for row in table.rows:
+        for cell in row.cells:
+            for paragraph in cell.paragraphs:
+                for run in paragraph.runs:
+                    run.font.size = size
+                    run.bold = False
+    cursor.addnext(table._tbl)
+    return table._tbl
 
 
 def _font(size):
@@ -132,7 +272,11 @@ def render(doc,brief):
     from api.services.tenders.pdf_format import _word_format_file
     from docx import Document
     package=brief.technicalPackage
+    machine_removed = _clean_machine_paragraphs(doc)
+    chapter_titles, point_titles = _package_display_titles(package)
     notes=[]
+    if machine_removed:
+        notes.append(f"技术卷已清理评分提示语 {machine_removed} 段")
     if not brief.techAnonymous:
         from api.services.tenders.company_identity import foreign_bidder
         from common.errors import AppError,ErrorCode
@@ -144,28 +288,73 @@ def render(doc,brief):
     source=Document(source_path) if source_path else None
     source_props={key(p.text):p._p.pPr for p in source.paragraphs} if source is not None else {}
     if package.get('template_kind') == 'chapter_heading':
-        chapter_nodes={key(p.text):p for p in paragraphs}
-        for chapter in package.get('chapters',[]):
-            head=chapter_nodes.get(key(chapter['title']))
-            if head is None: continue
+        from api.services.tenders.technical_toc import _regions
+        from api.services.tenders.style_roles import most_common_body_style
+        from docx.shared import Pt
+
+        toc_nodes = {node for region in _regions(doc) for node in region}
+        chapter_nodes={_title_key(p.text):p for p in paragraphs
+                       if p._p not in toc_nodes and p.text.strip()}
+        body_style = most_common_body_style(doc) or doc.styles.default(1)
+        size = Pt(brief.documentFormat.bodySizePt)
+        rendered = {}
+        headings = set()
+        for index, chapter in enumerate(package.get('chapters',[])):
+            head=chapter_nodes.get(_title_key(chapter['title']))
+            if head is None:
+                raise ValueError('技术评分章未找到落位：'+chapter['title'])
+            head.style = 'Heading 1'
+            headings.add(head._p)
+            _replace_paragraph_text(head, _clean(chapter_titles[chapter['title']], brief))
+            _bookmark_paragraph(head, f'toc_technical_chapter_{index}')
             cursor=head._p
+            cursor = _after(doc, cursor, _chapter_intro(chapter['title'], brief), brief, size=size)
+            if index == 2:
+                schedule = next(
+                    (table for table in package.get('tables', [])
+                     if '进度' in str(table.get('title', ''))),
+                    None,
+                )
+                if schedule:
+                    cursor = _insert_progress_table(doc, cursor, schedule, size)
             for point in [x for x in package['sections'] if x.get('chapter')==chapter['title']]:
                 el=OxmlElement('w:p'); cursor.addnext(el); sub=Paragraph(el,doc)
-                sub.style=head.style
-                sub.add_run(point['title'])
+                sub.style=_child_heading_style(doc, head)
+                sub.add_run(_clean(point_titles[point['id']], brief))
                 cursor=el
-                end=_after(doc,cursor,point['body'],brief)
-                cursor=end
+                cursor=_after(doc,cursor,point['body'],brief,size=size)
+                body_lines = []
+                node = el
+                while node is not cursor:
+                    node = node.getnext()
+                    body_lines.append(Paragraph(node, doc).text)
+                rendered[point['id']] = '\n'.join(body_lines)
                 _bookmark_paragraph(sub,'toc_technical_'+point['id'])
-        notes.append(f"技术卷：已写入 {len(package['sections'])} 个评分项")
+        for p in paragraphs:
+            if p._p not in headings and p.style.name in {'Heading 1', 'Heading 2'}:
+                p.style = body_style
+        from api.services.tenders.scoring_points import scoring_uniqueness
+
+        uniqueness = scoring_uniqueness([rendered[point['id']] for point in package['sections']])
+        package['qa'] = {
+            'scoringUniqueness': uniqueness,
+            'scoringItems': [{'id': point['id'], 'title': point['title'],
+                              'degraded': bool(point.get('degraded'))}
+                             for point in package['sections']],
+        }
+        logger.warning('技术评分项正文重复度：max=%.3f dup=%d severe=%d', uniqueness['max_jaccard'], uniqueness['dup_count'], uniqueness['severe_count'])
+        notes.append(f"技术卷：已写入 {len(package['sections'])} 个评分项；重复度 max={uniqueness['max_jaccard']:.3f} dup={uniqueness['dup_count']} severe={uniqueness['severe_count']}")
+        if uniqueness['severe_count'] > 0:
+            notes.append('内容重复度超标')
         prune_unreferenced_images(doc)
         return notes
     for point in package['sections']:
         marker='technical_'+point['id']
         head_marker='toc_technical_'+point['id']
-        heading=next((p for p in paragraphs if key(p.text)==key(point['title']) and 'PAGEREF' not in p._p.xml),None)
+        heading=next((p for p in paragraphs if _title_key(p.text)==_title_key(point['title']) and 'PAGEREF' not in p._p.xml),None)
         if heading is None:
             raise ValueError('技术要点未找到原版落位：'+point['title'])
+        _replace_paragraph_text(heading, point_titles.get(point.get('id'), point['title']))
         # The legacy technical slicer promotes short numbered list entries to
         # top-level headings. Keep their original list/indent/font properties;
         # the dedicated TOC rows carry the requested child hierarchy instead.
@@ -223,7 +412,14 @@ def render(doc,brief):
         else:
             explanation=package.get('note','')
         _after(doc,el,explanation,brief)
-    notes.append(f"技术卷：已写入 {len(package['sections'])} 个原版要点、{len(package['tables'])} 个附表及 {len(package['figures'])} 张计划图")
+    from api.services.tenders.scoring_points import scoring_uniqueness
+
+    uniqueness = scoring_uniqueness([str(point.get('body', '')) for point in package.get('sections', [])])
+    package.setdefault('qa', {})['scoringUniqueness'] = uniqueness
+    logger.warning('技术评分项正文重复度：max=%.3f dup=%d severe=%d', uniqueness['max_jaccard'], uniqueness['dup_count'], uniqueness['severe_count'])
+    notes.append(f"技术卷：已写入 {len(package['sections'])} 个原版要点、{len(package['tables'])} 个附表及 {len(package['figures'])} 张计划图；重复度 max={uniqueness['max_jaccard']:.3f} dup={uniqueness['dup_count']} severe={uniqueness['severe_count']}")
+    if uniqueness['severe_count'] > 0:
+        notes.append('内容重复度超标')
     prune_unreferenced_images(doc)
     return notes
 

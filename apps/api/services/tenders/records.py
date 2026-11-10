@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import hashlib
-import traceback
+import json
 import re
 from pathlib import Path
 from datetime import UTC, date, datetime
@@ -35,6 +35,8 @@ from common.errors import AppError, ErrorCode
 from common.times import to_epoch_ms
 from db.models.tender import TenderApprovalLog, TenderRecord
 from db.models.user import User
+
+logger = logging.getLogger("api.tenders.records")
 
 STATUS_DRAFT = "draft"
 STATUS_PROCESSING = "processing"
@@ -190,6 +192,43 @@ def _brief_generate_issues(brief: BidBrief) -> list[str]:
     return issues
 
 
+def _normalize_agent_input(brief: BidBrief) -> None:
+    """只保留本次用户提交的代理人；历史值不得静默进入渲染数据。"""
+    name = (brief.agentName or "").strip()
+    source = (getattr(brief, "agentNameSource", "") or "").strip().lower()
+    if source == "history":
+        name = ""
+        brief.agentName = ""
+    elif name:
+        # 旧记录没有来源字段时，已有非空值只能按当前请求值兼容处理。
+        brief.agentNameSource = "user"
+    else:
+        brief.agentName = ""
+        brief.agentNameSource = ""
+
+    legal = ''.join((brief.legalPersonName or '').split())
+    if name and legal and ''.join(name.split()) == legal:
+        logger.warning("代理人姓名与法定代表人相同，按未填代理人处理：%s", brief.agentName)
+        name = ""
+        brief.agentName = ""
+        brief.agentNameSource = ""
+
+    if not name:
+        # 代理人为空时，证号不能单独回填或参与后续渲染。
+        brief.agentIdNo = ""
+        brief.agentIdNoSource = ""
+        return
+    id_no = (brief.agentIdNo or "").strip()
+    id_source = (getattr(brief, "agentIdNoSource", "") or "").strip().lower()
+    if id_source == "history":
+        brief.agentIdNo = ""
+        brief.agentIdNoSource = ""
+    elif id_no:
+        brief.agentIdNoSource = "user"
+    else:
+        brief.agentIdNoSource = ""
+
+
 def _missing_required_titles(
     required_keys: list[str],
     slots: list[PlaceholderItem],
@@ -308,7 +347,7 @@ async def _generate_for_record(
 
 async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     """Generate scoring prose while the record layer still owns the database session."""
-    from api.services.tenders.assets import load_invitation_text
+    from api.services.tenders.assets import load_invitation_text, tender_invitations_dir
     from api.services.tenders.generation_parallel import ordered_generation
     from docx import Document
     from api.services.tenders.scoring_points import read_scoring_points, word_scoring_blocks
@@ -320,17 +359,26 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     try:
         original = _word_format_file(brief.invitationId)
     except Exception as exc:
-        print("模板文件定位失败：", type(exc).__name__, exc)
+        logger.warning("评分项 format 模板定位失败：exception=%s", type(exc).__name__)
     blocks = list(word_scoring_blocks(Document(str(original)))) if original and Path(original).is_file() else []
-    print("记录层评分项输入：文本长度=", len(invitation or ""), "块数=", len(blocks))
-    points = read_scoring_points(invitation, blocks=blocks or None, notes=[])
-    print("记录层解析出评分项：", len(points), "条")
+    logger.info("scoring points input: text_chars=%d blocks=%d", len(invitation or ""), len(blocks))
+    notes: list[str] = []
+    points = read_scoring_points(invitation, blocks=blocks or None, notes=notes)
     if not points:
-        print("记录层无评分项，跳过预生成")
+        fallback = tender_invitations_dir() / f"{(brief.invitationId or '').strip()}.docx"
+        if fallback.is_file():
+            fallback_blocks = list(word_scoring_blocks(Document(str(fallback))))
+            fallback_points = read_scoring_points(invitation, blocks=fallback_blocks or None, notes=notes)
+            if fallback_points:
+                points = fallback_points
+                logger.info("评分项来源=原始邀请书：path=%s blocks=%d", fallback, len(fallback_blocks))
+    logger.info("scoring points parsed: count=%d", len(points))
+    if not points:
+        logger.warning("记录层无评分项，跳过预生成")
         return {}
     if client is None:
         client = await build_llm_client(db, "pro")
-    print("评分叙述模型客户端：", type(client).__name__)
+    logger.info("scoring narrative client: %s", type(client).__name__)
     from api.services.tenders.tender_facts import extract_tender_facts
 
     detail = extract_tender_facts(invitation)
@@ -359,24 +407,38 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
         if value and value not in {"无", "见招标文件", "/", "—"}:
             fact_map.setdefault(key, value)
     if not tender:
-        print("邀请书里没有可识别的项目信息：", detail.get("notes") or [])
+        logger.warning("邀请书里没有可识别的项目信息：%s", detail.get("notes") or [])
+    from api.services.tenders.scoring_points import generate_scoring_narrative
+
     async def generate(point):
-        prompt = (
-            "本项目事实：\n" + json.dumps(fact_map, ensure_ascii=False) +
-            "\n评分项：" + point.item +
-            "\n评分细则原文：" + point.criterion +
-            "\n所属章节：" + point.target_section +
-            "\n分值：" + str(point.item_score_min) + " / " + str(point.item_score_max) +
-            "\n要求：第一段承接事实并使用可用的项目名称与建设地点；第二段对应评分细则动宾结构；"
-            "第三段只使用事实中的数字进行量化安排；第四段用我方表态收口。全文四段、段间空行、180至420字。"
-            "禁止虚构人员姓名、证书编号、业绩数量、财务数字；未提供信息留空，不写无、待补充、待核实；评分项名在同一句不得重复两次以上。"
+        body = await generate_scoring_narrative(
+            client, item=point.item, criterion=point.criterion, chapter=point.target_section,
+            facts=json.dumps(fact_map, ensure_ascii=False),
+            score=f"{point.item_score_min} / {point.item_score_max}",
+            instructions=(
+                "章节首项之前会统一承接项目事实；本项正文从评分细则的动宾要素和具体安排开始，"
+                "后续评分项不得重复项目事实前缀。全文四段、段间空行、180至420字。"
+                "禁止虚构人员姓名、证书编号、业绩数量、财务数字；未提供信息留空，不写无、待补充、待核实；评分项名在同一句不得重复两次以上。"
+            ),
         )
-        raw = await client.complete([{"role": "user", "content": prompt}], mode="pro")
-        return point.item, str(raw or "").strip()
+        return point.item, body
     results = await ordered_generation([lambda point=point: generate(point) for point in points],
                                        stage="scoring_narrative", labels=[p.item for p in points])
-    print("评分叙述模型返回：", len(results), "非空：", sum(bool(body) for _, body in results))
-    return {item: body for item, body in results if item and body}
+    drafted = {}
+    for item, body in results:
+        if item and body:
+            drafted[item] = body
+        elif item:
+            logger.warning("评分项正文为空：%s", item)
+    filled = len(drafted)
+    requested = len(points)
+    logger.info(
+        "scoring drafts: points=%d requested=%d filled=%d failed=%d",
+        len(points), requested, filled, requested - filled,
+    )
+    if requested and filled / requested < 0.8:
+        logger.warning("评分项正文生成不足，已按兜底模式输出，请核对")
+    return drafted
 
 
 async def _prepare_other_pledges(db, brief, existing_titles, *, client=None):
@@ -437,14 +499,8 @@ async def _prepare_and_generate(
     requirement_notes = prepare_requirements_bid(brief)
     if not (brief.bidDate or "").strip():
         brief.bidDate = date.today().isoformat()
-    if brief.authEnabled:
-        from api.services.tenders.history import latest_agent_profile
-
-        hint = await latest_agent_profile(db, bidder_name=brief.bidderName)
-        if not (brief.agentName or "").strip() and hint.get("agentName"):
-            brief.agentName = hint["agentName"]
-        if not (brief.agentIdNo or "").strip() and hint.get("agentIdNo"):
-            brief.agentIdNo = hint["agentIdNo"]
+    # 代理人字段只认本次请求；不要从同公司历史记录静默回填姓名或证号。
+    _normalize_agent_input(brief)
     issues = _brief_generate_issues(brief)
     if issues:
         raise AppError(
@@ -616,20 +672,18 @@ async def _prepare_and_generate(
     scoring_drafts = {}
     other_pledges = []
     if both or vol in {"business", "full"}:
-        print("评分叙述预生成条件：", {"vol": vol, "both": both})
+        logger.info("scoring draft pre-generation: vol=%s both=%s", vol, both)
         try:
             scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
-            print(f"记录层评分叙述预生成写入 {len(scoring_drafts)} 条")
+            logger.info("scoring drafts stored: count=%d", len(scoring_drafts))
             existing_titles = [item.title for item in brief.outlineItems if "承诺" in (item.title or "")]
             try:
                 other_pledges = await _prepare_other_pledges(db, brief, existing_titles)
-                print(f"记录层其他承诺模型生成 {len(other_pledges)} 条")
+                logger.info("other pledges generated: count=%d", len(other_pledges))
             except Exception as exc:
-                print("其他承诺模型生成异常类型：", type(exc).__name__)
-                traceback.print_exc()
+                logger.warning("其他承诺模型生成异常类型：%s", type(exc).__name__, exc_info=True)
         except Exception as exc:  # model failure leaves downstream fallback intact
-            print("评分叙述预生成异常类型：", type(exc).__name__)
-            traceback.print_exc()
+            logger.warning("评分叙述预生成异常类型：%s", type(exc).__name__, exc_info=True)
             draft_notes.append(f"评分叙述预生成失败，已走降级：{exc}")
     technical_package_active = False
     if both or vol == 'technical':

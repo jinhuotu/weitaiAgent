@@ -60,11 +60,25 @@ TENDER_LIB_PUBLIC_ID = "tenderlib01"
 TENDER_LIB_NAME = "投标资料库"
 TAG_MATERIAL = "投标资料"
 TAG_SLOT_PREFIX = "slot:"
-_ALLOWED_EXT = {".doc", ".docx", ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
+_ALLOWED_EXT = {
+    ".doc",
+    ".docx",
+    ".xls",
+    ".xlsx",
+    ".pdf",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".gif",
+    ".bmp",
+}
 _IMAGE_EXT = {"png", "jpg", "jpeg", "webp", "gif", "bmp"}
 _FILE_MIME = {
     "doc": "application/msword",
     "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "xls": "application/vnd.ms-excel",
+    "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "pdf": "application/pdf",
     "png": "image/png",
     "jpg": "image/jpeg",
@@ -1424,7 +1438,11 @@ async def save_library_file(
     name = Path((filename or "upload.bin").replace("\\", "/").split("/")[-1]).name
     suffix = Path(name).suffix.lower()
     if suffix not in _ALLOWED_EXT:
-        raise AppError(ErrorCode.VALIDATION, "仅支持 Word（DOC / DOCX）/ PDF / PNG / JPG / WEBP / GIF / BMP", status_code=422)
+        raise AppError(
+            ErrorCode.VALIDATION,
+            "仅支持 Word（DOC / DOCX）/ Excel（XLS / XLSX）/ PDF / PNG / JPG / WEBP / GIF / BMP",
+            status_code=422,
+        )
     if suffix in {".doc", ".docx"}:
         from api.services.knowledge.parsers import extract_text_from_file
 

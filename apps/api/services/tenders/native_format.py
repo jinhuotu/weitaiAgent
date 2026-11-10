@@ -1469,6 +1469,78 @@ def _validation_body_start(doc, children, rows, first_target: int) -> int:
     return first_target
 
 
+def reconcile_toc_references(doc) -> dict:
+    """把目标书签对不上的目录行处理掉，判据只用「目标书签在正文里存不存在」。
+
+    两类处理，都不认任何具体章节名：
+      1) 目录行文本与正文某个标题段文本一致 → 把该行重新指向那段标题的书签；
+      2) 找不到一致的标题 → 删掉这一行（正文没有这一章，目录不该列它）。
+
+    必须在 validate_native_toc 之前调用，否则孤儿行会让校验直接抛 422。
+    返回 {"rebound": n, "dropped": n, "droppedTexts": [...]} 供回执核对。
+    """
+    from api.services.tenders.document import _pageref_bookmark
+
+    def norm(text: str) -> str:
+        """去掉序号前缀、空白和标点，只留可比对的主体文字。"""
+        stripped = re.sub(r"^[\d一二三四五六七八九十]+[、.．)]\s*", "", (text or "").strip())
+        return re.sub(r"[\s\u3000]", "", stripped)
+
+    # 正文里可作为锚点的段落：带 toc_ 前缀书签，且自身不是目录行
+    anchors: list[tuple[str, str]] = []
+    for para in doc.paragraphs:
+        if _pageref_bookmark(para):
+            continue
+        for node in para._p.iter(qn("w:bookmarkStart")):
+            name = node.get(qn("w:name")) or ""
+            if name.startswith("toc_"):
+                anchors.append((norm(para.text), name))
+                break
+
+    # 正文里每个书签名出现几次：只有恰好 1 次才能真正指向
+    counts: dict[str, int] = {}
+    for node in doc.element.body.iter(qn("w:bookmarkStart")):
+        name = node.get(qn("w:name"))
+        counts[name] = counts.get(name, 0) + 1
+
+    rows = [p for p in doc.paragraphs if _pageref_bookmark(p)]
+    rebound = 0
+    dropped: list[str] = []
+
+    for row in rows:
+        target = _pageref_bookmark(row)
+        if counts.get(target, 0) == 1:
+            continue  # 已经能唯一命中，保持原样
+
+        label = norm(row.text.split("\t", 1)[0])
+        # 正文里同名、且能唯一命中的锚点
+        candidates = [
+            name for text, name in anchors
+            if text and text == label and counts.get(name, 0) == 1
+        ]
+        if len(candidates) == 1:
+            new_name = candidates[0]
+            # PAGEREF 域里的目标名
+            for node in row._p.iter(qn("w:instrText")):
+                node.text = re.sub(
+                    r"(?i)(^\s*PAGEREF\s+)" + re.escape(target) + r"(?=\s|$)",
+                    lambda match: match.group(1) + new_name,
+                    node.text or "",
+                )
+            # 内部超链接的锚点
+            for node in row._p.iter(qn("w:hyperlink")):
+                if node.get(qn("w:anchor")) == target:
+                    node.set(qn("w:anchor"), new_name)
+            rebound += 1
+            continue
+
+        # 正文里没有这一章，整行删掉
+        dropped.append(row.text.split("\t", 1)[0].strip())
+        row._p.getparent().remove(row._p)
+
+    return {"rebound": rebound, "dropped": len(dropped), "droppedTexts": dropped}
+
+
 def validate_native_toc(doc) -> dict:
     """Validate the final DOCX's complete TOC-to-body interval, not just a row list."""
     from api.services.tenders.document import _pageref_bookmark

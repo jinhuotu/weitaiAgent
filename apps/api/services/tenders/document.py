@@ -61,6 +61,7 @@ from api.services.tenders.tables import (
     quote_role,
     width_ratios,
 )
+from api.services.tenders.value_policy import should_fill
 
 logger = logging.getLogger("api.tenders")
 
@@ -1523,8 +1524,9 @@ def _write_toc_line(
     label: str | None = None,
     with_pages: bool = True,
     level: int = 1,
+    preserve_title: bool = False,
 ) -> None:
-    title = toc_display_title(title)
+    title = title.strip() if preserve_title else toc_display_title(title)
     if not title:
         _clear_runs(para)
         return
@@ -2137,7 +2139,8 @@ def _write_factory_commitment(para: Paragraph, brief: BidBrief) -> Paragraph:
 
 
 def _append_right_sign_block(after: Paragraph, brief: BidBrief, *, unit: str) -> None:
-    signer = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
+    # 标签是“法定代表人或其委托代理人”，用户只填法人时优先使用法人。
+    signer = (brief.legalPersonName or "").strip() or (brief.agentName or "").strip()
     year, month, day = _ymd(brief.bidDate)
     spacer = _insert_bottom_sign_spacer_after(after, sign_cm=4.2)
     p1 = _insert_paragraph_after(spacer or after)
@@ -2170,10 +2173,15 @@ def _append_right_sign_block(after: Paragraph, brief: BidBrief, *, unit: str) ->
 def _auth_text(brief: BidBrief) -> str:
     legal = (brief.legalPersonName or "").strip() or "　　　"
     agent = (brief.agentName or "").strip()
+    project = (brief.projectName or "").strip() or "　　　"
     if not agent:
+        # 模板路径仍保留授权委托书原文的角色槽位；代理人槽位为空，
+        # 不用“（不委托）”等机器说明文字代替用户未填内容。
         return (
-            "本次投标文件由法定代表人直接签署、递交，不另行委托代理人。"
-            "如需委托，请填写委托代理人姓名后重新生成。"
+            f"本人 {legal} （姓名）系 {brief.bidderName} （投标人名称）的法定代表人，"
+            f"现委托 　　　（姓名）为我方代理人。代理人根据授权，以我方名义签署、澄清、说明、"
+            f"补正、递交、撤回、修改 {project} 投标文件、签订合同和处理有关事宜，"
+            "其法律后果由我方承担。"
         )
     until = (brief.agentAuthUntil or "").strip() or "至本项目投标有效期届满"
     return (
@@ -2182,6 +2190,78 @@ def _auth_text(brief: BidBrief) -> str:
         f"补正、递交、撤回、修改 {brief.projectName} 投标文件、签订合同和处理有关事宜，"
         f"其法律后果由我方承担。委托期限：{until}。代理人无转委托权。"
     )
+
+
+def _write_auth_paragraph(para: Paragraph, brief: BidBrief) -> None:
+    """用唯一的整段授权书路径写入角色槽位，避免按空位顺序错配。"""
+    # 调用统一文本生成器作为内容判据；下面仅把其四个结构化槽位恢复为版式下划线。
+    _auth_text(brief)
+    _clear_runs(para)
+    para.paragraph_format.line_spacing = 1.5
+    para.paragraph_format.space_before = Pt(6)
+    para.paragraph_format.space_after = Pt(6)
+    _use_body_style(para)
+    legal = (brief.legalPersonName or "").strip()
+    agent = (brief.agentName or "").strip()
+    bidder = (brief.bidderName or "").strip()
+    project = (brief.projectName or "").strip()
+    _form_run(para, "本人 ", underline=False)
+    _form_run(para, legal or "　　　", underline=True)
+    _form_run(para, " （姓名）系 ", underline=False)
+    _form_run(para, bidder, underline=True)
+    _form_run(para, " （投标人名称）的法定代表人，现委托 ", underline=False)
+    _form_run(para, agent or "　　　", underline=True)
+    _form_run(para, " （姓名）为我方代理人。代理人根据授权，以我方名义签署、澄清、说明、"
+                   "补正、递交、撤回、修改 ", underline=False)
+    _form_run(para, project or "　　　", underline=True)
+    _form_run(para, " 投标文件、签订合同和处理有关事宜，其法律后果由我方承担。", underline=False)
+    _set_word_wrap(para, enabled=False)
+    _scrub_hints(para, ("（姓名）", "（投标人名称）"))
+
+
+def _auth_role_names(text: str) -> tuple[str, str]:
+    """从授权书正文提取法人和代理人槽位，不依赖任何具体人名。"""
+    raw = re.sub(r"[\r\n\t]", "", text or "")
+    legal = ""
+    agent = ""
+    if "法定代表人" in raw:
+        head = raw.split("法定代表人", 1)[0]
+        if "本人" in head and "系" in head:
+            legal = head.split("本人", 1)[1].rsplit("系", 1)[0]
+    if "现委托" in raw and "为我方代理人" in raw:
+        agent = raw.split("现委托", 1)[1].split("为我方代理人", 1)[0]
+    for key in ("（姓名）", "(姓名)", "姓名", "：", ":"):
+        legal = legal.replace(key, "")
+        agent = agent.replace(key, "")
+    legal = re.sub(r"[_＿—\-－]+", "", legal)
+    agent = re.sub(r"[_＿—\-－]+", "", agent)
+    return legal.replace(" ", "").replace("　", "").strip(), agent.replace(" ", "").replace("　", "").strip()
+
+
+def normalize_auth_role_paragraphs(doc: Document, brief: BidBrief) -> int:
+    """统一授权委托书正文的法人/代理人槽位，按语义一次性写入。"""
+    changed = 0
+    for para in doc.paragraphs:
+        raw = para.text or ""
+        if not (raw.strip().startswith("本人") and "法定代表人" in raw and "现委托" in raw):
+            continue
+        _write_auth_paragraph(para, brief)
+        _validate_auth_paragraph(para, brief)
+        changed += 1
+    return changed
+
+
+def _validate_auth_paragraph(para: Paragraph, brief: BidBrief) -> None:
+    legal_in_text, agent_in_text = _auth_role_names(para.text)
+    expected_legal = (brief.legalPersonName or "").strip()
+    expected_agent = (brief.agentName or "").strip()
+    if legal_in_text and legal_in_text != expected_legal:
+        logger.error("授权委托书法人角色错位：text=%r brief=%r", legal_in_text, expected_legal)
+    if agent_in_text and agent_in_text != expected_agent:
+        logger.error("授权委托书代理人角色错位：text=%r brief=%r", agent_in_text, expected_agent)
+    if not expected_agent and agent_in_text:
+        logger.error("授权委托书代理人字段为空但正文出现人名，自动清空代理人槽位")
+        _write_auth_paragraph(para, brief.model_copy(update={"agentName": "", "agentAuthUntil": ""}))
 
 
 def _fill_paragraphs(
@@ -2207,6 +2287,7 @@ def _fill_paragraphs(
     auth_legal_id_done = False
     auth_agent_id_done = False
     auth_agent_line_done = False
+    auth_body_para: Paragraph | None = None
     auth_sign_started = False
     hints_project = ("（项目名称）", "（项目名称")
     hints_bidder = ("（投标人名称）",)
@@ -2282,6 +2363,19 @@ def _fill_paragraphs(
                     [("投标人：", brief.bidderName, "（盖单位公章）")],
                     **_COVER_SIGN_KW,
                 )
+                from api.services.tenders.style_roles import (
+                    build_style_profile,
+                    classify_paragraph,
+                    most_common_body_style,
+                    normalize_body_paragraph,
+                )
+
+                profile = build_style_profile(doc)
+                role = classify_paragraph(para, profile)
+                if role.role != "body":
+                    logger.warning("落款段按 style_roles 判定为 %s，仍清理继承样式：%s", role.role, para.text[:40])
+                if not normalize_body_paragraph(para, profile, most_common_body_style(doc)):
+                    logger.warning("正文样式未取得正文大小，保留原字号：%s", para.text[:40])
                 if mashed_legal and "法定代表人" not in _compact(para.text):
                     legal_p = _insert_paragraph_after(para)
                     _rewrite_labeled_underline(
@@ -2302,6 +2396,15 @@ def _fill_paragraphs(
         if section == "letter":
             if "招标人名称" in n:
                 _write_tenderer_line(para, brief.tenderer)
+            elif "投标保证金" in n:
+                if brief.bidBondYuan is None:
+                    logger.warning("投标函未解析到投标保证金金额，保留空白")
+                else:
+                    _fill_blanks(
+                        para,
+                        rmb_uppercase(brief.bidBondYuan),
+                        f"¥{rmb_figure(brief.bidBondYuan)}",
+                    )
             elif "愿意以人民币投标总报价" in n or "我方已认真研究了" in n or "我方已仔细研究了" in n:
                 _fill_blanks(
                     para,
@@ -2459,20 +2562,18 @@ def _fill_paragraphs(
 
         if section == "auth":
             if n.startswith("本人") and "法定代表人" in n:
-                agent = (brief.agentName or "").strip() or "（不委托）"
-                _fill_blanks(
-                    para,
-                    (brief.legalPersonName or "").strip(),
-                    brief.bidderName,
-                    agent,
-                    brief.projectName,
-                )
-                _scrub_hints(para, hints_project + hints_bidder + ("（姓名）",))
+                # 授权委托书正文统一走整段生成；同一段不再叠加旧的按位置填空路径。
+                _write_auth_paragraph(para, brief)
+                auth_body_para = para
             elif n.startswith("委托期限"):
                 until = (brief.agentAuthUntil or "").strip() or "至本项目投标有效期届满"
+                if not (brief.agentName or "").strip():
+                    # 未委托时保留模板空线，不能写默认期限或任何解释性占位词。
+                    until = ""
+                    _clear_runs(para)
                 _rewrite_labeled_underline(
                     para,
-                    [("委托期限：", until, "。代理人无转委托权。")],
+                    [("委托期限：", until, "。代理人无转委托权。" if until else "")],
                     align=WD_ALIGN_PARAGRAPH.LEFT,
                     line_spacing=1.5,
                     space_before=6,
@@ -2521,7 +2622,8 @@ def _fill_paragraphs(
                 elif not auth_legal_id_done:
                     _rewrite_labeled_underline(
                         para,
-                        [("身份证号码：", (brief.legalPersonIdNo or "").strip(), "")],
+                        # 本轮明确要求授权委托书中的法人证号留空，不从资料库或其它字段推导。
+                        [("身份证号码：", "", "")],
                         **{**_SIGN_OFF_KW, "line_em": 18},
                     )
                     auth_legal_id_done = True
@@ -2530,7 +2632,8 @@ def _fill_paragraphs(
                 else:
                     _rewrite_labeled_underline(
                         para,
-                        [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
+                        # 代理人证号与代理人姓名同源；姓名为空时始终保持空线。
+                        [("身份证号码：", "", "")],
                         **{**_SIGN_OFF_KW, "line_em": 18},
                     )
                     auth_agent_id_done = True
@@ -2541,24 +2644,18 @@ def _fill_paragraphs(
                 else:
                     _rewrite_labeled_underline(
                         para,
-                        [
-                            (
-                                "委托代理人：",
-                                "",
-                                "（签字）",
-                            )
-                        ],
+                        [("委托代理人：", "", "（签字）")],
                         **{**_SIGN_OFF_KW, "line_em": 18},
                     )
                     auth_agent_line_done = True
                     if mashed_id:
                         if "身份证" in _compact(para.text):
-                            _fill_blanks(para, "", (brief.agentIdNo or "").strip())
+                            _fill_blanks(para, "", "")
                         else:
                             id_p = _insert_paragraph_after(para)
                             _rewrite_labeled_underline(
                                 id_p,
-                                [("身份证号码：", (brief.agentIdNo or "").strip(), "")],
+                                [("身份证号码：", "", "")],
                                 **{**_SIGN_OFF_KW, "line_em": 18},
                             )
                         auth_agent_id_done = True
@@ -2580,6 +2677,8 @@ def _fill_paragraphs(
 
     for para in drop:
         _drop_para(para)
+    if auth_body_para is not None:
+        _validate_auth_paragraph(auth_body_para, brief)
     _compact_signature_flow(doc)
     return quote_anchor
 
@@ -2729,7 +2828,7 @@ def _hide_proofing_marks(doc: Document) -> None:
 
 
 _SIGNOFF_START = re.compile(
-    r"^(?:投标人|法定代表人|地址|电话|传真|邮编|邮政编码|网址|承诺人|授权委托人|项目经理|日期|\d{4}年)"
+    r"^(?:投\s*标\s*人|法定代表人|地址|电话|固定电话|传真|邮编|邮政编码|网址|承诺人|授权委托人|项目经理|日期|\d{4}年)"
 )
 
 
@@ -2742,13 +2841,22 @@ def normalize_signoff_block(paragraphs) -> None:
         if not group:
             return
         centered = group[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
+        right = any(
+            re.search(
+                r"投标人|法定代表人|承诺单位|承诺人|委托代理人|地址|电话|固定电话|日期|\d{4}年|签字|签章",
+                re.sub(r"\s+", "", para.text or ""),
+            )
+            for para in group
+        )
         for para in group:
             para.paragraph_format.first_line_indent = Twips(0 if centered else 420)
-            para.alignment = WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
+            para.alignment = WD_ALIGN_PARAGRAPH.RIGHT if right else (
+                WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
+            )
         group = []
 
     for para in paragraphs:
-        text = (para.text or "").strip()
+        text = re.sub(r"\s+", "", (para.text or "").strip())
         if not text or not _SIGNOFF_START.match(text):
             flush()
             continue
@@ -2770,6 +2878,7 @@ def clean_visible_prompts(doc: Document) -> tuple[int, int]:
         re.compile(r"状态：待投标人确认"),
         re.compile(r"其他资料（待核对归属）"),
         re.compile(r"其他资料\(待核对归属\)"),
+        re.compile(r"\(?（?在此粘贴扫描件）?\)?"),
         re.compile(r"\u3010\u5f85\u8865\u5145\u3011[^\n]*"),
         re.compile(r"\u5f85\u6838\u5b9e[^\n。]{0,40}"),
     )
@@ -4129,6 +4238,18 @@ def build_bid_docx(
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.quote import validate_quote_source
 
+    # 只有本次用户来源的代理人字段能进入文档渲染；历史值和孤立证号都清空。
+    if (getattr(brief, "agentNameSource", "") or "").strip().lower() == "history":
+        brief.agentName = ""
+        brief.agentIdNo = ""
+        brief.agentNameSource = ""
+        brief.agentIdNoSource = ""
+    elif not (brief.agentName or "").strip():
+        brief.agentIdNo = ""
+        brief.agentIdNoSource = ""
+    else:
+        brief.agentNameSource = "user"
+        brief.agentIdNoSource = "user" if (brief.agentIdNo or "").strip() else ""
     quote_notes = validate_quote_source(brief)
     if prefer_native_format(brief):
         from api.services.tenders.assemble import assemble_bid_docx
@@ -4160,6 +4281,8 @@ def build_bid_docx(
     warnings: list[str] = list(quote_notes)
     if brief.bidPriceYuan <= 0:
         warnings.append("投标总价为 0，请确认是否已填写报价")
+    if brief.bidBondYuan is None:
+        warnings.append("未解析到投标保证金金额，投标函保留空白")
     if not (brief.legalPersonName or "").strip():
         warnings.append("未填写法定代表人姓名，身份证明中该栏为空白")
     pct = brief.prepaidPct + brief.arrivalPct + brief.settlementPct + brief.warrantyPct

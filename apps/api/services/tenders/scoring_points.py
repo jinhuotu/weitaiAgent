@@ -1,6 +1,7 @@
 """Read the evaluation schedule and attach traceable prose to existing sections."""
 
 from dataclasses import dataclass, replace
+import logging
 import re
 import unicodedata
 
@@ -11,6 +12,9 @@ _RESPONSE_SCHEME = ("承诺", "保证", "确保", "建立", "执行", "遵守", 
 _RESPONSE_PROOF = ("提供", "附", "证明", "扫描件", "证书", "业绩", "财务报表", "营业执照", "合同", "发票", "许可证", "缴税凭证", "编号")
 _RESPONSE_REF = ("人员", "证书", "业绩", "资质", "证明")
 _STOP_WORDS = set("的与及和或按根据本项目我方应当必须进行相关以及等其中要求" )
+SCORING_DUP_JACCARD = 0.6  # 超过该值视为重复度偏高，便于暴露模板复制。
+SCORING_SEVERE_JACCARD = 0.8  # 超过该值视为严重重复，仍只告警不中断生成。
+logger = logging.getLogger("api.tenders.scoring")
 
 
 def score_item_kind(item_name: str, criterion: str) -> str:
@@ -305,48 +309,371 @@ def _score_label(point):
     return f"{point.item_score_min}-{point.item_score_max} 分"
 
 
-def _narrative_for_point(point, *, facts=None, generator=None, with_reference: bool = False) -> str:
+def _scoring_fact_text(facts: dict | None) -> str:
+    return "".join(_fact_sentences(facts or {})) or "本项目按已核实的招标条件组织实施。"
+
+
+def _criterion_elements(criterion: str, item: str) -> list[str]:
+    """从评分细则按标点切出可执行要素，保持兜底段落的结构差异。"""
+    raw = re.sub(r"\s+", "", str(criterion or item or ""))
+    raw = re.sub(r"(?:0\s*[-－–—~～至]\s*)?\d+\s*分\s*$", "", raw)
+    chunks = [part.strip(" ：:；;，,。！？!？、") for part in re.split(r"[；;。！？!？]|\n", raw)]
+    chunks = [part for part in chunks if len(part) >= 2]
+    if len(chunks) < 2:
+        chunks = [part for part in re.split(r"[、，,：:]", raw) if len(part.strip()) >= 2]
+    if not chunks:
+        chunks = criterion_terms(raw) or [_clean_item(item)]
+    merged: list[str] = []
+    for chunk in chunks:
+        chunk = chunk.strip(" ：:；;，,。！？!？、")
+        if not chunk:
+            continue
+        # 形容词性尾巴不是独立评分要素；并入前一项，避免输出“可行：……”病句。
+        if re.fullmatch(r"(?:且|并且)?(?:措施)?(?:合理|可行|先进|完整|齐全|明确|具体)+(?:的)?", chunk):
+            if merged:
+                merged[-1] = f"{merged[-1]}，{chunk.lstrip('且并且')}"
+            continue
+        merged.append(chunk)
+    return list(dict.fromkeys(merged))[:8] or [_clean_item(item)]
+
+
+def _criterion_action(element: str, index: int) -> str:
+    """Turn a literal criterion element into a distinct executable arrangement."""
+    value = element.strip(" ：:；;，,。！？!？、")
+    value = re.sub(
+        r"(?:[、，,]\s*)?(?:合理|可行|先进|完整|齐全|明确|具体)"
+        r"(?:(?:[、，,]\s*)(?:合理|可行|先进|完整|齐全|明确|具体))*(?:的)?$",
+        "",
+        value,
+    ).rstrip(" 、，,") or element.strip(" ：:；;，,。！？!？、")
+    if "工资" in value:
+        detail = (
+            "由劳资负责人在每月计量后核对实名考勤和工资表，按期向工人本人支付并保存银行回执"
+            if index % 2 == 0 else
+            "由项目经理在发薪日前复核班组出勤、应发金额和付款账户，发现差异先纠正再支付"
+        )
+    elif "农忙" in value or "资金不到位" in value or "连续施工" in value:
+        detail = (
+            "由施工负责人提前排定农忙期间的替补班组，按关键工序倒排人员和材料进场"
+            if "农忙" in value else
+            "由财务负责人把关键工序所需支出列入独立资金计划，按周核对资金余额和支付节点"
+        )
+    elif "质保期" in value:
+        detail = (
+            "由服务负责人在质保期内登记报修、安排响应并回访修复结果"
+            if "期内" in value else
+            "由服务负责人在质保期外先确认故障原因和服务范围，再书面安排检修"
+        )
+    elif "村民" in value or "周边关系" in value or "当地政府" in value:
+        detail = "把通行、噪声和施工时段列为现场沟通事项，记录意见与处理结果"
+    elif "招标人" in value or "甲方" in value:
+        detail = "与招标人确认设计交底、停送电协调和交接事项，按会议纪要追踪待办"
+    elif "合理化建议" in value:
+        detail = "提交建议时列明对工期、投资和运维的影响，取得确认后再纳入实施"
+    elif "扬尘" in value or "环境" in value:
+        detail = "布置车辆冲洗点，对裸土覆盖和运输遗撒分别巡查，记录整改前后的状态"
+    elif "安全" in value:
+        detail = "把危险源写入班前交底，发现隐患暂停相关作业，复查销项后恢复"
+    elif "设备" in value or "安装" in value:
+        detail = (
+            "由安装负责人按设备清单逐台核对基础、接口和安装条件，形成开箱及定位记录"
+            if index % 2 == 0 else
+            "由调试负责人逐台检查接线、保护参数和试运转状态，异常项隔离后复测"
+        )
+    elif "设计质量" in value:
+        detail = (
+            "由专业设计负责人编制输入清单，校核人逐张比对接口，审定人确认版本后签认"
+            if index % 2 == 0 else
+            "由校核负责人汇总审查意见，图纸发出前逐项销项，不合格成果退回复审"
+        )
+    elif "施工方法" in value:
+        detail = "在代表性作业面试做，核验操作顺序和检查结果后再推广"
+    elif "进度" in value or "网络图" in value or "节点" in value:
+        detail = (
+            "在节点清单中标出设计交付物、会审参与方和前置输入，设计负责人在会审后确认关闭条件"
+            if "节点" in value else
+            "在进度表中标明前置工序、交接条件和完成标志，计划工程师每周更新关键路径"
+            if index % 2 == 0 else
+            "施工负责人在节点前核对实际完成量，出现偏差时提出赶工或顺延调整并留存审批"
+        )
+    elif "质量" in value:
+        detail = (
+            "由质量负责人组织首件确认，施工班组按样板记录工艺参数后展开作业"
+            if index % 4 == 0 else
+            "由质量员按批次抽检并登记结果，不合格项开具整改单，复查合格后销项"
+            if index % 4 == 1 else
+            "由技术负责人核对质量目标、操作依据和检查频次，形成阶段质量分析记录"
+            if index % 4 == 2 else
+            "由项目经理在验收前组织质量复核，确认遗留问题责任和关闭期限"
+        )
+    elif "限额" in value:
+        detail = "按限额边界建立估算、校核和超限回退机制"
+    elif "投资" in value or "成本" in value:
+        detail = "按投资控制线核对输入、测算变化并记录审批"
+    elif "合同" in value:
+        detail = "按合同接口建立交底、变更和索赔留痕"
+    elif "信息" in value or "资料" in value:
+        detail = "按资料目录设置收集、校验、归档和追溯节点"
+    elif "风险" in value:
+        detail = (
+            "由安全负责人按风险等级设置预警阈值和响应责任，班前会通报当日控制重点"
+            if index % 4 == 0 else
+            "由项目经理在事件闭环后组织复盘，更新风险清单、措施和责任人"
+            if index % 4 == 1 else
+            "由专业负责人定位风险控制要点，逐阶段核对预防措施和现场触发条件"
+            if index % 4 == 2 else
+            "由应急负责人演练响应路径，检查物资、联络和恢复步骤是否可执行"
+        )
+    elif "新技术" in value or "新材料" in value or "BIM" in value:
+        detail = (
+            "由技术负责人组织适用性评审，比较接口、成本和维护条件后形成选用意见"
+            if index % 2 == 0 else
+            "由专业负责人安排样板验证，记录试用结果并在推广前完成复盘和版本确认"
+        )
+    elif "人员" in value or "配备" in value or "机构" in value:
+        detail = (
+            "由项目经理按岗位职责编制接口清单，开工前完成到岗核验并登记替补安排"
+            if index % 2 == 0 else
+            "由综合负责人按周检查人员履职记录，岗位变更须经项目经理确认后更新名单"
+        )
+    elif "意图" in value or "难点" in value:
+        detail = "结合现场约束列出设计冲突，比较可选方案并将采用理由写入会审纪要"
+    elif "设计" in value:
+        detail = (
+            "由设计负责人在输入冻结后组织专题评审，校审意见逐条回填变更清单"
+            if index % 2 == 0 else
+            "由专业负责人在节点交付前核对图纸接口和计算依据，变更经确认后发布新版本"
+        )
+    elif "施工" in value or "工序" in value:
+        detail = (
+            "由施工负责人按工序拆分作业面，为前后班组列出交接检查和成品保护要求"
+            if index % 2 == 0 else
+            "由班组长在作业前复核材料、机具和作业条件，完成后交回检查记录"
+        )
+    elif "结算" in value:
+        detail = "逐项对照签证、计量记录和合同单价，差异经双方确认后纳入结算"
+    elif "移交" in value:
+        detail = "按移交清单交付竣工图、操作资料和遗留事项，双方签收"
+    elif "总体管理" in value:
+        detail = "开工前编列工作界面与成果清单，明确设计交底、施工交接和竣工移交的分工"
+    elif "目标" in value:
+        detail = "将目标拆为设计成果、施工节点和交付条件，按阶段核对偏差"
+    elif "体系" in value or "保证" in value:
+        detail = "按目标、责任、审核三级建立清单"
+    elif any(token in value for token in ("措施", "方案")):
+        detail = (
+            "由责任负责人在准备阶段确认输入和资源，实施阶段按清单推进，复核阶段关闭问题"
+            if index % 2 == 0 else
+            "由专业负责人编制作业卡，施工前交底、过程抽查、完成后签认并归档"
+        )
+    elif any(token in value for token in ("计划", "进度", "安排")):
+        detail = "形成节点表并设置偏差回看点"
+    elif any(token in value for token in ("标准", "要求", "验收")):
+        detail = "建立逐条核对表并保留验收记录"
+    elif any(token in value for token in ("理解", "意图", "难点")):
+        detail = "先形成问题清单，再安排专题评审"
+    else:
+        details = (
+            "先拆分输入与边界，再安排执行和验证",
+            "设置责任人、检查点和留痕记录",
+            "按现场条件形成动作清单并闭环复核",
+            "建立前置核对、过程检查和结果确认",
+        )
+        detail = details[index % len(details)]
+    records = (
+        f"项目负责人当天签认{value if len(value) <= 24 else value[:20] + '事项'}清单",
+        f"专业负责人每周复核{value if len(value) <= 24 else value[:20] + '事项'}台账",
+        f"资料负责人阶段验收前归档{value if len(value) <= 24 else value[:20] + '事项'}版本",
+        f"复核人关闭{value if len(value) <= 24 else value[:20] + '事项'}整改单后销项",
+        f"技术负责人在会审纪要中确认{value if len(value) <= 24 else value[:20] + '事项'}",
+        f"施工负责人在交接记录中标注{value if len(value) <= 24 else value[:20] + '事项'}",
+        f"服务负责人回访后登记{value if len(value) <= 24 else value[:20] + '事项'}结果",
+        f"项目经理在月度检查表中复核{value if len(value) <= 24 else value[:20] + '事项'}",
+    )
+    record = records[index % len(records)]
+    return f"{value}：{detail}；{record}。"
+
+
+def criterion_body(item: str, criterion: str, *, facts: dict | None = None) -> str:
+    source = _item_name(_score(re.sub(r"\s+", "", criterion or item))[0])
+    elements = _criterion_elements(source, item)
+    lines = [
+        *(
+        _criterion_action(element, index)
+        for index, element in enumerate(elements)
+        ),
+    ]
+    all_elements = ''.join(elements)
+    lead = elements[0][:16] if len(elements) > 1 else _clean_item(item)[:16]
+    if len(elements) == 1:
+        if '合理化建议' in all_elements or '建议' in all_elements:
+            lead = '建议采纳结果'
+        elif '招标人' in all_elements or '甲方' in all_elements:
+            lead = '协作事项回执'
+        elif '限额' in all_elements:
+            lead = '限额边界成果'
+        elif '风险' in all_elements or '安全' in all_elements:
+            lead = '风险处置结果'
+        else:
+            lead = '本项成果'
+    if '进度' in all_elements or '节点' in all_elements or '网络图' in all_elements:
+        closing = f"以“{lead}”对应的节点完成日、前置关系和审批签认作为收口依据；实际日期晚于计划或交接资料缺项时，标记未完成并重新排程。"
+    elif '质量' in all_elements or '验收' in all_elements:
+        closing = f"以“{lead}”的检查结果、整改复查和验收签字作为收口依据；不合格项未关闭或记录缺页时，不得进入下一工序。"
+    elif '风险' in all_elements or '安全' in all_elements:
+        closing = f"以“{lead}”的预警处置、复盘结论和责任确认作为收口依据；风险仍处于开放状态时，维持控制措施并暂停放行。"
+    elif '工资' in all_elements or '质保' in all_elements or '村民' in all_elements or '招标人' in all_elements:
+        closing = f"以“{lead}”的付款、回访、沟通或协作回执作为收口依据；未取得签收或问题未闭环时，列入下次履约跟踪。"
+    else:
+        closing = f"以“{lead}”的成果版本、检查记录和负责人签认作为收口依据；任一要素缺项时退回补正，复核完成后再提交。"
+    lines.append(closing)
+    text = "\n".join(lines)
+    if len(re.sub(r"\s+", "", text)) < 180:
+        lines[-1] = lines[-1].rstrip("。") + f"，围绕{lead}由项目负责人在阶段例会上复核，资料员归档签认页和整改闭环，直到复核时间与结果记录完整，并在月度例会上复盘责任人签字，形成可追溯版本并注明复核日期。"
+        text = "\n".join(lines)
+    return text
+
+
+async def generate_scoring_narrative(client, *, item, criterion, chapter, facts, score, instructions=None):
+    prompt = (
+        "本项目事实（只供理解，不在评分项正文复述）：\n" + str(facts)
+        + "\n评分项：" + item + "\n评分细则原文：" + criterion
+        + "\n所属章节：" + chapter + "\n分值：" + str(score)
+        + "\n" + (instructions or (
+            "直接写投标正文。按细则中的动宾要素逐句给出具体安排。保留原文中的关键动作和对象，"
+            "说明执行或核验方式。篇幅随要素数量变化。不要重复标题、项目事实或评分提示，"
+            "不得虚构人员、证书、业绩或数值。"
+        ))
+    )
+    try:
+        return str(await client.complete([{"role": "user", "content": prompt}], mode="pro") or "").strip()
+    except Exception as exc:
+        logger.warning("评分正文模型调用失败 item=%s error=%s", item, type(exc).__name__)
+        return ""
+
+
+def _narrative_for_point(
+    point,
+    *,
+    facts=None,
+    generator=None,
+    with_reference: bool = False,
+    include_facts: bool = True,
+    metadata: dict | None = None,
+) -> str:
     """Use an injected model generator, with a data-only generic fallback."""
+    degraded = False
     if generator is not None:
         try:
             generated = generator(point, facts or {})
             if generated:
-                return str(generated).strip()
-        except Exception:  # model failure falls through to deterministic prose
-            pass
+                if isinstance(generated, dict):
+                    degraded = bool(generated.get("degraded"))
+                    generated = generated.get("text") or ""
+                body = str(generated).strip()
+                if body:
+                    if include_facts:
+                        body = _scoring_fact_text(facts) + "\n\n" + body
+                    if metadata is not None:
+                        metadata.setdefault("items", []).append(
+                            {"item": point.item, "degraded": degraded}
+                        )
+                    return body
+        except Exception as exc:  # model failure falls through to deterministic prose
+            logger.error(
+                "评分项正文生成异常：item=%s exception=%s",
+                point.item,
+                type(exc).__name__,
+            )
+            degraded = True
     item = _clean_item(point.item)
-    terms = criterion_terms(point.criterion or item)
-    focus = "、".join(terms) or point.item
-    fact_text = "".join(_fact_sentences(facts or {}))
-    fact_text = fact_text or "本项目按已核实的招标条件组织实施。"
-    text = "\n\n".join((
-        f"{fact_text}我方将{item}放入本项目实施边界，先核对输入条件，再明确责任接口和交付要求。",
-        f"评分细则涉及{focus}，我方据此建立工作清单，逐项安排审查、沟通、记录和结果确认，确保评分原文要求可追踪。",
-        f"我方按招标文件节点组织{item}，以过程记录、阶段检查和验收资料形成闭环；事实中的数量、期限和指标均按原文执行。",
-        f"我方承诺持续协调、复核和改进{item}，在项目条件发生变化时及时更新安排并保留可核验记录。",
-    ))
+    elements = _criterion_elements(point.criterion, item)
+    lines = [_criterion_action(element, index) for index, element in enumerate(elements)]
+    text = criterion_body(item, point.criterion, facts=facts)
+    if include_facts:
+        text = _scoring_fact_text(facts) + "\n\n" + text
     if with_reference:
         text += "\n相关人员证书及证明材料见本章资格审查资料。"
+    if metadata is not None:
+        metadata.setdefault("items", []).append({"item": point.item, "degraded": True})
     return text
 
 
-def section_blocks(points, notes, *, cited_text=None, facts=None, generator=None):
+def section_blocks(points, notes, *, cited_text=None, facts=None, generator=None, metadata=None):
     """Render each scoring point as a declaration or a cited excerpt."""
     result = []
     pending = 0
-    for point in points:
+    for index, point in enumerate(points):
+        include_facts = index == 0
         commitment = re.search(r"承诺|不拖欠|质保期(?:内|外)|协调.{0,15}周边|与招标人的配合",
                                point.group + point.criterion)
         if commitment:
-            result.append(_narrative_for_point(point, facts=facts, generator=generator))
+            result.append(_narrative_for_point(point, facts=facts, generator=generator,
+                                               include_facts=include_facts, metadata=metadata))
         else:
             citation = cited_text(point) if cited_text else None
             if citation:
                 excerpt, source = citation
                 result.append(f"{excerpt}\n依据：{source}")
+                if metadata is not None:
+                    metadata.setdefault("items", []).append({"item": point.item, "degraded": False})
                 continue
-            result.append(_narrative_for_point(point, facts=facts, generator=generator, with_reference=score_item_kind(point.item, point.criterion) == 'mixed'))
+            result.append(_narrative_for_point(
+                point,
+                facts=facts,
+                generator=generator,
+                with_reference=score_item_kind(point.item, point.criterion) == 'mixed',
+                include_facts=include_facts,
+                metadata=metadata,
+            ))
     return result
+
+
+def scoring_uniqueness(texts: list[str]) -> dict:
+    """Return pairwise character 2-gram overlap and common-prefix diagnostics."""
+    def normalize(value: str) -> str:
+        return re.sub(r"[\s，。！？；：、,.!?;:'\"“”‘’（）()【】\[\]{}<>《》]+", "", str(value or ""))
+
+    normalized = [normalize(text) for text in texts]
+
+    def grams(value: str) -> set[str]:
+        return {value[index:index + 2] for index in range(max(0, len(value) - 1))}
+
+    pairwise = []
+    dup_count = 0
+    severe_count = 0
+    max_jaccard = 0.0
+    max_pair = None
+    for left in range(len(normalized)):
+        for right in range(left + 1, len(normalized)):
+            a, b = grams(normalized[left]), grams(normalized[right])
+            score = len(a & b) / max(1, len(a | b))
+            row = {"i": left, "j": right, "jaccard": score}
+            pairwise.append(row)
+            if score > SCORING_DUP_JACCARD:
+                dup_count += 1
+            if score > SCORING_SEVERE_JACCARD:
+                severe_count += 1
+            if score > max_jaccard:
+                max_jaccard = score
+                max_pair = [left, right]
+    common_prefix_len = 0
+    if normalized:
+        common_prefix_len = len(normalized[0])
+        for value in normalized[1:]:
+            limit = min(common_prefix_len, len(value))
+            index = 0
+            while index < limit and normalized[0][index] == value[index]:
+                index += 1
+            common_prefix_len = index
+    return {
+        "pairwise": pairwise,
+        "max_jaccard": max_jaccard,
+        "max_pair": max_pair,
+        "common_prefix_len": common_prefix_len,
+        "dup_count": dup_count,
+        "severe_count": severe_count,
+    }
 
 
 def word_scoring_blocks(doc):
@@ -568,7 +895,7 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
     if isinstance(citations, list):
         drafted = next((item.get("_scoring_drafts") for item in citations
                         if isinstance(item, dict) and isinstance(item.get("_scoring_drafts"), dict)), {}) or {}
-    print("scoring drafts 提取：", len(drafted), "citations 类型：", type(citations).__name__)
+    logger.info("scoring drafts extracted: count=%d citations_type=%s", len(drafted), type(citations).__name__)
     texts = []
     for title, anchor in anchors.items():
         selected = [point for point in points if point.target_section == title]
@@ -580,11 +907,25 @@ def render_section_paragraphs(doc, brief, format_path, slice_kinds, citations, *
             if _paragraph_text(following).strip().startswith("（对应评分项"):
                 _strip_scoring_label(following)
                 target = following
-        rendered = section_blocks(selected, notes, facts=facts,
-            generator=lambda point, facts_map: drafted.get(point.item, ""),
-            cited_text=lambda point: source_citation(
-            point, blocks, uploaded, citations,
-        ))
+        generation_metadata: dict = {"section": title, "items": []}
+
+        def draft_generator(point, facts_map):
+            value = drafted.get(point.item, "")
+            if isinstance(value, dict):
+                return value
+            return value
+
+        rendered = section_blocks(
+            selected,
+            notes,
+            facts=facts,
+            generator=draft_generator,
+            cited_text=lambda point: source_citation(point, blocks, uploaded, citations),
+            metadata=generation_metadata,
+        )
+        scoring_meta = getattr(brief, "scoringMetadata", None)
+        if isinstance(scoring_meta, dict):
+            scoring_meta.setdefault("sections", []).append(generation_metadata)
         if not rendered:
             continue
         texts.extend((target, text) for text in rendered)

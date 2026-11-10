@@ -60,7 +60,10 @@ def normalize_qa_volume(raw: str | None) -> str:
 
 
 def _is_report(item: Any) -> bool:
-    return isinstance(item, dict) and item.get("similarityScore") is not None
+    return isinstance(item, dict) and (
+        item.get("similarityScore") is not None
+        or item.get("scoringUniqueness") is not None
+    )
 
 
 def _read_qa_file(public_id: str) -> dict[str, Any] | None:
@@ -207,6 +210,43 @@ def save_qa_report(
     bundle = load_qa_bundle(public_id)
     bundle[vol] = row
     path = qa_report_path(public_id)
+    path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
+
+
+def save_scoring_generation_quality(
+    public_id: str,
+    volume: str,
+    quality: dict[str, Any],
+    *,
+    generation: dict[str, Any] | None = None,
+) -> None:
+    """Persist generation-time scoring diagnostics in the existing QA sidecar."""
+    vol = normalize_qa_volume(volume)
+    path = qa_report_path(public_id)
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (OSError, json.JSONDecodeError):
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    if any(key in raw for key in QA_VOLUMES):
+        bundle = raw
+    elif raw:
+        bundle = {normalize_qa_volume(str(raw.get("volume") or vol)): raw}
+    else:
+        bundle = {}
+    row = dict(bundle.get(vol) or {})
+    row.update(
+        {
+            "volume": vol,
+            "source": row.get("source") or _SOURCE_GENERATED,
+            "checkedAt": row.get("checkedAt") or int(datetime.now(UTC).timestamp() * 1000),
+            "scoringUniqueness": quality,
+        }
+    )
+    if generation is not None:
+        row["scoringGeneration"] = generation
+    bundle[vol] = row
     path.write_text(json.dumps(bundle, ensure_ascii=False), encoding="utf-8")
 
 

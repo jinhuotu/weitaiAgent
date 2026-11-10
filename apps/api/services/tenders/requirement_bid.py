@@ -195,6 +195,9 @@ def synthesize_outline(brief: BidBrief, text: str) -> list[str]:
             id=f'req-group-{key}', title=title, kind='unknown', source='generate', level=1,
         ))
         brief.outlineItems.extend(groups[key])
+    from api.services.tenders.outline import renumber_outline
+
+    brief.outlineItems = renumber_outline(brief.outlineItems)
     return added
 
 

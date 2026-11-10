@@ -589,6 +589,13 @@ def _fill_table(table, brief) -> None:
                 continue
             value = (getattr(brief, attr, "") or "").strip()
             if not value:
+                # 代理人姓名及身份证号是用户明确要求留空的字段；
+                # 去掉提示词并保留下划线，避免把“（姓名）”当成内容输出。
+                hint_context = f"{blob[max(0, pos - 40):pos]}{blob[pos + len(hint):pos + len(hint) + 40]}"
+                if any(mark in hint for mark in ("委托代理人", "代理人")) or (
+                    "姓名" in hint and "现委托" in hint_context
+                ) or any(mark in hint for mark in ("身份证号", "证件号")):
+                    _write_blank_span(el, pos, pos + len(hint), "________")
                 continue
             nxt = seq[i + 1]
             if re.sub(r"\s+", "", nxt.text or ""):
@@ -1046,7 +1053,10 @@ def unify_full_docx(path: Path, brief, *, link_toc: bool = True) -> None:
         _repair_format_table_toc(doc, brief)
     if native:
         from api.services.tenders.assemble import _fill_toc_pages
+        from api.services.tenders.native_format import reconcile_toc_references
 
+        # 先修孤儿目录行，再补页码；否则 validate_native_toc 会因为目标书签不存在而抛 422
+        reconcile_toc_references(doc)
         _fill_toc_pages(doc, fmt)
     doc.save(str(path))
 
@@ -3619,6 +3629,7 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
         _fill_hints(el, brief)
         _swap_tokens(el, brief)
         _fill_para_blanks(el, brief)
+        _fill_bid_bond_paragraph(el, brief)
         _fill_label_gap(el, brief, notes=notes, line=line)
         _relax_signature_flow(el, doc)
     for tbl in list(doc.element.body.iter(qn("w:tbl"))):
@@ -3638,7 +3649,7 @@ def _fill_word_blanks(doc: Document, brief, facts=None) -> list[str]:
 def _self_sign_note(brief):
     """Rendering diagnostics only; never change the supplied names or roles."""
     if not (getattr(brief,'agentName','') or '').strip() and (getattr(brief,'legalPersonName','') or '').strip():
-        return '当前为法人亲自签署、未另设代理人；代理人姓名按现有规则沿用法人姓名'
+        return '当前为法人亲自签署、未另设代理人；代理人姓名和证号均保留空白'
     return ''
 
 
@@ -3665,9 +3676,7 @@ def _hint_value(hint: str, brief, *, before: str = "", after: str = "") -> str:
     # 授权委托书里两处「（姓名）」：前者法定代表人，后者代理人。
     # 先看提示语本身，再看「现委托」在前还是「法定代表人」在前。
     if any(mark in hint for mark in ("委托代理人", "代理人")):
-        return (getattr(brief, "agentName", "") or "").strip() or (
-            getattr(brief, "legalPersonName", "") or ""
-        ).strip()
+        return (getattr(brief, "agentName", "") or "").strip()
     if "法定代表人" in hint:
         return (getattr(brief, "legalPersonName", "") or "").strip()
 
@@ -3683,16 +3692,12 @@ def _hint_value(hint: str, brief, *, before: str = "", after: str = "") -> str:
     if "姓名" in hint:
         # 「现委托 XXX（姓名）为我方代理人」把第二个（姓名）判给代理人。
         if "现委托" in head or head.endswith(("委托", "委托的")):
-            return (getattr(brief, "agentName", "") or "").strip() or (
-                getattr(brief, "legalPersonName", "") or ""
-            ).strip()
+            return (getattr(brief, "agentName", "") or "").strip()
         if "现委托" in rest:
             # 第一处（姓名）在「现委托」之前，仍属法定代表人。
             pass
         elif "代理人" in rest[:16] or "为我方" in rest[:16]:
-            return (getattr(brief, "agentName", "") or "").strip() or (
-                getattr(brief, "legalPersonName", "") or ""
-            ).strip()
+            return (getattr(brief, "agentName", "") or "").strip()
         return (getattr(brief, "legalPersonName", "") or "").strip()
     return (brief.tenderer or "").strip()
 
@@ -3804,6 +3809,8 @@ def _fill_mixed_hints(el, brief) -> None:
             after=blob[pos + len(hint) : pos + len(hint) + 40],
         )
         if not value:
+            if any(mark in hint for mark in ("委托代理人", "代理人", "身份证号", "证件号")):
+                _write_blank_span(el, match.start(), match.end(), "________")
             continue
         _write_blank_span(el, match.start(), match.end(), value)
 
@@ -4489,6 +4496,31 @@ def _fill_para_blanks(el, brief) -> None:
         value = _blank_value(label, brief)
         if value:
             _write_blank_span(el, match.start(), match.end(), value)
+
+
+def _fill_bid_bond_paragraph(el, brief) -> None:
+    """Fill the two labeled bond amount slots in copied letter paragraphs."""
+    amount = getattr(brief, "bidBondYuan", None)
+    if amount is None:
+        return
+    upper, lower = _amount_pair(amount)
+    if not upper:
+        return
+    blob = _blank_text(el)
+    if "投标保证金" not in blob or "大写" not in blob:
+        return
+    ranges = list(_blank_ranges(el))
+    underlined = [
+        match for match in ranges
+        if any(_run_under(run) for run, _, start, end, _ in _blank_tokens(el)
+               if start < match.end() and end > match.start())
+    ]
+    if len(underlined) < 2:
+        underlined = ranges
+    if len(underlined) > 1:
+        _write_blank_span(el, underlined[1].start(), underlined[1].end(), lower)
+    if underlined:
+        _write_blank_span(el, underlined[0].start(), underlined[0].end(), upper)
 
 
 def _blank_ranges(el):

@@ -99,7 +99,7 @@ def _remove(doc, node):
 
 def sync(doc, brief):
     from api.services.tenders.document import _bookmark_paragraph, _write_toc_line
-    from api.services.tenders.technical_render import anonymous_text
+    from api.services.tenders.technical_render import _package_display_titles, _clean, anonymous_text
 
     regions = _regions(doc)
     if not regions:
@@ -114,7 +114,29 @@ def sync(doc, brief):
     child_titles = {p['title'] for p in package.get('sections', [])}
     appendix_titles = {p['title'] for p in [*package.get('tables', []), *package.get('figures', [])]}
     candidates = []
+    display = {}
+    if package.get('template_kind') == 'chapter_heading':
+        chapter_titles, point_titles = _package_display_titles(package)
+        anchors = {mark.get(qn('w:name')): mark.getparent()
+                   for mark in doc.element.body.iter(qn('w:bookmarkStart'))}
+        for index, chapter in enumerate(package['chapters']):
+            name = chapter['title']
+            entries = [(f'toc_technical_chapter_{index}', 1, chapter_titles[name])]
+            entries.extend(('toc_technical_'+point['id'], 2, point_titles[point['id']])
+                           for point in package['sections'] if point.get('chapter') == name)
+            for bookmark, level, title in entries:
+                node = anchors.get(bookmark)
+                if node is None:
+                    raise ValueError('技术评分目录缺少正文书签：'+bookmark)
+                paragraph = Paragraph(node, doc)
+                title = _clean(title, brief)
+                if paragraph.text != title or paragraph.style.name != f'Heading {level}':
+                    raise ValueError('技术评分目录与正文标题不一致：'+title)
+                candidates.append((paragraph, level))
+                display[node] = (bookmark, title)
     for p in doc.paragraphs:
+        if display:
+            break
         if p._p in excluded or not p.text.strip():
             continue
         marks = {m.get(qn('w:name')) for m in p._p.iter(qn('w:bookmarkStart'))}
@@ -132,9 +154,9 @@ def sync(doc, brief):
     if not candidates:
         return False
     from api.services.tenders.word_structure import numbering_labels
-    labels = numbering_labels(doc, [p._p for p in doc.paragraphs if p._p not in excluded])
+    labels = {} if display else numbering_labels(doc, [p._p for p in doc.paragraphs if p._p not in excluded])
     # Cover headings preceding every directory are not body chapters.
-    if regions:
+    if regions and not display:
         body = doc.element.body
         first = min(body.index(r[0]) for r in regions)
         candidates = [(p,l) for p,l in candidates if body.index(p._p) > first]
@@ -175,6 +197,8 @@ def sync(doc, brief):
                 name += '_'
             _bookmark_paragraph(p, name)
         shown = p.text.strip()
+        if p._p in display:
+            name, shown = display[p._p]
         label = labels.get(p._p, ('', level))[0]
         if label and not shown.startswith(label):
             shown = label + shown
@@ -187,7 +211,7 @@ def sync(doc, brief):
         row = OxmlElement('w:p')
         cursor.addnext(row)
         cursor = row
-        _write_toc_line(Paragraph(row, doc), i, shown, name, '1', label='', level=level)
+        _write_toc_line(Paragraph(row, doc), i, shown, name, '1', label='', level=level, preserve_title=True)
         rows.append(row)
     for host, kind in [(title,'begin'), (title,'instruction'), (title,'separate'), (rows[-1],'end')]:
         run = OxmlElement('w:r')

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 import shutil
+import logging
+from datetime import date
 from pathlib import Path
 from uuid import uuid4
 
@@ -16,8 +18,45 @@ from api.services.tenders.schema import BidBrief, PlaceholderItem, default_brief
 from api.services.tenders.slots import list_slots_status
 from common.config import get_settings
 
+logger = logging.getLogger("api.tenders.generate")
+
 _FILE_RE = re.compile(r"^[a-f0-9]{12}(?:\.format)?\.(docx|pdf)$", re.I)
 _UNSAFE = re.compile(r'[\\/:*?"<>|\s]+')
+
+
+def _cn_ordinal_text(number: int) -> str:
+    if number <= 10:
+        return "一二三四五六七八九十"[number - 1]
+    if number < 20:
+        return "十" + ("" if number == 10 else "一二三四五六七八九"[number - 11])
+    return str(number)
+
+
+def _renumber_rendered_chapters(document) -> int:
+    """Normalize copied-format TOC and body chapter labels using one sequence."""
+    import re
+
+    heading = re.compile(r"^\s*[一二三四五六七八九十百零〇0-9]+、")
+    toc = [p for p in document.paragraphs if "\t" in (p.text or "") and heading.match(p.text or "")]
+    body = [
+        p for p in document.paragraphs
+        if "\t" not in (p.text or "") and heading.match(p.text or "")
+        and (str(getattr(p.style, "name", "") or "").lower().startswith(("heading", "标题"))
+             or len((p.text or "").strip()) <= 60)
+    ]
+    changed = 0
+    for group in (toc, body):
+        for index, para in enumerate(group, 1):
+            prefix = f"{_cn_ordinal_text(index)}、"
+            replaced = False
+            for run in para.runs:
+                if run.text and heading.match(run.text):
+                    run.text = heading.sub(prefix, run.text, count=1)
+                    replaced = True
+                    break
+            if replaced:
+                changed += 1
+    return changed
 
 
 def safe_download_name(project_name: str, *, suffix: str) -> str:
@@ -39,6 +78,68 @@ def generate_volume(brief: BidBrief) -> str:
     return v if v in {"business", "technical", "full"} else "business"
 
 
+def _scoring_texts_for_quality(
+    dest: Path,
+    catalog_facts: list | None,
+    generation_metadata: dict | None = None,
+) -> list[str]:
+    try:
+        from docx import Document
+
+        paragraphs = [str(p.text or "").strip() for p in Document(str(dest)).paragraphs]
+        sections = (generation_metadata or {}).get("sections") if isinstance(generation_metadata, dict) else None
+        if isinstance(sections, list):
+            selected: list[str] = []
+            for section in sections:
+                if not isinstance(section, dict):
+                    continue
+                title = str(section.get("section") or "").strip()
+                wanted = len(section.get("items") or [])
+                if not title or not wanted:
+                    continue
+                start = next(
+                    (
+                        i for i in range(len(paragraphs) - 1, -1, -1)
+                        if paragraphs[i].split("\t", 1)[0].strip() == title
+                    ),
+                    None,
+                )
+                if start is None:
+                    continue
+                end = len(paragraphs)
+                for i in range(start + 1, len(paragraphs)):
+                    if re.match(r"^[一二三四五六七八九十百]+、", paragraphs[i]):
+                        end = i
+                        break
+                candidates = [
+                    text for text in paragraphs[start + 1:end]
+                    if (len(text) >= 60 or "我方针对" in text) and "我方" in text
+                    and not text.startswith(("投标人", "法定代表人", "日期"))
+                ]
+                selected.extend(candidates[:wanted])
+            if len(selected) >= 2:
+                return selected
+        candidates = [
+            text for text in paragraphs
+            if (len(text) >= 60 or "我方针对" in text) and "我方" in text
+            and not text.startswith(("投标人", "法定代表人", "日期"))
+        ]
+        if len(candidates) >= 2:
+            return candidates
+    except Exception:
+        pass
+    texts: list[str] = []
+    for fact in catalog_facts or []:
+        if not isinstance(fact, dict) or not isinstance(fact.get("_scoring_drafts"), dict):
+            continue
+        for value in fact["_scoring_drafts"].values():
+            if isinstance(value, dict):
+                value = value.get("text") or ""
+            if str(value or "").strip():
+                texts.append(str(value).strip())
+    return texts
+
+
 def generate_bid(
     brief: BidBrief,
     *,
@@ -51,6 +152,8 @@ def generate_bid(
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.material_intents import prepare_structural_demands, coverage
 
+    # 正式生成的封面日期取生成当天；不让草稿中的旧日期进入新产物。
+    brief.bidDate = date.today().isoformat()
     prepare_structural_demands(brief,catalog_slots)
     native = prefer_native_format(brief)
     vol = generate_volume(brief)
@@ -91,6 +194,29 @@ def generate_bid(
         volume=vol,
     )
     warnings = list(warnings)
+    from docx import Document
+    from docx.oxml.ns import qn
+    from api.services.tenders.document import (
+        clean_visible_prompts,
+        normalize_auth_role_paragraphs,
+        normalize_signoff_block,
+    )
+    from api.services.tenders.pdf_format import _fill_bid_bond_paragraph
+
+    post = Document(dest)
+    if brief.bidBondYuan is not None:
+        for element in post.element.body.iter(qn("w:p")):
+            _fill_bid_bond_paragraph(element, brief)
+    chapter_count = _renumber_rendered_chapters(post)
+    auth_count = normalize_auth_role_paragraphs(post, brief)
+    clean_visible_prompts(post)
+    normalize_signoff_block(post.paragraphs)
+    if chapter_count or auth_count or brief.bidBondYuan is not None:
+        post.save(dest)
+    if chapter_count:
+        warnings.append(f"正文与目录章节序号已按骨架连续重编 {chapter_count} 处")
+    if auth_count:
+        warnings.append(f"授权委托书角色槽位按法人/代理人字段重写 {auth_count} 段")
     word_outcomes = []
     if word_bindings:
         from docx import Document
@@ -135,8 +261,20 @@ def generate_bid(
     if native:
         from docx import Document
 
-        from api.services.tenders.native_format import validate_native_toc
+        from api.services.tenders.native_format import reconcile_toc_references, validate_native_toc
 
+        # 校验前兜底：前面任何一步（表单清理、分页归一）删掉了正文里带书签的段落，
+        # 目录行就会变成指向不存在目标的孤儿行。这里按「目标书签是否存在」统一处理，
+        # 避免一条陈旧目录条目把整次生成打成 422。
+        checked = Document(dest)
+        toc_fix = reconcile_toc_references(checked)
+        if toc_fix["rebound"] or toc_fix["dropped"]:
+            checked.save(dest)
+            warnings.append(
+                "目录条目校正：重绑 {} 条，删除 {} 条".format(
+                    toc_fix["rebound"], toc_fix["dropped"]
+                )
+            )
         validate_native_toc(Document(dest))
 
     from api.services.cablepkg.image_quality import inspect_docx
@@ -151,6 +289,44 @@ def generate_bid(
             )
         elif image.get("error"):
             warnings.append(f"附件图片检查失败：{image['part']}，{image['error']}")
+
+    from api.services.tenders.scoring_points import scoring_uniqueness
+    from api.services.tenders.qa import load_qa_bundle
+
+    scoring_texts = _scoring_texts_for_quality(
+        dest,
+        catalog_facts,
+        getattr(brief, "scoringMetadata", None),
+    )
+    technical_qa = load_qa_bundle(stem).get(vol, {}) if vol == "technical" else {}
+    scoring_quality = technical_qa.get("scoringUniqueness") or scoring_uniqueness(scoring_texts)
+    logger.warning(
+        "scoring uniqueness: max Jaccard = %.3f (pair=%s), dup_count=%d, severe_count=%d",
+        scoring_quality["max_jaccard"], scoring_quality["max_pair"],
+        scoring_quality["dup_count"], scoring_quality["severe_count"],
+    )
+    if scoring_quality["severe_count"] > 0 and "内容重复度超标" not in warnings:
+        warnings.append("内容重复度超标")
+    scoring_generation = technical_qa.get("scoringGeneration") or getattr(brief, "scoringMetadata", {})
+    if any(
+        item.get("degraded")
+        for section in (scoring_generation.get("sections", []) if isinstance(scoring_generation, dict) else [])
+        if isinstance(section, dict)
+        for item in (section.get("items", []) or [])
+        if isinstance(item, dict)
+    ):
+        warnings.append("评分项正文生成不足，已按兜底模式输出，请核对")
+    try:
+        from api.services.tenders.qa import save_scoring_generation_quality
+
+        save_scoring_generation_quality(
+            stem,
+            vol,
+            scoring_quality,
+            generation=scoring_generation,
+        )
+    except Exception:
+        logger.exception("评分重复度 QA sidecar 写入失败")
 
     pdf_name = ""
     if pdf_src is not None:
@@ -172,6 +348,8 @@ def generate_bid(
         "generateVolume": vol,
         "materialCoverage": {vol:coverage(brief,vol)},
         "materialIntentComplete": brief.materialIntentComplete,
+        "scoringUniqueness": scoring_quality,
+        "scoringGeneration": scoring_generation,
     }
     if vol == "technical":
         out["techDocxFile"] = dest.name

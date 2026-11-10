@@ -850,7 +850,7 @@ def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Pat
             max_pages=2**31-1 if complete else _SLOT_PDF_MAX_PAGES,compact_pair=identity))
         if not placed:
             name=(slot.title or '待补资料').removeprefix('对应').strip()
-            _draw_box(doc,slot,wording=wording or ('对应'+name+'；所需材料：'+name))
+            _draw_box(doc,slot)
         _move_after(doc,anchor_el,anchor_el)
         added=[node for node in list(body)[list(body).index(anchor_el)+1:] if node.tag != qn('w:sectPr')]
         for node in added:

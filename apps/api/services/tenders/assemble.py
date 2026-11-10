@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import re
 from pathlib import Path
 
@@ -495,9 +496,23 @@ def assemble_bid_docx(
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.quote import validate_quote_source
 
+    # 只有本次用户来源的代理人字段能进入任何渲染路径；历史来源一律清空。
+    if (getattr(brief, "agentNameSource", "") or "").strip().lower() == "history":
+        brief.agentName = ""
+        brief.agentIdNo = ""
+        brief.agentNameSource = ""
+        brief.agentIdNoSource = ""
+    elif not (brief.agentName or "").strip():
+        brief.agentIdNo = ""
+        brief.agentIdNoSource = ""
+    else:
+        brief.agentNameSource = "user"
+        brief.agentIdNoSource = "user" if (brief.agentIdNo or "").strip() else ""
     native = prefer_native_format(brief)
     quote_notes = validate_quote_source(brief)
     warnings: list[str] = list(quote_notes)
+    if brief.bidBondYuan is None:
+        warnings.append("未解析到投标保证金金额，投标函保留空白")
     vol = (volume or "").strip()
     anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
     named = brief
@@ -610,14 +625,24 @@ def assemble_bid_docx(
             document.save(path)
         if removed:
             out.append(f"Removed {removed} repeated child modules already present in the source section")
-        if not anon:
-            return path, out
-        from api.services.tenders.classifier import ANON_DEFER_NOTE
-        from api.services.tenders.pdf_format import scrub_anonymous_docx
+        if anon:
+            from api.services.tenders.classifier import ANON_DEFER_NOTE
+            from api.services.tenders.pdf_format import scrub_anonymous_docx
 
-        scrub_anonymous_docx(path, named)
-        if ANON_DEFER_NOTE not in out:
-            out.append(ANON_DEFER_NOTE)
+            scrub_anonymous_docx(path, named)
+            if ANON_DEFER_NOTE not in out:
+                out.append(ANON_DEFER_NOTE)
+        qa = brief.technicalPackage.get('qa') if vol == 'technical' else None
+        if qa:
+            qa_row = {
+                'volume': vol,
+                'source': 'generated',
+                'scoringUniqueness': qa['scoringUniqueness'],
+                'scoringGeneration': {'sections': [{'items': qa.get('scoringItems', [])}]},
+            }
+            Path(path).with_suffix('.qa.json').write_text(
+                json.dumps({vol: qa_row}, ensure_ascii=False, indent=2), encoding='utf-8'
+            )
         return path, out
 
     # 有格式章就填副本。技术标只裁正文，封面目录页码另写；商务标不改正文
@@ -722,6 +747,15 @@ def assemble_bid_docx(
     )
     if subset:
         items = normalize_subset_outline(items)
+        if vol == "technical":
+            # Reuse the existing outline normalizer/numbering so a technical
+            # volume starts at its own first chapter and child titles do not
+            # carry the source book's chapter prefix.
+            shows = subset_toc_titles(items)
+            items = [
+                item.model_copy(update={"rawTitle": shown})
+                for item, shown in zip(items, shows, strict=True)
+            ]
     repair_tables = subset
     bookmarks = _subset_bookmarks(doc, items)
     _write_toc(doc, items, brief, fmt, bookmarks, subset=subset)
@@ -911,6 +945,7 @@ def assemble_bid_docx(
             continue
         filled = ""
         if use_copy:
+            # 普通函件的“联系人”允许法人回退；授权委托书代理人槽位使用独立判据。
             contact = (brief.agentName or "").strip() or (brief.legalPersonName or "").strip()
             filled = fill_copy_blanks(
                 raw_body,
@@ -922,6 +957,7 @@ def assemble_bid_docx(
                 phone=brief.bidderPhone,
                 address=brief.bidderAddress,
                 contact=contact,
+                agent=(brief.agentName or "").strip(),
                 delivery_days=brief.deliveryDays,
                 validity_days=brief.bidValidityDays,
                 quality=brief.quality,
@@ -1490,10 +1526,13 @@ def _anchor_section(
     _write_heading(doc, title, fmt, bookmark)
 
 
-def _toc_source_title(item: OutlineItem) -> str:
+def _toc_source_title(item: OutlineItem, *, allow_body: bool = True) -> str:
     title = _display_title(item)
     if title_canon(title)[0]:
         return title
+    if not allow_body:
+        logger.warning("目录来源标题为空，跳过正文回退：%s", getattr(item, "id", ""))
+        return ""
     first = ""
     for line in (item.body or "").splitlines():
         line = line.strip()
@@ -1526,6 +1565,36 @@ def _write_toc(
     subset: bool = False,
 ) -> None:
     from api.services.tenders.categories import tech_plan_text
+    from dataclasses import replace
+    from api.services.tenders.style_roles import build_style_profile, classify_paragraph
+
+    # The directory is projected from the runtime skeleton only.  Probe the
+    # learned heading role without retaining the temporary paragraph, so body
+    # prose can never become a directory entry by accident.
+    technical_projection = (
+        (getattr(brief, "generateVolume", "") or "").strip() == "technical"
+        or any((getattr(item, "kind", "") or "").strip() in {"tech_plan", "tech_chapter", "tech_dev"} for item in items)
+    )
+    if technical_projection:
+        profile = build_style_profile(doc)
+        probe_profile = replace(profile, head_max=0)
+        selected: list[tuple[OutlineItem, str]] = []
+        for item, bookmark in zip(items, bookmarks, strict=True):
+            title = _toc_source_title(item, allow_body=False)
+            if not title:
+                continue
+            style = "Heading 1" if int(getattr(item, "level", 1) or 1) <= 1 else "Heading 2"
+            probe = doc.add_paragraph(title, style=style)
+            role = classify_paragraph(probe, probe_profile)
+            probe._element.getparent().remove(probe._element)
+            if role.role not in {"chapter", "item"}:
+                logger.warning("目录条目非标题角色，跳过：%s", title[:40])
+                continue
+            selected.append((item.model_copy(update={"title": title, "rawTitle": title}), bookmark))
+    else:
+        selected = list(zip(items, bookmarks, strict=True))
+    items = [item for item, _ in selected]
+    bookmarks = [bookmark for _, bookmark in selected]
 
     head = doc.add_paragraph()
     head.alignment = WD_ALIGN_PARAGRAPH.CENTER
@@ -1533,7 +1602,8 @@ def _write_toc(
     if brief.requirementsDriven:
         for i, (item, bookmark) in enumerate(zip(items, bookmarks, strict=True)):
             _write_toc_line(doc.add_paragraph(), i, _display_title(item), bookmark,
-                            toc_page_cache(i, fmt), label='', level=item.level, with_pages=True)
+                            toc_page_cache(i, fmt), label='', level=item.level, with_pages=True,
+                            preserve_title=technical_projection)
         return
     verbatim = (brief.layoutMode or "").strip() == "outline"
     if verbatim:
@@ -1544,6 +1614,10 @@ def _write_toc(
         if subset:
             items = normalize_subset_outline(items)
             pairs = [(item.level, _toc_source_title(item)) for item in items]
+            filtered = [(item, title) for item, title in zip(items, (title for _level, title in pairs), strict=True) if title]
+            items = [item for item, _title in filtered]
+            pairs = [(item.level, title) for item, title in filtered]
+            bookmarks = bookmarks[: len(items)]
             shows = subset_toc_titles([
                 item.model_copy(update={"rawTitle": title})
                 for item, (_level, title) in zip(items, pairs, strict=True)
@@ -1561,6 +1635,7 @@ def _write_toc(
                 label="",
                 with_pages=True,
                 level=pairs[i][0],
+                preserve_title=technical_projection,
             )
         return
     tree = build_outline_toc_tree(items, bookmarks, tech_text=tech_plan_text(brief))
@@ -1576,6 +1651,7 @@ def _write_toc(
             label=label,
             with_pages=True,
             level=level,
+            preserve_title=technical_projection,
         )
 
 
@@ -3251,6 +3327,16 @@ def _allow_row_split(table) -> None:
 
 
 def _write_body(doc: Document, text: str, fmt: DocumentFormat) -> None:
+    from api.services.tenders.style_roles import (
+        build_style_profile,
+        classify_paragraph,
+        most_common_body_style,
+        normalize_body_paragraph,
+    )
+
+    start = len(doc.paragraphs)
+    profile = build_style_profile(doc)
+    body_style = most_common_body_style(doc)
     lines = _paragraphs_from_body(text)
     i = 0
     while i < len(lines):
@@ -3276,12 +3362,19 @@ def _write_body(doc: Document, text: str, fmt: DocumentFormat) -> None:
             i += 1
             continue
         para = doc.add_paragraph()
+        if body_style:
+            para.style = body_style
         pf = para.paragraph_format
         pf.space_before = Pt(0)
         pf.space_after = Pt(6)
         pf.line_spacing = 1.15
         _run(para, lines[i], size=fmt.bodySizePt, font=fmt.fontName)
         i += 1
+    for para in list(doc.paragraphs)[start:]:
+        if classify_paragraph(para, profile).role != "body":
+            continue
+        if not normalize_body_paragraph(para, profile, body_style):
+            logger.warning("正文样式未取得正文大小，保留原字号：%s", para.text[:40])
 
 
 def _is_invite_attach_label(line: str) -> bool:

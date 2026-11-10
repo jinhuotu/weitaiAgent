@@ -42,8 +42,14 @@ def _chapters_from_tables(doc):
 
 def _score_rows(doc, chapters):
     names=[c[0] if isinstance(c,tuple) else c for c in chapters]
-    out={c:[] for c in names}; totals={c[0]:(c[1] if isinstance(c,tuple) else None) for c in chapters}; pending={c:[] for c in names}; current=None
+    out={c:[] for c in names}; totals={c[0]:(c[1] if isinstance(c,tuple) else None) for c in chapters}; pending={c:[] for c in names}; carry_current=None
     for tbl in doc.tables:
+        current = None
+        if carry_current:
+            expected = totals.get(carry_current)
+            used = sum(v for _, v in out.get(carry_current, ()))
+            if expected is not None and used < expected:
+                current = carry_current
         for row in tbl.rows:
             rawcells=[c.text.strip() for c in row.cells]
             cells=list(dict.fromkeys(x for x in rawcells if x))
@@ -61,7 +67,7 @@ def _score_rows(doc, chapters):
             if paired and '评分标准' in re.sub(r'\s+', '', cells[0]):
                 m=re.search(r'0\s*-\s*(\d+)\s*分',cells[-1])
                 item=_clean_item(cells[-1][:m.start()]) if m else ''
-                if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
+                if item and int(m.group(1)) > 0 and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
                 cells=cells[:-1]; paired=False
             for cell in (cells[:-1] if paired else cells):
                 joined=re.sub(r'\s+','',cell)
@@ -70,24 +76,28 @@ def _score_rows(doc, chapters):
                     line=line.strip()
                     if not line or line.startswith('注：') or '评分标准' in line or re.match(r'^\d+、',line) and not re.search(r'0\s*-\s*\d+\s*分',line): continue
                     item=_clean_item(line)
-                    if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(2))))
+                    if item and int(m.group(2)) > 0 and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(2))))
             if len(cells)>=2 and '评分标准' not in cells[0] and '评分因素' not in cells[0] and not re.search(r'0\s*-\s*\d+\s*分',' '.join(cells[0:-1])):
                 m=re.search(r'0\s*-\s*(\d+)\s*分',cells[-1])
                 if m and cells[0] and not re.match(r'^\d+、',cells[0]):
                     item=_clean_item(cells[0])
-                    if item and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
+                    if item and int(m.group(1)) > 0 and not re.search(r'评分标准\s*[（(]\s*\d+\s*分\s*[）)]|评分标准$',item): out[current].append((item,int(m.group(1))))
             candidate=next((x for x in cells if re.match(r'^[（(]\s*\d+\s*[）)]',x)),None)
             if current and candidate and not re.search(r'0\s*-\s*\d+\s*分',' '.join(cells)):
                 pending[current].append(_clean_item(candidate))
+        carry_current = current
     for chapter,items in pending.items():
         if not items: continue
         remaining=totals.get(chapter)
         used=sum(v for _,v in out[chapter])
         if remaining is not None and (remaining-used)%len(items)==0:
             share=(remaining-used)//len(items)
-            out[chapter].extend((item,share) for item in items)
+            if share > 0:
+                out[chapter].extend((item,share) for item in items)
         else:
             logger.warning('评分项差额无法均摊：%s',chapter)
+    for chapter in out:
+        out[chapter] = [(item, score) for item, score in out[chapter] if score > 0]
     return out,totals
 
 
@@ -101,6 +111,7 @@ def text(el):
 
 def structure(brief, doc=None):
     """The numbered sibling group following an explicit drafting instruction owns the points."""
+    loaded_format = doc is None
     if doc is None:
         from api.services.tenders.pdf_format import _word_format_file
         path = _word_format_file(brief.invitationId)
@@ -120,7 +131,48 @@ def structure(brief, doc=None):
         if (level == 0 or style_name in {'heading 1','标题 1','heading1','标题1'}) and re.match(r'^[一二三四五六七八九十]+、', value):
             headings.append((node,value))
     table_chapters=_chapters_from_tables(doc)
+    if loaded_format and not table_chapters:
+        try:
+            from api.services.tenders.assets import tender_invitations_dir
+
+            invitation_id = (getattr(brief, 'invitationId', '') or '').strip()
+            original_path = tender_invitations_dir() / f'{invitation_id}.docx'
+            if not original_path.is_file():
+                logger.warning('技术标评分表回退失败：原始邀请书不存在：%s', original_path)
+            else:
+                original_doc = Document(original_path)
+                original_table_chapters = _chapters_from_tables(original_doc)
+                doc = original_doc
+                blocks = list(doc.element.body)
+                positions = {id(node): i for i, node in enumerate(blocks)}
+                headings = []
+                for node in blocks:
+                    if node.tag != qn('w:p'):
+                        continue
+                    value = text(node).strip()
+                    level = outline_level(doc, node)
+                    from docx.text.paragraph import Paragraph
+                    style_name = (Paragraph(node, doc).style.name or '').lower()
+                    if (level == 0 or style_name in {'heading 1', '标题 1', 'heading1', '标题1'}) and re.match(r'^[一二三四五六七八九十]+、', value):
+                        headings.append((node, value))
+                table_chapters = original_table_chapters
+                logger.info('评分表来源=原始邀请书：%s，识别章节=%d', original_path, len(table_chapters))
+        except Exception:
+            logger.warning('技术标评分表回退解析失败：原始邀请书', exc_info=True)
     if table_chapters:
+        criteria = {}
+        try:
+            from api.services.tenders.scoring_points import read_scoring_points, word_scoring_blocks
+
+            from api.services.tenders.scoring_points import _item_name, _score
+
+            for point in read_scoring_points('', blocks=word_scoring_blocks(doc)):
+                if point.criterion:
+                    criteria[key(point.item)] = point.criterion
+                    detail = _item_name(_score(re.sub(r'\s+', '', point.criterion))[0])
+                    criteria.setdefault(key(detail), point.criterion)
+        except Exception:
+            logger.warning('评分细则正文提取失败，保留章节评分项：%s', getattr(brief, 'invitationId', ''), exc_info=True)
         chapter_names=[x[0] for x in table_chapters]
         qualified=[]
         for title,total in table_chapters:
@@ -146,7 +198,8 @@ def structure(brief, doc=None):
                 logger.info('每章评分项 %s：%d 条',title,len(rows))
                 for item,score in rows:
                     identity='tp_'+hashlib.sha256((title+'\0'+item).encode()).hexdigest()[:16]
-                    sections.append({'id':identity,'title':item,'chapter':title,'score':score})
+                    sections.append({'id':identity,'title':item,'chapter':title,'score':score,
+                                     'criterion': criteria.get(key(item), item)})
             return {'template_kind':'chapter_heading','chapters':[{'title':v,'level':1} for v in usable], 'sections':sections,'tables':[],'figures':[]}
     if len(headings) >= 3:
         qualified=[]
@@ -233,6 +286,34 @@ def structure(brief, doc=None):
     return {}
 
 
+def _scoring_schedule_table(brief, chapter_facts):
+    """为评分型技术卷提供一张由招标工期驱动的非空施工进度表。"""
+    duration = int(getattr(brief, 'deliveryDays', 0) or 0)
+    if not duration:
+        match = re.search(r'(\d+)\s*日历?天', str((chapter_facts or {}).get('计划工期', '')))
+        duration = int(match.group(1)) if match else 150
+    checkpoints = [
+        ('施工准备与图纸会审', 1, max(1, round(duration * 0.10)), '完成交底、会审纪要和开工条件确认'),
+        ('设备材料采购与进场检验', max(2, round(duration * 0.08)), max(2, round(duration * 0.30)), '完成采购计划、到货核验和合格记录'),
+        ('土建及管沟施工', max(3, round(duration * 0.22)), max(3, round(duration * 0.60)), '完成基础、管沟和隐蔽验收'),
+        ('设备安装与接线', max(4, round(duration * 0.52)), max(4, round(duration * 0.80)), '完成设备就位、接线和单机检查'),
+        ('系统调试与送电验收', max(5, round(duration * 0.78)), max(5, round(duration * 0.93)), '完成联调、试运行和送电验收'),
+        ('竣工资料整理与移交', max(6, round(duration * 0.91)), duration, '完成竣工图、资料签收和遗留项关闭'),
+    ]
+    rows = []
+    for name, start, end, output in checkpoints:
+        start = min(duration, max(1, int(start)))
+        end = min(duration, max(start, int(end)))
+        rows.append([name, f'D{start}-D{end}', output])
+    return {
+        'id': 'technical_scoring_schedule',
+        'title': f'施工进度计划表（{duration}日历天）',
+        'columns': ['阶段', '计划区间', '完成判据'],
+        'rows': rows,
+        'note': '计划区间以开工令为D1，节点完成以对应记录和签认为准。',
+    }
+
+
 def _payload(raw):
     try:
         value,_=json.JSONDecoder().raw_decode(str(raw).lstrip('\ufeff \t\r\n'))
@@ -260,6 +341,12 @@ async def draft_package(db, brief, *, client=None):
     from api.services.tenders.tender_facts import extract_tender_facts
     invitation_text=load_invitation_text(brief.invitationId)
     tender_facts=extract_tender_facts(invitation_text)
+    source_facts = tender_facts.get('facts', {})
+    chapter_facts = {}
+    for label in ('项目名称', '建设地点', '计划工期'):
+        value = source_facts.get(label, '').strip()
+        if value and not value.startswith(('见', '详见', '按')) and len(value) <= 100:
+            chapter_facts[label] = value
     facts={'projectName':brief.projectName,'scope':brief.bidContent,'durationDays':brief.deliveryDays,
            'quality':brief.quality,'technicalInput':brief.techPlanNote,
            'constructionSite':tender_facts.get('constructionSite') or tender_facts.get('site') or '',
@@ -281,7 +368,10 @@ async def draft_package(db, brief, *, client=None):
     fingerprint=hashlib.sha256(json.dumps([facts,brief.invitationId,brief.bidderName,brief.techAnonymous,spec],ensure_ascii=False,sort_keys=True).encode()).hexdigest()
     cached=brief.technicalPackage or {}
     if cached.get('sourceHash')!=fingerprint:cached={}
-    bodies={s['id']:s.get('body','') for s in cached.get('sections',[]) if isinstance(s,dict)}
+    scored = spec.get('template_kind') == 'chapter_heading'
+    needs_resources = bool(spec['tables'] or spec['figures'])
+    bodies={s['id']:s.get('body','') for s in cached.get('sections',[]) if isinstance(s,dict) and not s.get('degraded')}
+    degraded = set()
     manual=[]
     for point in spec['sections']:
         item=next((i for i in brief.outlineItems if key(i.title)==key(point['title']) or key(i.rawTitle)==key(point['title'])),None)
@@ -291,27 +381,59 @@ async def draft_package(db, brief, *, client=None):
             bodies[point['id']]=item.draftBody
             if item.draftStatus in {'manual','edited'}:manual.append(point['id'])
     missing=[s for s in spec['sections'] if not _valid_body(bodies.get(s['id']))]
-    if client is None and (missing or not cached.get('tables') or not cached.get('stages')):
+    if client is None and (missing or (needs_resources and not cached.get('stages'))):
         from api.services.models.runtime import build_llm_client
-        client=await build_llm_client(db,'pro')
+        try:
+            client=await build_llm_client(db,'pro')
+        except Exception as exc:
+            if not scored or needs_resources:
+                raise
+            logger.warning('评分正文模型不可用 error=%s', type(exc).__name__)
     async def generate(group):
         raw=await complete_json(client,[{'role':'system','content':get_prompt('technical_package_system')+'\n每个评分项正文必须覆盖做什么、怎么做、达到什么标准、谁负责、如何验证五要素；只写表态型内容，不编造人名、证书、业绩、财务或人数。'},
             {'role':'user','content':context+'\n'+json.dumps({'anonymous':brief.techAnonymous,'sections':group},ensure_ascii=False)}],mode='pro')
         return _payload(raw).get('sections',[])
-    groups=[missing[i:i+2] for i in range(0,len(missing),2)]
+    if scored:
+        from api.services.tenders.scoring_points import generate_scoring_narrative
+        from api.services.tenders.style_roles import clean_generated_text
+
+        async def generate_point(point):
+            return await generate_scoring_narrative(
+                client, item=point['title'], criterion=point.get('criterion', point['title']),
+                chapter=point['chapter'], facts=context, score=point.get('score'),
+            )
+
+        results = await ordered_generation(
+            [lambda point=point: generate_point(point) for point in missing],
+            stage='technical_scoring_narrative', labels=[point['id'] for point in missing],
+        ) if client is not None else [''] * len(missing)
+        for point, body in zip(missing, results, strict=True):
+            body = clean_generated_text(body)
+            if body:
+                bodies[point['id']] = body
+        logger.info('技术评分正文：模型调用=%d 非空=%d',
+                    len(results) if client is not None else 0,
+                    sum(bool(bodies.get(point['id'])) for point in missing))
+    groups=[] if scored else [missing[i:i+2] for i in range(0,len(missing),2)]
     batches=await ordered_generation([lambda g=g:generate(g) for g in groups],stage='technical_source_points',labels=[str(i) for i in range(len(groups))])
     for batch in batches:
         for row in batch if isinstance(batch,list) else []:
             if isinstance(row,dict) and _valid_body(row.get('body')):
                 bodies[str(row.get('id'))]=row['body'].strip()
     for point in spec['sections']:
-        if not _valid_body(bodies.get(point['id'])):
+        if not scored and not _valid_body(bodies.get(point['id'])):
             repaired=await generate([point])
             hit=next((r for r in repaired if isinstance(r,dict) and r.get('id')==point['id'] and _valid_body(r.get('body'))),None)
             if hit: bodies[point['id']]=hit['body']
-        if not _valid_body(bodies.get(point['id'])):
-            raise AppError(ErrorCode.VALIDATION,'技术要点未生成实质正文：'+point['title']+'；请重试起草',status_code=422)
-    resources=cached if cached.get('tables') and cached.get('stages') and cached.get('zones') else None
+        if not (bodies.get(point['id']) if scored else _valid_body(bodies.get(point['id']))):
+            if not scored:
+                raise AppError(ErrorCode.VALIDATION,'技术要点未生成实质正文：'+point['title']+'；请重试起草',status_code=422)
+            from api.services.tenders.scoring_points import criterion_body
+
+            bodies[point['id']] = criterion_body(point['title'], point.get('criterion', point['title']))
+            degraded.add(point['id'])
+            logger.warning('技术要点模型正文为空，使用评分细则派生正文：%s', point['title'])
+    resources=cached if cached.get('tables') and cached.get('stages') and cached.get('zones') else (None if needs_resources else {})
     feedback=''
     previous={}
     for attempt in range(3):
@@ -325,10 +447,14 @@ async def draft_package(db, brief, *, client=None):
                 {'role':'user','content':context+correction+'\n'+json.dumps({'tables':spec['tables'],'figures':spec['figures']},ensure_ascii=False)}],mode='pro')
             resources=_payload(raw)
         try:
-            package={**spec,'sourceHash':fingerprint,'sections':[{**s,'body':bodies[s['id']],'manual':s['id'] in manual} for s in spec['sections']],
+            package={**spec,'sourceHash':fingerprint,'chapterFacts':chapter_facts,
+                     'sections':[{**s,'body':bodies[s['id']],'manual':s['id'] in manual,
+                       'degraded':s['id'] in degraded} for s in spec['sections']],
                      'tables':[{**t,**{field:row.get(field,[] if field=='rows' else '') for field in ['rows','note']}}
                                for t in spec['tables'] for row in [next((r for r in resources.get('tables',[]) if isinstance(r,dict) and r.get('id')==t['id']),{})]],
                      'stages':resources.get('stages',[]),'zones':resources.get('zones',[]),'note':str(resources.get('note',''))}
+            if scored and not package.get('tables'):
+                package['tables'] = [_scoring_schedule_table(brief, chapter_facts)]
             validate(package,brief)
             break
         except (AppError,ValueError,TypeError,KeyError) as exc:
@@ -345,6 +471,8 @@ def validate(package,brief):
         rows=table.get('rows',[])
         if not rows or any(not isinstance(r,list) or len(r)!=len(table['columns']) or not any(str(v).strip() and not re.fullmatch(r'[\d\s]+|【待补充】',str(v).strip()) for v in r) for r in rows):
             raise AppError(ErrorCode.VALIDATION,'技术附表数据未完整返回：'+table['title'],status_code=422)
+    if package.get('template_kind') == 'chapter_heading' and not package.get('figures'):
+        return
     stages=package.get('stages',[]);ids={str(s.get('id')) for s in stages if isinstance(s,dict)}
     if len(ids)<2 or len(ids)!=len(stages) or len(package.get('zones',[]))<3:
         raise AppError(ErrorCode.VALIDATION,'技术进度/布置绘图数据未完整返回，请重试起草',status_code=422)
@@ -368,10 +496,26 @@ def validate(package,brief):
 def scoped_inputs(brief,slots,media):
     """Reject business material and prose demands at the technical render boundary."""
     from api.services.tenders.categories import slot_volume, BUSINESS_SLOT_KEYS, TECHNICAL_SLOT_KEYS
-    from api.services.tenders.schema import PlaceholderItem
+    from api.services.tenders.schema import OutlineItem, PlaceholderItem
+    from api.services.tenders.format_rules import peel_toc_lead
     from api.services.tenders.material_identity import standard_material_key
     draft=brief.model_copy(deep=True)
-    points={key(p['title']) for p in structure(brief).get('sections',[])}
+    package = draft.technicalPackage or structure(brief)
+    points={key(p['title']) for p in package.get('sections',[])}
+    if package.get('template_kind') == 'chapter_heading':
+        source_items = {key(peel_toc_lead(item.rawTitle or item.title)): item
+                        for item in draft.outlineItems}
+        for index, chapter in enumerate(package['chapters']):
+            title = chapter['title']
+            item = source_items.get(key(peel_toc_lead(title)))
+            if item is None:
+                draft.outlineItems.append(OutlineItem(
+                    id=f'tech-score-chapter-{index}', title=title, rawTitle=title,
+                    kind='tech_chapter', source='copy', tocEligible=True,
+                ))
+            else:
+                item.kind = 'tech_chapter'
+                item.skipped = False
     allowed=[]
     candidates=list(slots or [])
     present={s.key for s in candidates}
