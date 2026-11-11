@@ -1085,8 +1085,7 @@ def assemble_from_word_format(
     if src is None:
         return None
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dest)
-    doc = Document(str(dest))
+    doc = Document(str(src))
     kind = _format_file_kind(src)
     vol = (volume or "").strip().lower()
     _drop_invite_chrome(doc)
@@ -1123,6 +1122,9 @@ def assemble_from_word_format(
             ensure_toc_rows(doc, brief, volume=vol)
     if kind == "pdf":
         _pull_pdf_blank_lines(doc)
+    from api.services.tenders.company_identity import guard_document_subjects
+
+    slice_notes.extend(guard_document_subjects(doc, brief, repair=True))
     blank_notes = _fill_word_blanks(doc, brief, catalog_facts)
     if native and vol == "business":
         for field in ("companyEstablished", "companyBusinessTerm", "companyRegisteredCapital"):
@@ -1144,8 +1146,9 @@ def assemble_from_word_format(
         # scrubber unconditionally removes PAGEREF, including these valid fields.
         _scrub_undefined_toc(doc)
     _separate_toc_page(doc)
-    if native and vol == "business":
+    if native:
         _remove_cover_toc_residue(doc)
+    if native and vol == "business":
         slice_notes.extend(_fill_scoring_sections(doc, brief, src, scoring_slice_kinds, catalog_facts))
     fmt = getattr(brief, "documentFormat", None)
     if fmt is not None:
@@ -1457,16 +1460,16 @@ def _tech_head_level(text: str, el=None) -> int:
         return 0
     if any(k in n for k in ("盖章", "签字", "我方", "投标人")):
         return 0
-    styled = _outline_level(el) if el is not None else 0
-    if styled:
-        return styled
-    if _H_CHAP.match(n) or _H_CN.match(n):
-        return 1
     dotted = re.match(r"^(\d+(?:\.\d+)+)", n)
     if dotted:
         return 3 if dotted.group(1).count(".") >= 2 else 2
     if _H_PAREN.match(n) or _H_NUM.match(n):
         return 2
+    if _H_CHAP.match(n) or _H_CN.match(n):
+        return 1
+    styled = _outline_level(el) if el is not None else 0
+    if styled:
+        return styled
     if any(k in n for k in _BARE_TECH) and len(n) <= 18:
         return 1
     return 0
@@ -2464,6 +2467,8 @@ def _fill_scoring_sections(doc, brief, format_path, slice_kinds, library_facts):
 
 
 def _remove_cover_toc_residue(doc: Document) -> None:
+    from api.services.tenders.format_rules import peel_toc_lead
+
     body = doc.element.body
     blocks = list(body)
     heading = next((i for i, el in enumerate(blocks)
@@ -2476,7 +2481,7 @@ def _remove_cover_toc_residue(doc: Document) -> None:
     for el in toc_block_ids(doc):
         label = _toc_row_label(el)
         if label and top.match(label.strip()):
-            titles.add(normalize(label))
+            titles.add(normalize(peel_toc_lead(label)))
     if len(titles) < 2:
         return
     for el in blocks[:heading]:
@@ -2486,9 +2491,9 @@ def _remove_cover_toc_residue(doc: Document) -> None:
         starts = list(top.finditer(text))
         if len(starts) < 2 or starts[0].start():
             continue
-        entries = {text[match.start():starts[i + 1].start() if i + 1 < len(starts) else len(text)]
+        entries = {text[match.end():starts[i + 1].start() if i + 1 < len(starts) else len(text)]
                    for i, match in enumerate(starts)}
-        if len(entries & titles) / max(len(entries), len(titles)) >= 0.8:
+        if len(entries & titles) / max(len(entries), len(titles)) >= 0.8 and not el.xpath("./w:pPr/w:sectPr"):
             body.remove(el)
 
 

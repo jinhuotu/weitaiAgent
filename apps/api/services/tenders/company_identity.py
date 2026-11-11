@@ -4,6 +4,13 @@ import re
 
 COMPANY_RE = re.compile(r'[\u4e00-\u9fffA-Za-z0-9·（）()]{2,60}(?:有限责任公司|股份有限公司|有限公司|事务所|合作社|研究院)')
 BIDDER_RE = re.compile(r'(?:投标人|响应人|供应商|承包人|乙方|卖方)(?:名称|全称)?\s*[:：]\s*([^\n；;。]{2,100})')
+_SUBJECT_LABEL = re.compile(
+    r'^\s*(?P<role>致|招标人|采购人|发包人|业主|投标人|响应人|供应商|承诺人|承包人)'
+    r'(?:名称|全称)?(?:\s*[（(][^）)\n]*[）)])?\s*[:：][:：\s]*'
+)
+_RECIPIENTS = {'致', '招标人', '采购人', '发包人', '业主'}
+_SUBJECT_COMPANY = re.compile(COMPANY_RE.pattern.replace('|事务所', '|公司|集团|事务所'))
+_BARE_ADDRESSEE = re.compile(r'^\s*(' + _SUBJECT_COMPANY.pattern + r')\s*[:：]')
 
 
 def company_key(value):
@@ -51,6 +58,81 @@ def named_bidders(text):
 
 def foreign_bidder(text, bidder_name=''):
     return any(not same_company(name, bidder_name) for name in named_bidders(text))
+
+
+def subject_changes(text, brief):
+    """Find company spans only in formal addressees and signature roles."""
+    if not (brief.bidderName.strip() or brief.tenderer.strip()):
+        return []
+    changes = []
+    for line in re.finditer(r'[^\r\n]+', text):
+        label = _SUBJECT_LABEL.match(line[0])
+        if label:
+            match = _SUBJECT_COMPANY.match(line[0], label.end())
+            expected = brief.tenderer if label['role'] in _RECIPIENTS else brief.bidderName
+        else:
+            match = _BARE_ADDRESSEE.match(line[0])
+            expected = brief.tenderer
+        if match is None:
+            continue
+        group = 0 if label else 1
+        company = match[group]
+        if same_company(company, expected) or (not label and same_company(company, brief.bidderName)):
+            continue
+        if not expected and same_company(company, brief.bidderName):
+            continue
+        changes.append((line.start() + match.start(group), line.start() + match.end(group), company, expected.strip()))
+    return changes
+
+
+def _subject_replacement(company, expected, location, repair):
+    if not expected or not repair:
+        from common.errors import AppError, ErrorCode
+
+        raise AppError(ErrorCode.VALIDATION, f'{location}主体异常：{company}，请核对投标人与招标人', status_code=422)
+    return f'{location}主体替换：{company} → {expected}'
+
+
+def guard_draft_subjects(brief):
+    """Check the content selected for generation before any renderer writes it."""
+    notes = []
+
+    def guarded(text, location):
+        for start, end, company, expected in reversed(subject_changes(text, brief)):
+            where = f'{location}第{text.count(chr(10), 0, start) + 1}行'
+            notes.append(_subject_replacement(company, expected, where, True))
+            text = text[:start] + expected + text[end:]
+        return text
+
+    items = []
+    for item in brief.outlineItems:
+        if not item.skipped:
+            values = {field: guarded(getattr(item, field), f'大纲「{item.title}」{field}')
+                      for field in ('body', 'draftBody')}
+            if any(getattr(item, field) != value for field, value in values.items()):
+                item = item.model_copy(update=values)
+        items.append(item)
+    for point in (brief.technicalPackage or {}).get('sections', []):
+        if isinstance(point.get('body'), str):
+            point['body'] = guarded(point['body'], f'技术要点「{point.get("title", "")}」')
+    if notes:
+        brief.outlineItems = items
+    return notes
+
+
+def guard_document_subjects(doc, brief, *, repair=False):
+    from docx.oxml.ns import qn
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.document import _inline_nodes, _replace_inline_span
+
+    notes = []
+    for index, node in enumerate(doc.element.body.iter(qn('w:p')), 1):
+        paragraph = Paragraph(node, doc)
+        text = ''.join(value for _, value in _inline_nodes(paragraph))
+        for start, end, company, expected in reversed(subject_changes(text, brief)):
+            notes.append(_subject_replacement(company, expected, f'正文第{index}段', repair))
+            _replace_inline_span(paragraph, start, end, expected)
+    return notes
 
 
 def missing_company_notes(brief):

@@ -686,7 +686,7 @@ async def _prepare_and_generate(
             logger.warning("评分叙述预生成异常类型：%s", type(exc).__name__, exc_info=True)
             draft_notes.append(f"评分叙述预生成失败，已走降级：{exc}")
     technical_package_active = False
-    if both or vol == 'technical':
+    if both or vol in {"technical", "full"}:
         from api.services.tenders.technical_package import draft_package
 
         package_brief=brief.model_copy(deep=True) if reference_ids else brief

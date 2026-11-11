@@ -24,41 +24,6 @@ _FILE_RE = re.compile(r"^[a-f0-9]{12}(?:\.format)?\.(docx|pdf)$", re.I)
 _UNSAFE = re.compile(r'[\\/:*?"<>|\s]+')
 
 
-def _cn_ordinal_text(number: int) -> str:
-    if number <= 10:
-        return "一二三四五六七八九十"[number - 1]
-    if number < 20:
-        return "十" + ("" if number == 10 else "一二三四五六七八九"[number - 11])
-    return str(number)
-
-
-def _renumber_rendered_chapters(document) -> int:
-    """Normalize copied-format TOC and body chapter labels using one sequence."""
-    import re
-
-    heading = re.compile(r"^\s*[一二三四五六七八九十百零〇0-9]+、")
-    toc = [p for p in document.paragraphs if "\t" in (p.text or "") and heading.match(p.text or "")]
-    body = [
-        p for p in document.paragraphs
-        if "\t" not in (p.text or "") and heading.match(p.text or "")
-        and (str(getattr(p.style, "name", "") or "").lower().startswith(("heading", "标题"))
-             or len((p.text or "").strip()) <= 60)
-    ]
-    changed = 0
-    for group in (toc, body):
-        for index, para in enumerate(group, 1):
-            prefix = f"{_cn_ordinal_text(index)}、"
-            replaced = False
-            for run in para.runs:
-                if run.text and heading.match(run.text):
-                    run.text = heading.sub(prefix, run.text, count=1)
-                    replaced = True
-                    break
-            if replaced:
-                changed += 1
-    return changed
-
-
 def safe_download_name(project_name: str, *, suffix: str) -> str:
     stem = _UNSAFE.sub("-", (project_name or "").strip())[:40].strip("-") or "bid"
     return f"{stem}-{suffix}"
@@ -151,11 +116,13 @@ def generate_bid(
 ) -> dict[str, object]:
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.material_intents import prepare_structural_demands, coverage
+    from api.services.tenders.company_identity import guard_document_subjects, guard_draft_subjects
 
     # 正式生成的封面日期取生成当天；不让草稿中的旧日期进入新产物。
     brief.bidDate = date.today().isoformat()
     prepare_structural_demands(brief,catalog_slots)
     native = prefer_native_format(brief)
+    subject_notes = guard_draft_subjects(brief)
     vol = generate_volume(brief)
     stem = uuid4().hex[:12]
     out_dir = tenders_output_dir()
@@ -193,13 +160,14 @@ def generate_bid(
         catalog_facts=catalog_facts,
         volume=vol,
     )
-    warnings = list(warnings)
+    warnings = [*subject_notes, *warnings]
     from docx import Document
     from docx.oxml.ns import qn
     from api.services.tenders.document import (
         clean_visible_prompts,
         normalize_auth_role_paragraphs,
         normalize_signoff_block,
+        postprocess_business_document,
     )
     from api.services.tenders.pdf_format import _fill_bid_bond_paragraph
 
@@ -207,14 +175,12 @@ def generate_bid(
     if brief.bidBondYuan is not None:
         for element in post.element.body.iter(qn("w:p")):
             _fill_bid_bond_paragraph(element, brief)
-    chapter_count = _renumber_rendered_chapters(post)
     auth_count = normalize_auth_role_paragraphs(post, brief)
-    clean_visible_prompts(post)
-    normalize_signoff_block(post.paragraphs)
-    if chapter_count or auth_count or brief.bidBondYuan is not None:
+    if vol != "business":
+        clean_visible_prompts(post)
+        normalize_signoff_block(post.paragraphs)
+    if auth_count or brief.bidBondYuan is not None:
         post.save(dest)
-    if chapter_count:
-        warnings.append(f"正文与目录章节序号已按骨架连续重编 {chapter_count} 处")
     if auth_count:
         warnings.append(f"授权委托书角色槽位按法人/代理人字段重写 {auth_count} 段")
     word_outcomes = []
@@ -252,12 +218,45 @@ def generate_bid(
     form_cleanup = reconcile_form_placeholders(final_document, table_outcomes, excluded=directory_blocks(final_document))
     from api.services.cablepkg.form_pagination import normalize_duplicate_page_breaks
     pagination_cleanup = normalize_duplicate_page_breaks(final_document)
-    if form_cleanup or pagination_cleanup:
+    business_cleanup = postprocess_business_document(final_document, brief) if vol == "business" else 0
+    if form_cleanup or pagination_cleanup or business_cleanup:
         final_document.save(dest)
     warnings.extend(n for n in brief.materialIntentNotes if n not in warnings)
     warnings.extend(attachment_notes)
     from api.services.tenders.company_identity import missing_company_notes
     warnings.extend(n for n in missing_company_notes(brief) if n not in warnings)
+    # 技术标目录兜底：放在卷判定之外、校验之前，避免受 native 分支或空字段影响。
+    # 判据只有「这一卷是技术标 + 文档里确实有目录域」。日志用 ASCII 标记，
+    # 便于在乱码日志里直接检索这一步到底走没走。
+    logger.warning('TOC_FIX_ENTER vol=%s native=%s', vol, native)
+    if str(vol).strip() == 'technical':
+        from api.services.tenders.technical_render import sync_toc
+        from api.services.tenders.technical_toc import _regions
+        try:
+            rebuilt = Document(dest)
+            region_count = len(_regions(rebuilt))
+            logger.warning('TOC_FIX_REGIONS vol=%s regions=%s', vol, region_count)
+            if region_count:
+                rebuilt_ok = sync_toc(rebuilt, brief)
+                logger.warning('TOC_FIX_SYNC vol=%s ok=%s', vol, rebuilt_ok)
+                if rebuilt_ok:
+                    # 重建会重写整本目录，必须紧跟一次页码回填，否则章级行停在占位值。
+                    from api.services.tenders.assemble import _fill_toc_pages
+                    from api.services.tenders.schema import DocumentFormat
+
+                    spec = getattr(getattr(brief, 'documentFormat', None), 'technicalFormat', None)
+                    page_start = spec.pageNumberStart if spec is not None and getattr(spec, 'pageStartSet', False) else 'body'
+                    _fill_toc_pages(rebuilt, DocumentFormat(pageNumberStart=page_start), subset=True)
+                    rebuilt.save(dest)
+                    logger.warning('TOC_FIX_SAVED vol=%s', vol)
+                    warnings.append('技术标目录：校验前已按目录区统一重建')
+                else:
+                    warnings.append('技术标目录：未识别到可重建的目录条目，保留原状')
+            else:
+                warnings.append('技术标目录：文档内未找到目录域，跳过重建')
+        except Exception as exc:  # noqa: BLE001
+            logger.warning('TOC_FIX_ERROR vol=%s err=%r', vol, exc)
+            warnings.append('技术标目录重建跳过：' + str(exc)[:120])
     if native:
         from docx import Document
 
@@ -276,6 +275,16 @@ def generate_bid(
                 )
             )
         validate_native_toc(Document(dest))
+
+    guard_document_subjects(Document(dest), brief)
+
+    # COM pagination belongs to the delivered storage path. Unit and fixture
+    # outputs use temporary directories and must remain deterministic and fast.
+    production_dir = (Path(__file__).resolve().parents[4] / "storage" / "tenders").resolve()
+    if out_dir.resolve() == production_dir:
+        from api.services.tenders.assemble import finalize_word_layout
+
+        warnings.extend(finalize_word_layout(dest, vol))
 
     from api.services.cablepkg.image_quality import inspect_docx
 

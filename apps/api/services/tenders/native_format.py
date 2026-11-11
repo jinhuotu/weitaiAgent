@@ -1191,6 +1191,51 @@ def ensure_toc_rows(doc, brief: BidBrief, *, volume: str = "") -> None:
             Paragraph(placed[0][1], doc).paragraph_format.page_break_before = True
             _collapse_toc_page_breaks(placed[0][0])
         return
+    if format_toc:
+        # The invitation's original labels are input data, not the output
+        # sequence.  Reuse the canonical outline renumberer for both the
+        # physical headings and the rows rebuilt below.
+        from api.services.tenders.outline import renumber_outline
+
+        normalized = renumber_outline([item for _el, _p, item in heads])
+        # A form omitted from the outline can still carry a copied Heading 1.
+        # Keep the form in its enclosing chapter without advertising another chapter.
+        from api.services.tenders.format_rules import title_canon
+
+        anchored = {p for _, p, _ in heads}
+        for element in heads[0][0].itersiblings():
+            if element.tag != qn("w:p") or element in anchored:
+                continue
+            paragraph = Paragraph(element, doc)
+            if paragraph.style.name == "Heading 1" and title_canon(paragraph.text)[0] == 1:
+                paragraph.style = "Heading 2"
+                # A literal legacy ordinal is a formatting artifact on an unlisted form.
+                from api.services.tenders.document import _replace_inline_span
+                from api.services.tenders.format_rules import peel_toc_lead
+
+                text = paragraph.text.strip()
+                bare = peel_toc_lead(text)
+                if text.endswith(bare):
+                    _replace_inline_span(paragraph, 0, len(paragraph.text) - len(bare), "")
+        rebound = []
+        for (element, paragraph_el, _old), item in zip(heads, normalized, strict=True):
+            paragraph = Paragraph(paragraph_el, doc)
+            shown = item.title or item.rawTitle
+            runs = paragraph.runs
+            if shown and paragraph.text.strip() != shown:
+                if runs:
+                    runs[0].text = shown
+                    for run in runs[1:]:
+                        run.text = ""
+                else:
+                    paragraph.add_run(shown)
+            level = 2 if int(getattr(item, "level", 1) or 1) > 1 else 1
+            try:
+                paragraph.style = f"Heading {level}"
+            except KeyError:
+                pass
+            rebound.append((element, paragraph._p, item))
+        heads = rebound
     if block:
         title = block[0]
         # 【修改2：统一删除所有旧目录条目】

@@ -1931,7 +1931,7 @@ def _draw_box(doc: Document, slot: PlaceholderItem, *, wording: str = "") -> Non
             border.set(qn("w:" + name), value)
         borders.append(border)
     mark._p.get_or_add_pPr().append(borders)
-    title = (slot.title or "").strip()
+    title = "、".join(part.strip() for part in (slot.title or "").split("|") if part.strip())
     line = wording or (f"此处粘贴{title}" if title else "")
     text = line if wording else line + "\n（在此粘贴扫描件）"
     run = mark.add_run(text)

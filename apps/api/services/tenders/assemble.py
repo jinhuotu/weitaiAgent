@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import json
 import re
+from tempfile import NamedTemporaryFile, TemporaryDirectory
+from unicodedata import normalize
 from pathlib import Path
 
 from docx import Document
@@ -35,8 +37,10 @@ from api.services.tenders.document import (
     _sect_starts_new_page,
     _set_word_wrap,
     normalize_table_layout,
+    normalize_document_colors,
     normalize_signoff_block,
     clean_visible_prompts,
+    postprocess_business_document,
     _underline_value,
     _ymd,
     _em_len,
@@ -90,6 +94,7 @@ from api.services.tenders.outline import (
     unmash_invitation_text,
     _ITEM_PREFIX,
     _trim_copied_form_tail,
+    renumber_outline,
 )
 from api.services.tenders.placeholders import (
     collect_slots,
@@ -495,6 +500,7 @@ def assemble_bid_docx(
 ) -> tuple[Path, list[str]]:
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.quote import validate_quote_source
+    from api.services.tenders.company_identity import guard_draft_subjects
 
     # 只有本次用户来源的代理人字段能进入任何渲染路径；历史来源一律清空。
     if (getattr(brief, "agentNameSource", "") or "").strip().lower() == "history":
@@ -509,11 +515,12 @@ def assemble_bid_docx(
         brief.agentNameSource = "user"
         brief.agentIdNoSource = "user" if (brief.agentIdNo or "").strip() else ""
     native = prefer_native_format(brief)
-    quote_notes = validate_quote_source(brief)
+    quote_notes = [*guard_draft_subjects(brief), *validate_quote_source(brief)]
     warnings: list[str] = list(quote_notes)
     if brief.bidBondYuan is None:
         warnings.append("未解析到投标保证金金额，投标函保留空白")
     vol = (volume or "").strip()
+    render_package = bool(brief.technicalPackage) and vol in {"technical", "full"}
     anon = vol == "technical" and bool(getattr(brief, "techAnonymous", False))
     named = brief
     if anon:
@@ -562,7 +569,7 @@ def assemble_bid_docx(
 
     def finish(path: Path, notes: list[str]) -> tuple[Path, list[str]]:
         out = list(dict.fromkeys([*quote_notes, *(notes or [])]))
-        if vol == 'technical' and brief.technicalPackage:
+        if render_package:
             from api.services.tenders.technical_render import render
 
             document = Document(path)
@@ -602,7 +609,6 @@ def assemble_bid_docx(
                 _fill_toc_pages(document, DocumentFormat(pageNumberStart=page_start), subset=True)
             document.save(path)
             out = [note for note in out if '目录未定位条目' not in note]
-            out.append('目录已在正文填充后统一更新页码；实际分页以 Word/在线编辑器排版为准')
         if brief.requirementsDriven:
             from api.services.tenders.requirement_bid import complete_requirements_docx
 
@@ -613,15 +619,14 @@ def assemble_bid_docx(
             sync_toc(document,brief)
             _fill_toc_pages(document,DocumentFormat(pageNumberStart='body'),subset=True)
             document.save(path)
-        if vol == 'technical':
-            out.append('技术标目录已校验正文对应关系；当前页码为排版估算，打开后更新域以按实际排版刷新页码')
         from api.services.tenders.section_materials import remove_repeated_child_modules, validate_material_uniqueness
         document = Document(path)
         removed = remove_repeated_child_modules(document)
         validate_material_uniqueness(document)
         from api.services.tenders.material_layout import mark_repeating_headers
         header_rows = mark_repeating_headers(document)
-        if removed or header_rows:
+        business_cleanup = postprocess_business_document(document, brief) if vol == "business" else 0
+        if removed or header_rows or business_cleanup:
             document.save(path)
         if removed:
             out.append(f"Removed {removed} repeated child modules already present in the source section")
@@ -643,6 +648,9 @@ def assemble_bid_docx(
             Path(path).with_suffix('.qa.json').write_text(
                 json.dumps({vol: qa_row}, ensure_ascii=False, indent=2), encoding='utf-8'
             )
+        document = Document(path)
+        normalize_document_colors(document)
+        document.save(path)
         return path, out
 
     # 有格式章就填副本。技术标只裁正文，封面目录页码另写；商务标不改正文
@@ -659,7 +667,7 @@ def assemble_bid_docx(
         )
         if hit is not None:
             if (getattr(brief, "autoDraftTechPlan", False) and vol in {"technical", "full"}
-                    and not (vol == 'technical' and brief.technicalPackage)):
+                    and not render_package):
                 inserted, missing = _fill_drafted_format_sections(
                     hit[0], brief, **({"full_bid": True} if vol == "full" else {})
                 )
@@ -737,6 +745,10 @@ def assemble_bid_docx(
     pasted_note = ""
     if (brief.layoutMode or "").strip() == "outline":
         cover_els, body_els, pasted_note = format_layout(brief.invitationId, volume=vol)
+        if vol != "technical" and not native:
+            items = renumber_outline(items)
+            if body_els:
+                _renumber_format_elements(doc, body_els, items)
     if cover_els:
         append_elements(doc, cover_els)
     else:
@@ -1138,9 +1150,11 @@ def assemble_bid_docx(
     dest.parent.mkdir(parents=True, exist_ok=True)
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
-    clean_visible_prompts(doc)
-    normalize_signoff_block(doc.paragraphs)
+    if vol != "business":
+        clean_visible_prompts(doc)
+        normalize_signoff_block(doc.paragraphs)
     normalize_table_layout(doc)
+    normalize_document_colors(doc)
     doc.save(str(dest))
     return finish(dest, warnings)
 
@@ -1377,6 +1391,7 @@ def _collapse_extra_page_breaks(doc: Document) -> None:
 
 
 def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False) -> None:
+    """Seed the in-memory TOC cache before the final Word layout pass."""
     if subset:
         _ensure_subset_toc_caches(doc)
     raw = _estimate_bookmark_pages(doc)
@@ -1390,6 +1405,164 @@ def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False)
     else:
         pages = {k: max(1, v - 1) for k, v in raw.items()}
     _apply_toc_page_numbers(doc, pages, pending="待更新")
+
+
+def _center_cover_structure(doc: Document, bookmarks: set[str]) -> bool:
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.document import _has_page_break_before, _p_has_page_br
+    from api.services.tenders.technical_toc import _is_toc
+
+    cover = []
+    for node in doc.element.body:
+        if node.tag != qn("w:p"):
+            return False
+        if _has_page_break_before(node):
+            break
+        if _is_toc(node) or any(
+            mark.get(qn("w:name")) in bookmarks for mark in node.iter(qn("w:bookmarkStart"))
+        ):
+            return False
+        cover.append(node)
+        if _p_sectpr(node) is not None or _p_has_page_br(node):
+            break
+    else:
+        return False
+
+    for node in cover:
+        paragraph = Paragraph(node, doc)
+        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        props = node.get_or_add_pPr()
+        props._remove_ind()
+        ind = props.get_or_add_ind()
+        for attr in ("left", "right", "start", "end", "firstLine", "hanging",
+                     "leftChars", "rightChars", "startChars", "endChars", "firstLineChars", "hangingChars"):
+            ind.set(qn(f"w:{attr}"), "0")
+        props._remove_tabs()
+        style = paragraph.style
+        inherited = set()
+        while style is not None:
+            inherited.update(style.element.xpath("./w:pPr/w:tabs/w:tab/@w:pos"))
+            style = style.base_style
+        for pos in sorted(inherited, key=int):
+            tab = OxmlElement("w:tab")
+            tab.set(qn("w:val"), "clear")
+            tab.set(qn("w:pos"), pos)
+            props.get_or_add_tabs().append(tab)
+        for tab in list(node.xpath(".//w:r/w:tab | .//w:r/w:ptab")):
+            space = OxmlElement("w:t")
+            space.set(qn("xml:space"), "preserve")
+            space.text = " "
+            tab.getparent().replace(tab, space)
+    return bool(cover)
+
+
+def _toc_title_key(text: str) -> str:
+    from api.services.tenders.outline import _strip_outline_prefix
+
+    return "".join(_strip_outline_prefix(normalize("NFKC", text)).split()).replace("\u00ad", "")
+
+
+def _freeze_render_directory(doc: Document) -> None:
+    """Flatten only directory fields in the render copy, keeping their visible text."""
+    doc.settings.element.find(qn("w:updateFields")).set(qn("w:val"), "false")
+    stack = []
+    for node in list(doc.element.body.iter(qn("w:fldChar"), qn("w:instrText"), qn("w:fldSimple"))):
+        if node.tag == qn("w:fldSimple"):
+            if node.get(qn("w:instr"), "").lstrip().upper().startswith("TC "):
+                node.getparent().remove(node)
+        elif node.tag == qn("w:instrText"):
+            if stack:
+                stack[-1].append(node)
+        else:
+            kind = node.get(qn("w:fldCharType"))
+            if kind == "begin":
+                stack.append([node])
+            elif stack:
+                stack[-1].append(node)
+                if kind == "end":
+                    field = stack.pop()
+                    code = "".join(n.text or "" for n in field if n.tag == qn("w:instrText"))
+                    if re.match(r"\s*(?:TOC|PAGEREF|TC)\b", code, re.I):
+                        for part in field:
+                            part.getparent().remove(part)
+
+
+def finalize_word_layout(path: Path, volume: str) -> list[str]:
+    """Finalize the cover and replace provisional TOC caches on the delivered DOCX."""
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.document import _pageref_bookmark, _set_pageref_cache
+    from api.services.tenders.preview_pdf import export_word_pagination
+
+    doc = Document(path)
+    entries = []
+    for node in doc.element.body.iter(qn("w:p")):
+        paragraph = Paragraph(node, doc)
+        name = _pageref_bookmark(paragraph)
+        if name:
+            entries.append((paragraph, name, paragraph.text.split("\t", 1)[0].strip()))
+    centered = _center_cover_structure(doc, {name for _, name, _ in entries})
+    if not entries:
+        if centered:
+            doc.save(path)
+        return []
+
+    settings = doc.settings.element
+    update = settings.find(qn("w:updateFields"))
+    if update is None:
+        update = OxmlElement("w:updateFields")
+        settings.insert_element_before(update, "w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr",
+                                       "w:compat", "w:docVars", "w:rsids")
+    update.set(qn("w:val"), "true")
+    warnings = []
+    missing = []
+    with TemporaryDirectory(dir=path.parent, ignore_cleanup_errors=True) as raw:
+        snapshot = Path(raw) / "layout.docx"
+        pdf = snapshot.with_suffix(".pdf")
+        # Freeze the TOC result in the read-only render so field updates cannot
+        # change how many pages it occupies before the body starts.
+        doc.save(snapshot)
+        render_doc = Document(snapshot)
+        _freeze_render_directory(render_doc)
+        render_doc.save(snapshot)
+        try:
+            import fitz
+
+            layout = export_word_pagination(snapshot, pdf)
+            with fitz.open(pdf) as rendered:
+                pages = ["".join(normalize("NFKC", page.get_text()).split()).replace("\u00ad", "")
+                         for page in rendered]
+        except (ImportError, OSError, RuntimeError, ValueError) as exc:
+            logger.warning("Word layout render failed for %s: %s", path.name, exc)
+            warnings.append(f"目录未能按 Word 实际分页回填：{exc}")
+            missing.extend(title for _, _, title in entries)
+        else:
+            for paragraph, name, title in entries:
+                anchor = layout["bookmarks"].get(name)
+                key = _toc_title_key(title)
+                # Use the bookmark to distinguish repeated headings and exclude
+                # the TOC's own text. Word's adjusted page reflects the section's
+                # numbering restart, including any pages before the numbered section.
+                matches = [index + 1 for index, page in enumerate(pages) if key and key in page]
+                if anchor and matches:
+                    physical = min(matches, key=lambda value: abs(value - anchor["physical"]))
+                    if abs(physical - anchor["physical"]) <= 1:
+                        _set_pageref_cache(paragraph, str(anchor["numbered"]))
+                    else:
+                        missing.append(title)
+                else:
+                    missing.append(title)
+    # Keep the replacement in the output directory so it inherits the delivery
+    # permissions, rather than the private ACL of the render directory.
+    with NamedTemporaryFile(dir=path.parent, suffix=".docx", delete=False) as output:
+        replacement = Path(output.name)
+    try:
+        doc.save(replacement)
+        replacement.replace(path)
+    finally:
+        replacement.unlink(missing_ok=True)
+    if missing:
+        warnings.append("目录未定位条目（保留原页码）：" + "；".join(missing))
+    return warnings
 
 
 def _write_cover(doc: Document, brief: BidBrief, fmt: DocumentFormat, *, volume: str = "") -> None:
@@ -1539,7 +1712,11 @@ def _toc_source_title(item: OutlineItem, *, allow_body: bool = True) -> str:
         if line:
             first = line
             break
-    if not first or not title_canon(first)[0]:
+    if not first:
+        return title
+    if not title and allow_body:
+        return first
+    if not title_canon(first)[0]:
         return title
     a = compact_title(peel_toc_lead(title))
     b = compact_title(peel_toc_lead(first))
@@ -1549,10 +1726,64 @@ def _toc_source_title(item: OutlineItem, *, allow_body: bool = True) -> str:
 
 
 def _display_title(item: OutlineItem) -> str:
+    title = (item.title or "").strip()
     raw = (getattr(item, "rawTitle", "") or "").strip()
-    if raw and len(raw) <= 40:
+    if not title:
         return raw
-    return (item.title or "").strip()
+    prefix = re.compile(
+        r"^\s*(?:第[一二三四五六七八九十百零〇0-9]+[章节部分]|"
+        r"[一二三四五六七八九十百零〇0-9]+[、.．]|"
+        r"[（(][一二三四五六七八九十百零〇0-9]+[）)]|"
+        r"\d+(?:[.．]\d+)+)"
+    )
+    # ``title`` is the normalized display value.  A raw prefix is only a
+    # fallback for templates whose visible title lives exclusively in rawTitle.
+    if raw and len(raw) <= 60 and not prefix.match(title) and prefix.match(raw):
+        return raw
+    return title
+
+
+def _renumber_format_elements(doc: Document, elements: list, items: list[OutlineItem]) -> int:
+    """Apply the canonical outline sequence to copied format headings."""
+    from docx.text.paragraph import Paragraph
+
+    by_key: dict[str, list[OutlineItem]] = {}
+    for item in items:
+        key = compact_title(peel_toc_lead(item.title))
+        if key:
+            by_key.setdefault(key, []).append(item)
+        raw_key = compact_title(peel_toc_lead(item.rawTitle))
+        if raw_key and raw_key != key:
+            by_key.setdefault(raw_key, []).append(item)
+    changed = 0
+    for element in elements:
+        if element.tag != qn("w:p"):
+            continue
+        para = Paragraph(element, doc)
+        text = (para.text or "").strip()
+        if not text or "\t" in text or len(text) > 70:
+            continue
+        key = compact_title(peel_toc_lead(text))
+        candidates = by_key.get(key) or []
+        if not candidates:
+            continue
+        item = candidates.pop(0)
+        shown = _display_title(item)
+        if text != shown:
+            runs = para.runs
+            if runs:
+                runs[0].text = shown
+                for run in runs[1:]:
+                    run.text = ""
+            else:
+                para.add_run(shown)
+            changed += 1
+        level = 2 if int(getattr(item, "level", 1) or 1) > 1 else 1
+        try:
+            para.style = f"Heading {level}"
+        except KeyError:
+            pass
+    return changed
 
 
 def _write_toc(
@@ -1685,13 +1916,22 @@ def _inline_copied_id(
 
 def _write_heading(doc: Document, title: str, fmt: DocumentFormat, bookmark: str | None = None):
     para = doc.add_paragraph()
+    normalized_title = (bid_item_title(title) or "").strip() or "附件"
+    child = bool(re.match(
+        r"^\s*(?:[（(][一二三四五六七八九十百零〇0-9]+[）)]|\d+(?:[.．]\d+)+)",
+        normalized_title,
+    ))
+    try:
+        para.style = "Heading 2" if child else "Heading 1"
+    except KeyError:
+        pass
     para.alignment = WD_ALIGN_PARAGRAPH.CENTER
     pf = para.paragraph_format
     pf.space_before = Pt(6)
     pf.space_after = Pt(12)
     _run(
         para,
-        (bid_item_title(title) or "").strip() or "附件",
+        normalized_title,
         size=fmt.headingSizePt,
         bold=True,
         font=fmt.fontName,
@@ -3238,6 +3478,17 @@ def _apply_span_marks(table, grid: list[list[str]]) -> None:
 def _try_write_pipe_table(
     doc: Document, lines: list[str], i: int, fmt: DocumentFormat | None = None, title: str = ""
 ) -> int | None:
+    from api.services.tenders.technical_render import _insert_progress_table, _markdown_blocks
+
+    end = i
+    while end < len(lines) and lines[end].lstrip().startswith("|"):
+        end += 1
+    if end > i + 1:
+        block = next(_markdown_blocks("\n".join(lines[i:end])), None)
+        if isinstance(block, dict):
+            cursor = doc.element.body[-1].getprevious()
+            _insert_progress_table(doc, cursor, block, Pt((fmt or DocumentFormat()).bodySizePt))
+            return end
     first = _pipe_cells(lines[i] if i < len(lines) else "")
     if not first:
         return None
@@ -3645,11 +3896,12 @@ def _coalesce_broken_form_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def _run(para, text: str, *, size: float = 12, bold: bool = False, font: str = _SONG) -> None:
+def _run(para, text: str, *, size: float | None = 12, bold: bool = False, font: str = _SONG) -> None:
     name = font or _SONG
     run = para.add_run(text or "")
     run.bold = bold
-    run.font.size = Pt(size)
+    if size is not None:
+        run.font.size = Pt(size)
     run.font.name = name
     run.font.color.rgb = RGBColor(0, 0, 0)
     rpr = run._element.get_or_add_rPr()

@@ -2004,9 +2004,23 @@ def renumber_outline(items: list[OutlineItem]) -> list[OutlineItem]:
     chapter_no = 0
     for item in items:
         current = item.model_copy(deep=True)
-        level = int(getattr(current, "level", 1) or 1)
+        title_text = (current.title or "").strip()
+        raw_text = (current.rawTitle or "").strip()
+        # Text shape is stronger than stale Word outline metadata.  Converted
+        # formats frequently promote ``（一）``/``1.1`` rows to level 1.
+        child_shape = bool(re.match(
+            r"^\s*(?:[（(][一二三四五六七八九十百零〇0-9]+[）)]|\d+(?:[.．]\d+)+)",
+            title_text,
+        )) or bool(re.match(
+            r"^\s*(?:[（(][一二三四五六七八九十百零〇0-9]+[）)]|\d+(?:[.．]\d+)+)",
+            raw_text,
+        ))
+        level = 2 if child_shape else int(getattr(current, "level", 1) or 1)
+        current.level = level
         synthetic_group = current.id.startswith("req-group-")
-        parenthesized_child = bool(re.match(r"^\s*[（(][一二三四五六七八九十百零〇0-9]+[）)]", current.title or ""))
+        parenthesized_child = child_shape and bool(re.match(
+            r"^\s*[（(][一二三四五六七八九十百零〇0-9]+[）)]", title_text or raw_text
+        ))
         clean_title = current.title.strip() if parenthesized_child else _strip_outline_prefix(current.title)
         clean_raw = current.rawTitle.strip() if parenthesized_child else _strip_outline_prefix(current.rawTitle)
         if level <= 1 and not synthetic_group and not parenthesized_child:

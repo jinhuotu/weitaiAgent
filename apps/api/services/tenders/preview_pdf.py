@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -16,10 +18,11 @@ logger = logging.getLogger("api.tenders.preview_pdf")
 
 _LOCK = threading.Lock()
 _PS_TIMEOUT = 90
+_PAGINATION_TIMEOUT = 300
 _SOFFICE_TIMEOUT = 90
 
 _PS_EXPORT = r"""
-param($AppId, $InPath, $OutPath)
+param($AppId, $InPath, $OutPath, $PaginationPath)
 $ErrorActionPreference = 'Stop'
 $app = New-Object -ComObject $AppId
 try {
@@ -27,15 +30,37 @@ try {
   try { $app.DisplayAlerts = 0 } catch {}
   $doc = $app.Documents.Open($InPath, $false, $true)
   try {
-    try { $doc.Repaginate() } catch {}
-    try { foreach ($toc in $doc.TablesOfContents) { $toc.Update() } } catch {}
-    try { $doc.Fields.Update() } catch {}
+    if (-not $PaginationPath) {
+      try { $doc.Repaginate() } catch {}
+      try { foreach ($toc in $doc.TablesOfContents) { $toc.Update() } } catch {}
+      try { $doc.Fields.Update() } catch {}
+    }
     $ok = $false
     try { $doc.ExportAsFixedFormat($OutPath, 17); $ok = $true } catch {}
     if (-not $ok) {
       try { $doc.SaveAs($OutPath, 17); $ok = $true } catch {}
     }
     if (-not $ok) { throw 'export pdf failed' }
+    if ($PaginationPath) {
+      $bookmarks = @{}
+      $doc.Bookmarks.ShowHidden = $true
+      foreach ($bookmark in $doc.Bookmarks) {
+        $range = $bookmark.Range.Duplicate
+        $range.Collapse(1)
+        $bookmarks[$bookmark.Name] = @{
+          physical = $range.Information(3)
+          numbered = $range.Information(1)
+        }
+      }
+      $sections = @(foreach ($section in $doc.Sections) {
+        $range = $section.Range.Duplicate
+        $range.Collapse(1)
+        $range.Information(3)
+      })
+      @{bookmarks = $bookmarks; sections = $sections} |
+        ConvertTo-Json -Depth 4 -Compress |
+        Set-Content -LiteralPath $PaginationPath -Encoding UTF8
+    }
   } finally {
     $doc.Close($false)
   }
@@ -134,7 +159,20 @@ def _order(kind: str) -> list[str]:
     return ["wps", "word", "soffice"]
 
 
-def _com_export(app: str, docx: Path, dest: Path) -> None:
+def export_word_pagination(docx: Path, dest: Path) -> dict:
+    """Render a DOCX snapshot and locate bookmark starts in Word's page sequence."""
+    if not sys.platform.startswith("win"):
+        raise RuntimeError("Word COM 需要 Windows")
+    pagination = dest.with_suffix(".pagination.json")
+    with _LOCK:
+        try:
+            _com_export("word", docx, dest, pagination=pagination)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(f"Word 分页导出超时（{exc.timeout} 秒）") from exc
+    return json.loads(pagination.read_text(encoding="utf-8-sig"))
+
+
+def _com_export(app: str, docx: Path, dest: Path, *, pagination: Path | None = None) -> None:
     progid = "Kwps.Application" if app == "wps" else "Word.Application"
     dest.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", suffix=".ps1", delete=False, encoding="utf-8") as fh:
@@ -156,10 +194,11 @@ def _com_export(app: str, docx: Path, dest: Path) -> None:
                 str(docx.resolve()),
                 "-OutPath",
                 str(dest.resolve()),
+                *(["-PaginationPath", str(pagination.resolve())] if pagination is not None else []),
             ],
             capture_output=True,
             text=True,
-            timeout=_PS_TIMEOUT,
+            timeout=_PAGINATION_TIMEOUT if pagination is not None else _PS_TIMEOUT,
         )
         if r.returncode != 0 or not dest.is_file():
             err = (r.stderr or r.stdout or "").strip()[:400]

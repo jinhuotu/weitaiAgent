@@ -14,9 +14,15 @@ from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Callable
 
+from common.errors import AppError, ErrorCode
+
 logger = logging.getLogger(__name__)
 _CACHE = OrderedDict()
 _CACHE_LIMIT = 256
+_CHUNK_TIMEOUT_SECONDS = 45.0
+# Leave room for the other parse steps under the route's 180-second timeout.
+_EXTRACTION_TIMEOUT_SECONDS = 150.0
+_RETRY_BACKOFF_SECONDS = 1.0
 _HEADING = re.compile(r"(?m)^(?:第[一二三四五六七八九十百\d]+[章部分节]|[一二三四五六七八九十]+[、．.]|\d+(?:\.\d+)*[、．.\s])[^\n]{1,100}$")
 
 # Configuration for adaptive concurrency
@@ -148,8 +154,10 @@ def repair_json(raw: str) -> str:
 
 
 async def extract_chunks(text, client, system, make_prompt, parse, retry_prompt='', *, concurrency=None, enable_json_mode=True):
-    chunks = split_invitation(text)
     started = perf_counter()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _EXTRACTION_TIMEOUT_SECONDS
+    chunks = split_invitation(text)
     limit = max(1, min(16, concurrency or int(os.getenv('TENDER_EXTRACT_CONCURRENCY', '6'))))
     gate = asyncio.Semaphore(limit)
     metrics = ExtractionMetrics(total_chunks=len(chunks))
@@ -173,19 +181,39 @@ async def extract_chunks(text, client, system, make_prompt, parse, retry_prompt=
             kwargs = {'mode':'fast'}
             if enable_json_mode and 'response_format' in inspect.signature(client.complete).parameters:
                 kwargs['response_format'] = {'type':'json_object'}
-            # Only rejected/rate-limited requests may back off. Validation errors
-            # never trigger another model call or subdivision.
-            for attempt in range(3):
+            for attempt in (1, 2):
+                attempt_started = perf_counter()
                 try:
-                    raw = await client.complete(messages, **kwargs)
+                    async with asyncio.timeout(_CHUNK_TIMEOUT_SECONDS):
+                        raw = await client.complete(messages, **kwargs)
                     break
                 except Exception as exc:
-                    if getattr(exc,'status_code',None) not in {429,503} or attempt == 2:
-                        logger.error('invitation transport failure chunk=%s range=%s:%s status=%s attempts=%s',chunk.index+1,chunk.start,chunk.end,getattr(exc,'status_code',None),attempt+1)
+                    status = 504 if isinstance(exc, TimeoutError) else getattr(exc, "status_code", None)
+                    if status == 502 and isinstance(exc, AppError):
+                        # The shared model client wraps upstream HTTP errors in a 502.
+                        upstream = re.match(r"LLM request failed \((429|503|504)\):", exc.msg)
+                        if upstream:
+                            status = int(upstream[1])
+                    retry = (
+                        status in {429, 503, 504}
+                        and attempt == 1
+                        and deadline - loop.time() > _RETRY_BACKOFF_SECONDS
+                    )
+                    logger.warning(
+                        "invitation transport failure chunk=%s range=%s:%s status=%s attempt=%s elapsed=%.3fs retry=%s",
+                        chunk.index + 1, chunk.start, chunk.end, status, attempt,
+                        perf_counter() - attempt_started, retry,
+                    )
+                    if not retry:
+                        if status == 504:
+                            raise AppError(
+                                ErrorCode.INTERNAL,
+                                f"邀请书正文已读取，AI 抽取超时（第 {chunk.index + 1} / {len(chunks)} 块），请重试。",
+                                status_code=504,
+                            ) from exc
                         raise
                     metrics.retried_chunks += 1
-                    logger.warning('invitation connection/rate backoff chunk=%s attempt=%s seconds=%s',chunk.index+1,attempt+1,2**attempt)
-                    await asyncio.sleep(2 ** attempt)
+                    await asyncio.sleep(_RETRY_BACKOFF_SECONDS)
             try:
                 try:
                     payload = parse(raw)
@@ -194,15 +222,31 @@ async def extract_chunks(text, client, system, make_prompt, parse, retry_prompt=
             except Exception as exc:
                 logger.error('invitation validation chunk=%s range=%s:%s reason=%s',chunk.index+1,chunk.start,chunk.end,str(exc)[:240])
                 raise
-            metrics.successful_first_attempt += 1
+            if attempt == 1:
+                metrics.successful_first_attempt += 1
             _CACHE[key] = copy.deepcopy(payload)
             while len(_CACHE)>_CACHE_LIMIT:
                 _CACHE.popitem(last=False)
             logger.info('invitation chunk=%s seconds=%.3f',chunk.index+1,perf_counter()-tick)
             return payload
-    results = await asyncio.gather(*(run(c) for c in chunks),return_exceptions=True)
-    metrics.total_seconds = perf_counter()-started
-    metrics.log_summary()
+    tasks = [asyncio.create_task(run(chunk)) for chunk in chunks]
+    try:
+        async with asyncio.timeout_at(deadline):
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+    except TimeoutError as exc:
+        logger.warning(
+            "invitation extraction deadline seconds=%s unfinished_chunks=%s",
+            _EXTRACTION_TIMEOUT_SECONDS,
+            [chunk.index + 1 for chunk, task in zip(chunks, tasks) if task.cancelled()],
+        )
+        raise AppError(
+            ErrorCode.INTERNAL,
+            "邀请书正文已读取，AI 抽取超过总时间上限，请重试。",
+            status_code=504,
+        ) from exc
+    finally:
+        metrics.total_seconds = perf_counter() - started
+        metrics.log_summary()
     for result in results:
         if isinstance(result,BaseException):
             raise result
