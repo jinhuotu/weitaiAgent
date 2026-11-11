@@ -4455,6 +4455,9 @@ def _blank_value(label: str, brief) -> str:
         return ""
     if tail.endswith("委托代理人") or tail.endswith("法定代表人"):
         return ""
+    field = _inline_label_field(tail)
+    if field:
+        return _inline_field_value(field, brief)
     pairs = (
         ("联合体牵头人", brief.bidderName),
         ("招标编号", brief.tenderNo),
@@ -4490,17 +4493,206 @@ def _blank_value(label: str, brief) -> str:
 
 
 def _fill_para_blanks(el, brief) -> None:
-    blob = _blank_text(el)
-    for match in reversed(_blank_ranges(el)):
-        raw = match.group()
-        under = any(_run_under(r) for r, _, a, b, _ in _blank_tokens(el)
-                    if a < match.end() and b > match.start())
-        if not (under or re.search(r"[_＿\t]| {2,}|\u3000", raw)):
+    _inline_blank_records(el, brief)
+
+
+def _inline_label_field(label, *, actor=''):
+    """Resolve only the local label; aliases are data in the shared field map."""
+    label = re.sub(r'\s+', '', label or '').rstrip('：:')
+    label = re.sub(_STAMP, '', label)
+    if actor and label in _PERSON_GENERIC_FIELDS:
+        return _PERSON_SCOPED_FIELDS.get(actor, {}).get(_PERSON_GENERIC_FIELDS[label], '')
+    exact = _LABEL_ATTRS.get(label, '')
+    if exact:
+        return exact
+    # These complete amount labels can follow prose in a letter sentence.
+    for field, aliases in _EMBEDDED_LABEL_FIELDS.items():
+        if any(label.endswith(alias) for alias in aliases):
+            return field
+    return ''
+
+
+def _declared_person_actor(label):
+    label = re.sub(_STAMP, '', re.sub(r'\s+', '', label or '')).rstrip('：:')
+    if label in _PERSON_GENERIC_FIELDS:
+        return ''
+    if '或' in label and '法定代表人' in label and any(word in label for word in ('代理人', '授权代表')):
+        return 'unknown'
+    field = _LABEL_ATTRS.get(label, '')
+    if field.startswith('legalPerson'):
+        return 'legal'
+    if field.startswith('agent'):
+        return 'agent'
+    if field.startswith('pm'):
+        return 'pm'
+    if label.endswith(('负责人', '联系人')):
+        return 'unknown'
+    return ''
+
+
+def _person_actor_before(el, prefix):
+    """Follow explicit labels inside the row or contiguous information/signing block."""
+    def declared(text):
+        found = {match.end(): actor for match in _LABEL_PATTERN.finditer(text)
+                 if (actor := _declared_person_actor(match['label']))}
+        for match in re.finditer(r'(?P<label>[^:：\n，,。；;]+)[:：]', text):
+            if match.end() not in found and (actor := _declared_person_actor(match['label'])):
+                found[match.end()] = actor
+        return found[max(found)] if found else _declared_person_actor(text)
+    if actor := declared(prefix):
+        return actor
+    cell = next(el.iterancestors(qn('w:tc')), None)
+    if cell is not None:
+        for prior in cell.itersiblings(preceding=True):
+            if prior.tag == qn('w:tc') and (actor := declared(_cell_plain(prior))):
+                return actor
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.document import _paragraph_role
+    for prior in el.itersiblings(preceding=True):
+        if prior.tag != qn('w:p') or next(prior.iter(qn('w:sectPr')), None) is not None:
+            break
+        text = _blank_text(prior).strip()
+        if actor := declared(text):
+            return actor
+        if not text or re.fullmatch(_STAMP, text):
             continue
-        label = re.sub(r"\s+", "", blob[:match.start()])[-16:]
-        value = _blank_value(label, brief)
-        if value:
+        if _paragraph_role(Paragraph(prior, None))[0] not in {'information', 'signing'}:
+            break
+    return ''
+
+
+def reconcile_person_field_values(doc, brief):
+    """Retract a known other-role value from an explicitly agent-owned field."""
+    records = []
+    for el in doc.element.body.iter(qn('w:p')):
+        text = _blank_text(el)
+        labels = list(_LABEL_PATTERN.finditer(text))
+        for index in range(len(labels) - 1, -1, -1):
+            label = labels[index]
+            actor = _declared_person_actor(label['label']) or _person_actor_before(el, text[:label.start()])
+            if actor != 'agent':
+                continue
+            field = _inline_label_field(label['label'], actor=actor)
+            original_field = {'agentName': 'legalPersonName', 'agentIdNo': 'legalPersonIdNo'}.get(field)
+            if original_field is None:
+                continue
+            prior_value = _inline_field_value(original_field, brief)
+            value = _inline_field_value(field, brief) if field else ''
+            if field == 'agentName' and not value and getattr(brief, 'agentIdNo', ''):
+                continue
+            end = labels[index + 1].start() if index + 1 < len(labels) else len(text)
+            tail = text[label.end():end]
+            match = re.search(re.escape(prior_value), tail) if prior_value and prior_value != value else None
+            suffix = tail[match.end():] if match is not None else ''
+            if (match is not None and not tail[:match.start()].strip(' \t_＿')
+                    and (not suffix or suffix[0].isspace() or suffix[0] in '（()）[]【】:：，,。；;')):
+                start, stop = label.end() + match.start(), label.end() + match.end()
+                affected = [token for token in _blank_tokens(el) if token[2] < stop and token[3] > start]
+                if any(token[1].tag != qn('w:t') for token in affected):
+                    continue
+                inserted = False
+                for _, node, first, last, original in affected:
+                    node.text = (original[:max(start-first, 0)] + (value if not inserted else '')
+                                 + original[max(stop-first, 0):]) or None
+                    if node.text and node.text != node.text.strip():
+                        node.set(qn('xml:space'), 'preserve')
+                    inserted = True
+                records.append({'field': field, 'label': label['label'], 'actor': actor,
+                                'reason': 'other_actor_value_retracted',
+                                'paragraph': el.getroottree().getpath(el)})
+                import json
+                logger.info('PERSON_FIELD_RECONCILE %s', json.dumps(records[-1], ensure_ascii=True, sort_keys=True))
+    return records
+
+
+def _inline_field_value(field, brief, *, unit=''):
+    value = getattr(brief, field, None)
+    if value is None or value == '' or (value == 0 and field not in {
+            'safetyFeeYuan', 'provisionalYuan', 'primeCostYuan', 'bidBondYuan'}):
+        return ''
+    if field == 'bidDate':
+        return _date_value(brief)
+    if field == 'bidValidityDays' and not unit:
+        return _valid_days_text(brief)
+    if field == 'deliveryDays' and not unit:
+        return f'{value}日历天'
+    if field.endswith('Yuan'):
+        from decimal import Decimal
+        number = Decimal(str(value)) / (Decimal('10000') if unit == '万元' else 1)
+        return format(number, 'f').rstrip('0').rstrip('.') if '.' in format(number, 'f') else format(number, 'f')
+    return str(value).strip()
+
+
+def _following_inline_unit(el, tail):
+    """A copied line may carry its fixed unit across a run or paragraph break."""
+    pattern = r'(?:万元|元整|日历天|天|日|年|元|[%％])'
+    if _LABEL_PATTERN.match(tail.lstrip()):
+        return ''
+    if unit := re.match(pattern, tail.lstrip()):
+        return unit[0]
+    if tail.strip() or next(el.iter(qn('w:sectPr')), None) is not None:
+        return ''
+    for node in el.itersiblings():
+        if node.tag != qn('w:p') or node.xpath('.//w:sectPr | .//w:drawing | .//w:br[@w:type="page"]'):
+            break
+        text = _blank_text(node).lstrip()
+        if text:
+            if _LABEL_PATTERN.match(text):
+                return ''
+            unit = re.match(pattern, text)
+            return unit[0] if unit else ''
+    return ''
+
+
+def _inline_blank_records(el, brief, *, dry_run=False):
+    """Label/colon/slot/boundary recognition, independent of volume and slot order."""
+    blob = _blank_text(el)
+    tokens = list(_blank_tokens(el))
+    records = []
+    for match in reversed(_blank_ranges(el)):
+        # A previous value or an unknown label is a barrier, never a fallback.
+        prefix = re.split(r'[\n，,。；;！？!?]', blob[:match.start()])[-1].rstrip(' \t\u3000')
+        labels = list(_LABEL_PATTERN.finditer(prefix))
+        labelled = labels[-1] if labels and labels[-1].end() == len(prefix) else None
+        if labelled is None:
+            labelled = re.search(r'(?P<label>[^:：\n，,。；;]+)[:：]$', prefix)
+        label = labelled['label'] if labelled else prefix
+        field = _inline_label_field(label, actor=_person_actor_before(el, blob[:match.start()]))
+        if not field:
+            continue
+        tail = blob[match.end():]
+        unit = re.match(r'(?:万元|元整|日历天|天|日|年|元|[%％])', tail)
+        boundary = (not tail or unit is not None or re.match(r'[，,。；;：:（(）)！？!?]', tail)
+                    or re.match(r'[^:：\s\n，,。；;]+[:：]', tail))
+        under = any(_run_under(r) for r, _, a, b, _ in tokens
+                    if a < match.end() and b > match.start())
+        if not under and not re.search(r'[_＿]', match.group()) and not boundary:
+            continue
+        if not (under or re.search(r'[_＿\t]', match.group()) or (labelled and boundary)):
+            continue
+        value = _inline_field_value(field, brief, unit=_following_inline_unit(el, tail))
+        if field == 'companyEstablished' and value and unit and unit[0] == '年':
+            date = re.fullmatch(r'(\d{4})[-年/.](\d{1,2})[-月/.](\d{1,2})日?', value)
+            rest = re.match(r'年(?P<month>[ _＿\u3000\t]+)月(?P<day>[ _＿\u3000\t]+)日', tail)
+            if not date or not rest:
+                continue
+            positions = [(match.start(), match.end(), date[1]),
+                         (match.end() + rest.start('month'), match.end() + rest.end('month'), date[2]),
+                         (match.end() + rest.start('day'), match.end() + rest.end('day'), date[3])]
+            if not dry_run:
+                for start, end, component in reversed(positions):
+                    _write_blank_span(el, start, end, component)
+            records.append({'field': field, 'label': label.strip(), 'value': value,
+                            'filled': len(positions), 'start': match.start(), 'end': match.end() + rest.end()})
+            continue
+        record = {'field': field, 'label': label.strip(), 'value': value,
+                  'filled': int(bool(value)), 'start': match.start(), 'end': match.end()}
+        if not value:
+            record['missing'] = 1
+        if value and not dry_run:
             _write_blank_span(el, match.start(), match.end(), value)
+        records.append(record)
+    return list(reversed(records))
 
 
 def _fill_bid_bond_paragraph(el, brief) -> None:
@@ -4538,15 +4730,33 @@ def _blank_ranges(el):
 
 
 _LABEL_FIELDS = {
+    "lotName": ("分标名称", "分标名", "标段名称"),
+    "lotNo": ("分标编号", "分标号", "标段编号", "标段号"),
+    "packageName": ("包名称", "包名"),
+    "packageNo": ("包号", "包编号"),
+    "deliveryDays": ("工期", "投标工期", "交货期", "交货期限", "交货时间", "计划工期"),
+    "quality": ("质量", "投标质量", "质量标准", "质量要求"),
+    "bidValidityDays": ("投标有效期", "有效期"),
+    "bidContent": ("投标范围",),
+    "tenderer": ("招标人", "招标人名称", "采购人", "采购人名称", "发包人名称", "致"),
+    "bidPriceYuan": ("投标报价", "投标总报价", "投标总价", "报价", "投标价格"),
+    "safetyFeeYuan": ("安全生产措施费", "安全文明施工费"),
+    "provisionalYuan": ("暂列金额",),
+    "primeCostYuan": ("专业工程暂估价",),
+    "bidBondYuan": ("投标保证金",),
+    "bidderEmail": ("邮箱", "电子邮箱", "电子邮件"),
+    "defectPeriod": ("缺陷责任期",),
     "bidderName": ("投标人", "投标人名称", "投标人全称", "供应商", "单位名称", "企业名称",
                    "响应人", "投标人或联合体牵头人"),
     "legalPersonName": ("法定代表人", "法定代表人姓名", "姓名"),
-    "agentName": ("委托代理人", "授权代表"),
+    "agentName": ("委托代理人", "授权代表", "授权委托人", "被授权人", "代理人", "委托代理人姓名", "授权代表姓名", "被授权人姓名", "代理人姓名"),
+    "agentIdNo": ("委托代理人身份证号", "委托代理人身份证号码", "代理人身份证号", "代理人身份证号码", "被授权人身份证号", "被授权人身份证号码"),
+    "pmName": ("项目经理", "项目经理姓名", "工程总承包项目经理", "拟派项目经理", "拟派工程总承包项目经理"),
     "projectName": ("项目名称",),
     "tenderNo": ("招标编号", "项目编号"),
     "bidderNature": ("单位性质", "企业类型", "公司类型"),
-    "bidderAddress": ("地址", "住所", "注册地址", "通讯地址"),
-    "bidderPhone": ("电话", "联系电话", "项目联系人电话"),
+    "bidderAddress": ("地址", "住所", "注册地址", "通讯地址", "投标人地址"),
+    "bidderPhone": ("电话", "联系电话", "项目联系人电话", "固定电话", "联系方式"),
     "bidderFax": ("传真",),
     "bidderWebsite": ("网址", "网站"),
     "bidderPostcode": ("邮政编码", "邮编"),
@@ -4556,20 +4766,30 @@ _LABEL_FIELDS = {
     "legalPersonGender": ("性别",),
     "legalPersonAge": ("年龄",),
     "legalPersonTitle": ("职务",),
+    "legalPersonIdNo": ("身份证号", "身份证号码", "法定代表人身份证号码"),
     "bidDate": ("日期", "签订日期", "签署日期", "投标日期", "投标时间"),
 }
+_EMBEDDED_LABEL_FIELDS = {'bidPriceYuan': ('投标总报价', '投标总价')}
 _LABEL_ATTRS = {label: field for field, labels in _LABEL_FIELDS.items() for label in labels}
 _LABEL_ATTRS["法定代表人或委托代理人"] = "agentName"
-_STAMP = r"[（(]\s*(?:加盖公章|盖单位章|盖章|电子签章|签字或盖章|签字|签名|公章)\s*[)）]"
+_PERSON_GENERIC_FIELDS = {'姓名': 'name', '性别': 'gender', '年龄': 'age', '职务': 'title',
+                          '身份证号': 'id', '身份证号码': 'id'}
+_PERSON_SCOPED_FIELDS = {
+    'legal': {'name': 'legalPersonName', 'gender': 'legalPersonGender', 'age': 'legalPersonAge',
+              'title': 'legalPersonTitle', 'id': 'legalPersonIdNo'},
+    'agent': {'name': 'agentName', 'id': 'agentIdNo'}, 'pm': {'name': 'pmName'},
+}
+_SEAL_WORDS = r'加盖公章|盖单位公章|盖单位章|盖章|电子签章|签字|签名|签章|公章'
+_STAMP = r'[（(]\s*(?:' + _SEAL_WORDS + r')(?:\s*(?:或|并|及|和|、)\s*(?:' + _SEAL_WORDS + r'))*\s*[)）]'
 _LABEL_PATTERN = re.compile(
-    r"(?<![^\s_＿;；:：日])(?P<label>" + "|".join(
+    r"(?<![^\s_＿;；:：日，,。])(?P<label>" + "|".join(
         r"[^\S\r\n]*".join(map(re.escape, label))
         for label in sorted(_LABEL_ATTRS, key=len, reverse=True)
     ) + r")\s*(?:" + _STAMP + r")?\s*[:：]"
 )
 
 
-def _fill_label_gap(el, brief, *, notes=None, line=None) -> None:
+def _fill_label_gap(el, brief, *, notes=None, line=None, records=None) -> None:
     text = _blank_text(el)
     slots = list(_LABEL_PATTERN.finditer(text))
     for index in range(len(slots) - 1, -1, -1):
@@ -4578,15 +4798,20 @@ def _fill_label_gap(el, brief, *, notes=None, line=None) -> None:
         tail = text[slot.end():end]
         blank = re.fullmatch(r"(?P<gap>[\s_＿]*)(?:" + _STAMP + r")?[\s_＿]*", tail)
         label = re.sub(r"\s+", "", slot["label"])
-        field = _LABEL_ATTRS[label]
+        field = _inline_label_field(label, actor=_person_actor_before(el, text[:slot.start()]))
+        if not field:
+            continue
         if not blank:
             continue
-        value = _date_value(brief) if field == "bidDate" else str(getattr(brief, field, "") or "").strip()
+        value = _inline_field_value(field, brief, unit=_following_inline_unit(el, text[slot.end():]))
         source = field
         if label == "法定代表人或委托代理人" and not value:
             source = "legalPersonName"
             value = str(getattr(brief, source, "") or "").strip()
         if not value:
+            if records is not None:
+                records.append({'field': field, 'label': label, 'value': '', 'filled': 0, 'missing': 1,
+                                'location': 'label_gap', 'paragraph': el.getroottree().getpath(el)})
             if notes is not None and (
                 field.startswith("company")
                 or label in {"单位性质", "地址", "传真", "网址", "邮编", "经营期限", "职务", "身份证号"}
@@ -4611,6 +4836,9 @@ def _fill_label_gap(el, brief, *, notes=None, line=None) -> None:
             node.text = current[:offset] + value + current[offset:]
         else:
             _write_blank_span(el, slot.end(), slot.end() + blank.end("gap"), value)
+        if records is not None:
+            records.append({'field': field, 'label': label, 'value': value, 'filled': 1,
+                            'location': 'label_gap', 'paragraph': el.getroottree().getpath(el)})
         logger.info("标签填充 行=%s 标签=%s 值=%s 来源=%s", line, label, value,
                     sources.get(source, f"brief.{source}"))
 
@@ -4693,6 +4921,15 @@ def _fill_empty_label_cells(tbl, brief, facts=None) -> list[str]:
         from api.services.tenders.facts import fact_fill as _fact_fill
 
         fact_fill = _fact_fill
+        # An already selected person is an identity boundary, including when a
+        # blank cell falls back to extracted evidence instead of a brief value.
+        selected = {str(getattr(brief, key, '') or '').strip()
+                    for key in ('legalPersonName', 'legalPersonIdNo')} - {''}
+        if selected:
+            facts = [bundle for bundle in facts if bundle.get('role') != 'person/legal' or selected & {
+                str(item.get('value') or '').strip() for item in bundle.get('fields', [])
+                if item.get('name') in {'姓名', '法定代表人', '法定代表人姓名', '身份证号', '身份证号码'}
+                and item.get('conf', 1) >= 0.6}]
     for tr in tbl.findall(qn("w:tr")):
         cells = tr.findall(qn("w:tc"))
         plains = [_cell_plain(tc) for tc in cells]
@@ -4702,21 +4939,41 @@ def _fill_empty_label_cells(tbl, brief, facts=None) -> list[str]:
         if sheet != "work" and pm_row:
             row_sheet = "pm"
         prev = ""
-        for tc, plain in zip(cells, plains):
+        previous_cell = None
+        for index, (tc, plain) in enumerate(zip(cells, plains)):
+            if (plain and prev and _inline_label_field(prev) == 'deliveryDays'
+                    and re.fullmatch(r'\d+', plain) and getattr(brief, 'deliveryDays', None)
+                    and int(plain) == brief.deliveryDays):
+                unit = next((text for text in plains[index + 1:] if text), '')
+                if not re.fullmatch(r'日历天|天|日', unit):
+                    plain += '日历天'
+                    _put_cell_text(tc, plain)
             if not plain and prev:
-                value = _pm_cell_value(prev, brief) if pm_row else ""
+                label_paragraph = previous_cell.find(qn('w:p')) if previous_cell is not None else None
+                actor = _person_actor_before(label_paragraph, prev) if label_paragraph is not None else ''
+                value = _pm_cell_value(prev, brief) if pm_row and actor not in {'legal', 'agent', 'unknown'} else ""
+                field = _inline_label_field(prev, actor=actor)
+                bid_field = field in {'deliveryDays', 'quality', 'bidValidityDays', 'bidPriceYuan',
+                    'safetyFeeYuan', 'provisionalYuan', 'primeCostYuan', 'bidBondYuan',
+                    'bidderName', 'tenderer', 'bidderNature', 'companyEstablished',
+                    'companyBusinessTerm', 'companyRegisteredCapital'}
                 # 简历没维护项目经理时，不要拿法定代表人姓名去填
-                if not value and not person and not (pm_row and prev.rstrip(" ：:").endswith("姓名")):
-                    value = _blank_value(prev, brief)
+                if not value and ((not person and not (pm_row and prev.rstrip(" ：:").endswith("姓名")))
+                                  or (sheet != 'work' and bid_field) or actor in {'legal', 'agent'}):
+                    unit = next((text for text in plains[index + 1:] if text), '')
+                    value = (_inline_field_value(field, brief, unit=unit
+                             if field == 'deliveryDays' and re.fullmatch(r'日历天|天|日', unit) else '')
+                             if field else '')
                 if not value and fact_fill is not None:
-                    value, note = fact_fill(prev, row_sheet, facts)
+                    value, note = fact_fill(prev, actor if actor in {'agent', 'unknown'} else row_sheet, facts)
                     if note and note not in notes:
                         notes.append(note)
                 if value:
                     _put_cell_text(tc, value)
                 prev = ""
                 continue
-            prev = plain[-24:]
+            prev = plain
+            previous_cell = tc
     return notes
 
 

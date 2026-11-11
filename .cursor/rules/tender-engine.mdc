@@ -1,0 +1,16 @@
+---
+description: Unified tender engine rules for technical, commercial, nested-package, and subpackage workflows
+alwaysApply: true
+---
+
+# Unified Tender Engine
+
+- Preserve the existing commercial and technical tender generation flows.
+- Treat cable tenders as a complex input shape, not as a separate generator.
+- Support flat files, single-level archives, nested archives, and subpackages through one pipeline.
+- Preserve package parent-child relationships, original relative paths, subpackage IDs, and source scope.
+- Pass package and subpackage context into classification, library matching, generation, and delivery assembly.
+- Run preflight validation before generation. Unsupported key files must produce `blocked` with a path, reason, and remediation; never silently skip or guess.
+- Current capability: Word tender invitations are supported; PDF tender invitations are blocked unless explicitly supported by a later change.
+- Default to backward compatibility for existing commercial and ordinary technical tender outputs.
+- Before and after changes, run targeted tests, protected baseline checks, import checks, and regression samples for ordinary, single-level, nested/subpackage, and blocked-format inputs.

@@ -441,6 +441,41 @@ async def _prepare_scoring_drafts(db, brief, facts, *, client=None):
     return drafted
 
 
+async def _parallel_scoring_and_package(
+    db,
+    brief,
+    facts,
+    *,
+    reference_ids: list[str],
+):
+    """Run the independent business-scoring and technical-package batches.
+
+    ``AsyncSession`` carries mutable transaction state and cannot be shared by
+    concurrent tasks.  Production calls therefore allocate one session per
+    batch.  The brief copies keep model-side reads isolated until the ordered
+    results are reduced by the caller.
+    """
+    import asyncio
+
+    from db.session import AsyncSessionLocal
+    from api.services.tenders.technical_package import draft_package
+
+    scoring_brief = brief.model_copy(deep=True)
+    package_brief = brief.model_copy(deep=True)
+    if reference_ids:
+        package_brief.techPlanSourceIds = [*package_brief.techPlanSourceIds, *reference_ids]
+
+    async def scoring_job():
+        async with AsyncSessionLocal() as worker_db:
+            return await _prepare_scoring_drafts(worker_db, scoring_brief, facts)
+
+    async def package_job():
+        async with AsyncSessionLocal() as worker_db:
+            return await draft_package(worker_db, package_brief)
+
+    return await asyncio.gather(scoring_job(), package_job(), return_exceptions=True)
+
+
 async def _prepare_other_pledges(db, brief, existing_titles, *, client=None):
     from api.services.tenders.generation_parallel import ordered_generation
     from api.services.models.runtime import build_llm_client
@@ -671,28 +706,55 @@ async def _prepare_and_generate(
     draft_notes: list[str] = []
     scoring_drafts = {}
     other_pledges = []
-    if both or vol in {"business", "full"}:
-        logger.info("scoring draft pre-generation: vol=%s both=%s", vol, both)
-        try:
-            scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
-            logger.info("scoring drafts stored: count=%d", len(scoring_drafts))
-            existing_titles = [item.title for item in brief.outlineItems if "承诺" in (item.title or "")]
-            try:
-                other_pledges = await _prepare_other_pledges(db, brief, existing_titles)
-                logger.info("other pledges generated: count=%d", len(other_pledges))
-            except Exception as exc:
-                logger.warning("其他承诺模型生成异常类型：%s", type(exc).__name__, exc_info=True)
-        except Exception as exc:  # model failure leaves downstream fallback intact
-            logger.warning("评分叙述预生成异常类型：%s", type(exc).__name__, exc_info=True)
-            draft_notes.append(f"评分叙述预生成失败，已走降级：{exc}")
     technical_package_active = False
-    if both or vol in {"technical", "full"}:
+    wants_scoring = both or vol in {"business", "full"}
+    wants_package = both or vol in {"technical", "full"}
+    parallel_results = None
+    if wants_scoring and wants_package and db is not None:
+        logger.info("pre-generation parallel: scoring_narrative + technical_package")
+        parallel_results = await _parallel_scoring_and_package(
+            db, brief, facts, reference_ids=reference_ids
+        )
+    if wants_scoring:
+        logger.info("scoring draft pre-generation: vol=%s both=%s", vol, both)
+        scoring_failure = None
+        if parallel_results is not None:
+            scoring_result = parallel_results[0]
+            if isinstance(scoring_result, BaseException):
+                scoring_failure = scoring_result
+            else:
+                scoring_drafts = scoring_result or {}
+        else:
+            try:
+                scoring_drafts = await _prepare_scoring_drafts(db, brief, facts)
+            except Exception as exc:  # model failure leaves downstream fallback intact
+                scoring_failure = exc
+        if scoring_failure is not None:
+            logger.warning("评分叙述预生成异常类型：%s", type(scoring_failure).__name__, exc_info=True)
+            draft_notes.append(f"评分叙述预生成失败，已走降级：{scoring_failure}")
+        logger.info("scoring drafts stored: count=%d", len(scoring_drafts))
+        existing_titles = [item.title for item in brief.outlineItems if "承诺" in (item.title or "")]
+        pledge_started = time.perf_counter()
+        try:
+            other_pledges = await _prepare_other_pledges(db, brief, existing_titles)
+            logger.info("other pledges generated: count=%d", len(other_pledges))
+        except Exception as exc:
+            logger.warning("其他承诺模型生成异常类型：%s", type(exc).__name__, exc_info=True)
+        finally:
+            logger.info("perf stage=other pledges seconds=%.3f", time.perf_counter() - pledge_started)
+    if wants_package:
         from api.services.tenders.technical_package import draft_package
 
-        package_brief=brief.model_copy(deep=True) if reference_ids else brief
-        if reference_ids:
-            package_brief.techPlanSourceIds=[*brief.techPlanSourceIds,*reference_ids]
-        package, package_notes = await draft_package(db, package_brief)
+        if parallel_results is not None:
+            package_result = parallel_results[1]
+            if isinstance(package_result, BaseException):
+                raise package_result
+            package, package_notes = package_result
+        else:
+            package_brief = brief.model_copy(deep=True) if reference_ids else brief
+            if reference_ids:
+                package_brief.techPlanSourceIds = [*brief.techPlanSourceIds, *reference_ids]
+            package, package_notes = await draft_package(db, package_brief)
         if package:
             brief.technicalPackage = package
             draft_notes.extend(package_notes)

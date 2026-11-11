@@ -6,14 +6,16 @@ import io
 import logging
 import re
 import shutil
+from collections import Counter
 from copy import deepcopy
 from decimal import Decimal
-from math import ceil
+from math import ceil, floor
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT
-from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_LINE_SPACING, WD_TAB_ALIGNMENT, WD_TAB_LEADER
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor, Twips
@@ -160,6 +162,274 @@ def normalize_document_colors(doc: Document) -> int:
             for run in paragraph.iter(qn("w:r")):
                 blacken(run.get_or_add_rPr())
     return changed
+
+
+_TEXT_HEADING_NUMBER = re.compile(
+    r"^\s*(?:[零〇一二三四五六七八九十百千万两]+、|"
+    r"第\s*[零〇一二三四五六七八九十百千万两\d]+\s*章|"
+    r"\d+(?:[.．]\d+)*[.．](?!\d)|\d+(?:[.．]\d+)+(?=\s|[^\d.．])|"
+    r"[（(][零〇一二三四五六七八九十百千万两\d]+[）)])"
+)
+
+
+def _title_layout(doc: Document, fmt=None) -> tuple[int, list[str]]:
+    """Fit body headings and project directory rows from their heading bookmarks."""
+    from api.services.tenders.schema import DocumentFormat
+    from api.services.tenders.technical_toc import _regions
+    from api.services.tenders.word_structure import numbering_labels, outline_level
+
+    regions = _regions(doc)
+    excluded = {node for region in regions for host in region for node in host.iter()}
+    paragraphs = doc.paragraphs
+    indexes = {p._p: i for i, p in enumerate(paragraphs)}
+    widths = {}
+    sections = iter(reversed(doc.sections))
+    section = next(sections)
+    for p in reversed(paragraphs):
+        if _p_sectpr(p._p) is not None:
+            section = next(sections, section)
+        widths[p._p] = (section.page_width.pt - section.left_margin.pt - section.right_margin.pt
+                        - (section.gutter.pt if section.gutter is not None else 0))
+
+    def inherited_size(style):
+        seen = set()
+        while style is not None and style.style_id not in seen:
+            seen.add(style.style_id)
+            if style.font.size is not None:
+                return style.font.size.pt
+            style = style.base_style
+        return None
+
+    defaults = doc.styles.element.xpath("./w:docDefaults/w:rPrDefault/w:rPr/w:sz/@w:val")
+    settings = fmt if fmt is not None else DocumentFormat()
+    default_size = int(defaults[0]) / 2 if defaults else settings.bodySizePt
+
+    def effective_size(p):
+        base = inherited_size(p.style) or default_size
+        return max((r.font.size.pt if r.font.size is not None else inherited_size(r.style) or base
+                    for r in p.runs if r.text.strip()), default=base)
+
+    levels = {}
+    headings = {}
+    body_sizes = Counter()
+    for p in paragraphs:
+        if p._p in excluded or not p.text.strip():
+            continue
+        level = outline_level(doc, p._p)
+        if level or _title_style_name(p.style.name):
+            levels[p._p] = level
+            headings.setdefault(p.style.style_id, []).append(p)
+        else:
+            body_sizes[effective_size(p)] += 1
+    body_size = body_sizes.most_common(1)[0][0] if body_sizes else (
+        fmt.bodySizePt if fmt is not None else default_size
+    )
+    warnings = []
+    changed = 0
+    removed_numbering = set()
+
+    def set_size(obj, points):
+        nonlocal changed
+        if obj.font.size != Pt(points):
+            obj.font.size = Pt(points)
+            changed += 1
+
+    def inherited_numbering(style):
+        seen = set()
+        while style is not None and style.style_id not in seen:
+            seen.add(style.style_id)
+            number = style.element.xpath("./w:pPr/w:numPr/w:numId/@w:val")
+            if number:
+                return number[0] != "0"
+            style = style.base_style
+        return False
+
+    for group in headings.values():
+        for p in group:
+            if not _TEXT_HEADING_NUMBER.match(p.text):
+                continue
+            props = p._p.get_or_add_pPr() if p._p.pPr is not None else None
+            number = props.find(qn("w:numPr")) if props is not None else None
+            inherited = inherited_numbering(p.style)
+            if number is None and not inherited:
+                continue
+            props = p._p.get_or_add_pPr()
+            if number is not None:
+                props.remove(number)
+            removed_numbering.add(p._p)
+            indent = props.find(qn("w:ind"))
+            if indent is not None:
+                props.remove(indent)
+            if inherited:
+                # Word's zero list value suppresses inheritance. Put it on a
+                # derived style so the paragraph keeps no list properties and
+                # other paragraphs using the original list are unaffected.
+                name = f"{p.style.name} (manual numbering)"
+                try:
+                    manual = doc.styles[name]
+                except KeyError:
+                    manual = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+                    manual.base_style = p.style
+                    manual.element.get_or_add_pPr().get_or_add_numPr().get_or_add_numId().val = 0
+                p.style = manual
+            changed += 1
+
+    labels = numbering_labels(doc, [p._p for p in paragraphs if p._p not in excluded])
+    for p in paragraphs:
+        if p._p in levels and p._p in labels and not _TEXT_HEADING_NUMBER.match(p.text):
+            warnings.append(f"标题仅有自动编号，待确认（段 {indexes[p._p]}）：{p.text.strip()}")
+
+    def shown_title(p):
+        text = p.text.strip()
+        label = labels.get(p._p, ("", 0))[0]
+        return label + text if label and not _TEXT_HEADING_NUMBER.match(text) else text
+
+    def indent_width(p):
+        formats = [p.paragraph_format]
+        style = p.style
+        seen = set()
+        while style is not None and style.style_id not in seen:
+            seen.add(style.style_id)
+            formats.append(style.paragraph_format)
+            style = style.base_style
+        total = 0
+        for name in ("left_indent", "right_indent", "first_line_indent"):
+            value = next((getattr(f, name) for f in formats if getattr(f, name) is not None), None)
+            if value is not None:
+                total += max(0, value.pt)
+        return total
+
+    for style_id, group in headings.items():
+        limits = []
+        for p in group:
+            width = widths[p._p] - indent_width(p)
+            # Reserve one full-width glyph for font/renderer metrics.
+            limits.append(width / (_em_len(shown_title(p)) + 1))
+        size_limit = min(limits)
+        style = doc.styles.get_by_id(style_id, WD_STYLE_TYPE.PARAGRAPH)
+        family = _title_style_name(style.name)
+        style_size = inherited_size(style) if family else None
+        maximum = max(style_size or 0, *(effective_size(p) for p in group))
+        if maximum > size_limit:
+            size = max(body_size, floor(size_limit))
+            if family and (style_size is None or style_size > size):
+                set_size(style, size)
+            for p, limit in zip(group, limits, strict=True):
+                if limit < body_size:
+                    warnings.append(f"标题按正文字号仍可能折行（段 {indexes[p._p]}）：{p.text.strip()}")
+                for run in p.runs:
+                    if run.text.strip() and (run.font.size is None or run.font.size.pt > size):
+                        set_size(run, size)
+
+    anchors = {}
+    for p in paragraphs:
+        if p._p in excluded:
+            continue
+        for mark in p._p.findall(qn("w:bookmarkStart")):
+            anchors.setdefault(mark.get(qn("w:name")), []).append(p)
+    # Capture the outer field's closing run before any nested PAGEREF is removed.
+    outer_ends = {}
+    for region in regions:
+        if not any(re.search(r"^\s*TOC\b", n.text or "", re.I)
+                   for host in region for n in host.iter(qn("w:instrText"))):
+            continue
+        markers = [n for host in region for n in host.iter(qn("w:fldChar"))]
+        if markers and markers[-1].get(qn("w:fldCharType")) == "end":
+            run = markers[-1].getparent()
+            if sum(n.get(qn("w:fldCharType")) == "begin" for n in markers) == sum(
+                n.get(qn("w:fldCharType")) == "end" for n in markers
+            ):
+                outer_ends[run.getparent()] = run
+
+    seen_targets = set()
+    rejected_targets = set()
+    toc_size = settings.tocItemSizePt
+    for p in paragraphs:
+        bookmark = _pageref_bookmark(p)
+        if not bookmark or p._p not in excluded:
+            continue
+        candidates = anchors.get(bookmark, ())
+        target = candidates[0] if len(candidates) == 1 else None
+        level = levels.get(target._p, 0) if target is not None else 0
+        title = shown_title(target) if level else ""
+        original, _, cache = p.text.partition("\t")
+        if (title and target._p not in removed_numbering
+                and _TEXT_HEADING_NUMBER.sub("", original, count=1).strip()
+                == _TEXT_HEADING_NUMBER.sub("", title, count=1).strip()):
+            # An existing directory numbering scheme may use a different prefix.
+            title = original
+        indent = Twips(Cm(0.74 * max(0, level - 1)).twips)
+        # Reserve the width of the page number and one glyph for the leader.
+        room = (widths[p._p] - indent.pt) / toc_size - _em_len(cache) - 1
+        title_room = (widths[target._p] - indent_width(target)) / effective_size(target) + 1 if level else 0
+        reason = ""
+        if not title or not original.strip():
+            reason = "缺少有标题样式的正文书签"
+        elif bookmark in seen_targets:
+            reason = "重复指向同一正文标题"
+        elif _em_len(original.strip()) > min(room, title_room) or _em_len(title) > min(room, title_room):
+            warnings.append(f"目录长标题超出版心允许的单行长度，保留条目并允许折行：{original}")
+        if reason:
+            warnings.append(f"目录待确认（{reason}）：{original[:40] or bookmark}（{len(original)} 字）")
+            rejected_targets.add(bookmark)
+            node = p._p
+            closing_run = outer_ends.get(node)
+            if closing_run is not None and node.getprevious() is not None and node.getprevious().tag == qn("w:p"):
+                node.getprevious().append(closing_run)
+                outer_ends[node.getprevious()] = closing_run
+            if _p_sectpr(node) is not None:
+                _clear_runs(p)
+            else:
+                node.getparent().remove(node)
+            changed += 1
+            continue
+        seen_targets.add(bookmark)
+        for field in target._p.findall(qn("w:fldSimple")):
+            instruction = field.get(qn("w:instr"), "")
+            entry = re.fullmatch(r'\s*TC\s+"(?:\\.|[^"\\])*"(\s+\\f\s+(?:N|T)\b.*)', instruction)
+            if entry:
+                escaped = title.replace("\\", "\\\\").replace('"', '\\"')
+                expected = f' TC "{escaped}"{entry[1]}'
+                if instruction != expected:
+                    field.set(qn("w:instr"), expected)
+                    changed += 1
+        if original != title:
+            _replace_inline_span(p, 0, len(original), title)
+            changed += 1
+        style_name = f"TOC {level}"
+        try:
+            toc_style = doc.styles[style_name]
+        except KeyError:
+            toc_style = doc.styles.add_style(style_name, WD_STYLE_TYPE.PARAGRAPH)
+            changed += 1
+        set_size(toc_style, toc_size)
+        if p.style != toc_style:
+            p.style = toc_style
+            changed += 1
+        for run in p._p.iter(qn("w:r")):
+            set_size(Run(run, p), toc_size)
+        props = p.paragraph_format
+        for field, value in (("left_indent", indent), ("first_line_indent", Twips(0)),
+                             ("right_indent", Twips(0)), ("space_before", Pt(0)),
+                             ("space_after", Pt(0)), ("line_spacing", 1.0)):
+            if getattr(props, field) != value:
+                setattr(props, field, value)
+                changed += 1
+        tabs = list(props.tab_stops)
+        tab_position = Pt(widths[p._p]) - Pt(toc_size)
+        tab_position = Twips(tab_position // 635)
+        if (len(tabs) != 1 or tabs[0].position != tab_position or
+                tabs[0].alignment != WD_TAB_ALIGNMENT.RIGHT or tabs[0].leader != WD_TAB_LEADER.DOTS):
+            props.tab_stops.clear_all()
+            props.tab_stops.add_tab_stop(tab_position, WD_TAB_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+            changed += 1
+    for bookmark in rejected_targets - seen_targets:
+        for target in anchors.get(bookmark, ()):
+            for field in target._p.findall(qn("w:fldSimple")):
+                if re.match(r"\s*TC\b.*\\f\s+(?:N|T)\b", field.get(qn("w:instr"), "")):
+                    target._p.remove(field)
+                    changed += 1
+    return changed, warnings
 
 
 def _clear_bold(rpr) -> None:
@@ -340,47 +610,66 @@ _INLINE_LABELS: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 def _iter_inline_label_paragraphs(doc: Document):
     """遍历正文和表格段落，供行内标签填空器使用。"""
-    def table_paragraphs(table):
-        for row in table.rows:
-            for cell in row.cells:
-                yield from cell.paragraphs
-                for nested in cell.tables:
-                    yield from table_paragraphs(nested)
-
-    yield from doc.paragraphs
-    for table in doc.tables:
-        yield from table_paragraphs(table)
+    # XML traversal visits merged cells once and includes every nested table.
+    for node in doc.element.body.iter(qn('w:p')):
+        yield Paragraph(node, doc._body)
 
 
-def fill_inline_labeled_blanks(doc: Document, brief: BidBrief, *, dry_run: bool = False) -> list[dict[str, str | int]]:
-    """按标签语义把结构化字段填入其后的首个下划线空位。
+def fill_inline_labeled_blanks(doc: Document, brief: BidBrief, *, dry_run: bool = False, facts=None) -> list[dict[str, str | int]]:
+    """Use the shared semantic filler for each labelled slot, including bare spaces."""
+    from api.services.tenders.pdf_format import _inline_blank_records
 
-    空值只记录为缺失，不触碰原下划线。该函数不依赖段落序号，重复标签会逐处处理。
-    """
-    from api.services.tenders.pdf_format import _blank_ranges
-
-    values = {key: str(getattr(brief, key, "") or "").strip() for key, _ in _INLINE_LABELS}
+    brief, _ = _fact_backed_brief(brief, facts)
+    if not dry_run:
+        doc.element._fill_styles = doc.styles.element
     records: list[dict[str, str | int]] = []
     for para in _iter_inline_label_paragraphs(doc):
-        text = para.text or ""
-        compact = re.sub(r"[\s：:、（）()【】\[\]]+", "", text)
-        for key, aliases in _INLINE_LABELS:
-            alias = next((item for item in aliases if re.sub(r"\s+", "", item) in compact), "")
-            if not alias:
-                continue
-            value = values[key]
-            blanks = _blank_ranges(para._p)
-            matched = bool(blanks)
-            record = {"field": key, "label": alias, "value": value, "filled": 0}
-            if value and matched and not dry_run:
-                record["filled"] = _fill_blanks(para, value)
-            elif value and matched:
-                record["filled"] = 1
-            elif not value:
-                record["missing"] = 1
-            records.append(record)
-            break
+        records.extend(_inline_blank_records(para._p, brief, dry_run=dry_run))
     return records
+
+
+def _fact_backed_brief(brief, facts):
+    """Only unambiguous, identity-scoped evidence may supply absent form fields."""
+    from api.services.tenders.pdf_format import _LABEL_FIELDS
+    fields = {
+        'companyEstablished': ('company',), 'companyBusinessTerm': ('company',),
+        'bidderNature': ('company',), 'companyRegisteredCapital': ('company',),
+        'legalPersonTitle': ('person/legal', 'company'),
+        'legalPersonIdNo': ('person/legal',),
+        'legalPersonGender': ('person/legal',), 'legalPersonAge': ('person/legal',),
+        'agentIdNo': ('person/legal', 'person/agent'),
+    }
+    resolved = brief.model_copy(deep=True)
+    records = []
+    for field, roles in fields.items():
+        if getattr(brief, field, None):
+            continue
+        got = {}
+        for bundle in facts or []:
+            if bundle.get('role') not in roles:
+                continue
+            values = {item.get('name'): str(item.get('value') or '').strip()
+                      for item in bundle.get('fields', []) if item.get('conf', 1) >= 0.6}
+            if field.startswith(('legalPerson', 'agent')):
+                identities = {values.get(name, '') for name in ('姓名', '法定代表人', '法定代表人姓名', '身份证号', '身份证号码')} - {''}
+                selected = ({brief.agentName, brief.agentIdNo} if field.startswith('agent')
+                            else {brief.legalPersonName, brief.legalPersonIdNo}) - {''}
+                if not identities & selected:
+                    continue
+            aliases = (_LABEL_FIELDS['legalPersonIdNo'] if field == 'agentIdNo'
+                       else (*_LABEL_FIELDS[field], '担任职务', '任职职务') if field == 'legalPersonTitle'
+                       else _LABEL_FIELDS[field])
+            for name in aliases:
+                value = values.get(name)
+                if value:
+                    got.setdefault(value, []).append(bundle.get('fileId', ''))
+        if len(got) == 1:
+            value = next(iter(got))
+            setattr(resolved, field, value)
+            records.append({'field': field, 'source': got[value], 'status': 'sourced'})
+        elif got:
+            records.append({'field': field, 'status': 'conflicting_sources'})
+    return resolved, records
 
 
 def _style_fill_run(run, para: Paragraph | None = None, *, underline: bool = True) -> None:
@@ -2880,59 +3169,90 @@ def _hide_proofing_marks(doc: Document) -> None:
         root.remove(old)
 
 
-_SIGNOFF_START = re.compile(
-    r"^(?:投\s*标\s*人(?:名称)?|供应商(?:名称)?|承诺单位|承诺人|"
-    r"法定代表人(?:或其委托代理人)?|委托代理人|授权委托人|授权代表|"
-    r"地址|电话|固定电话|传真|邮编|邮政编码|网址|项目经理|日期|签字|签章|盖章|公章|\d{4}年)"
-)
+_SIGNING_LABELS = {
+    '投标人', '投标人名称', '供应商', '供应商名称', '联合体牵头人', '联合体成员',
+    '法定代表人', '法定代表人或其委托代理人', '法定代表人或委托代理人',
+    '委托代理人', '授权委托人', '承诺人', '承诺单位', '项目经理', '授权代表',
+    '投标人或联合体牵头人',
+    '牵头人名称', '联合体牵头人名称', '联合体成员名称', '成员名称', '联合体名称',
+}
+_INFORMATION_FIELDS = {
+    'bidderNature', 'bidderAddress', 'companyEstablished', 'companyBusinessTerm',
+    'companyRegisteredCapital', 'bidderCreditCode', 'legalPersonName',
+    'legalPersonGender', 'legalPersonAge', 'legalPersonTitle', 'legalPersonIdNo',
+    'bidderPhone', 'bidderFax', 'bidderPostcode', 'bidderWebsite', 'bidderEmail',
+}
+_CONTACT_FIELDS = {'bidderAddress', 'bidderPhone', 'bidderFax', 'bidderPostcode', 'bidderWebsite', 'bidderEmail'}
+_INFORMATION_LABELS = {'联系人', '身份证号码', '身份证号'}
+_NOTE_LEAD = re.compile(r'^\s*(?:附注|说明|备注|注|(?:本表后)?附)\s*[:：]')
+
+
+def _paragraph_role(paragraph):
+    """Semantic roles precede inherited alignment or a nearby signing keyword."""
+    from api.services.tenders.pdf_format import _inline_label_field
+    text = ''.join(value for _, value in _inline_nodes(paragraph)).strip()
+    if _NOTE_LEAD.match(text):
+        return 'note', None
+    match = _SIGNOFF_FIELD.fullmatch(text)
+    if match is None:
+        bare = re.fullmatch(r'(?P<label>[^:：()（）\n]+)\s*(?P<value>[（(][^（）()]+[）)])\s*', text)
+        if (bare and re.sub(r'\s+', '', bare['label']) in _SIGNING_LABELS
+                and _SIGNOFF_SEAL.search(bare['value'])):
+            match = _SIGNOFF_FIELD.fullmatch(bare['label'].strip() + '：' + bare['value'])
+    prefix = re.match(r'^\s*(?P<label>[^:：\n]+)[:：]', text)
+    label = re.sub(r'\s+', '', match['label'] if match else prefix['label']) if match or prefix else ''
+    role_label = re.sub(r'[（(][^（）()]*[）)]', '', label)
+    role_label = re.sub(r'(?<=成员)[零〇一二三四五六七八九十百\d]+(?=名称)', '', role_label)
+    value = match['value'].strip() if match else text
+    field = _inline_label_field(label)
+    if _SIGNOFF_DATE.fullmatch(value) and (not match or field == 'bidDate'):
+        return 'date', match
+    if match is not None and any(role_label.endswith(label) for label in _SIGNING_LABELS):
+        return 'signing', match
+    if field in _INFORMATION_FIELDS or label in _INFORMATION_LABELS:
+        return 'information', match
+    return 'body', match
+
+
+def _left_role(paragraph):
+    """Override direct and inherited paragraph alignment without editing values."""
+    original = paragraph._p.xml
+    paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    props = paragraph._p.get_or_add_pPr()
+    props._remove_ind()
+    ind = props.get_or_add_ind()
+    for name in ('left', 'right', 'firstLine', 'hanging', 'leftChars', 'rightChars', 'firstLineChars', 'hangingChars'):
+        ind.set(qn('w:' + name), '0')
+    paragraph.paragraph_format.tab_stops.clear_all()
+    inherited = set()
+    style = paragraph.style
+    while style is not None:
+        inherited.update(style.element.xpath('./w:pPr/w:tabs/w:tab/@w:pos'))
+        style = style.base_style
+    for position in sorted(inherited, key=int):
+        stop = OxmlElement('w:tab')
+        stop.set(qn('w:val'), 'clear')
+        stop.set(qn('w:pos'), position)
+        props.get_or_add_tabs().append(stop)
+    text = ''.join(value for _, value in _inline_nodes(paragraph))
+    leading = re.match(r'^[ \t\u3000]+', text)
+    if leading:
+        _replace_inline_span(paragraph, 0, leading.end(), '')
+    return int(paragraph._p.xml != original)
 
 
 def _is_signoff_line(text: str) -> bool:
-    compact = re.sub(r"\s+", "", text or "").strip()
-    if not compact or len(compact) > 96:
-        return False
-    if _SIGNOFF_START.match(compact):
-        return True
-    return bool(
-        re.search(r"(?:签字|签章|盖章|公章|承诺单位|法定代表人|委托代理人|授权代表)", compact)
-        and re.match(r"^[^。；;]{1,36}[：:]", compact)
-    )
+    compact = re.sub(r"\s+", "", text or "")
+    match = re.match(r'([^:：]+)[:：]', compact)
+    return bool((match and match[1] in _SIGNING_LABELS) or _SIGNOFF_DATE.fullmatch(compact))
 
 
 def normalize_signoff_block(paragraphs) -> None:
-    """Normalize contiguous sign-off paragraphs without changing their text."""
-    group = []
-
-    def flush() -> None:
-        nonlocal group
-        if not group:
-            return
-        centered = group[0].alignment == WD_ALIGN_PARAGRAPH.CENTER
-        right = any(
-            re.search(
-                r"投标人|法定代表人|承诺单位|承诺人|委托代理人|地址|电话|固定电话|日期|\d{4}年|签字|签章",
-                re.sub(r"\s+", "", para.text or ""),
-            )
-            for para in group
-        )
-        for para in group:
-            para.paragraph_format.first_line_indent = Twips(0 if centered else 420)
-            para.alignment = WD_ALIGN_PARAGRAPH.RIGHT if right else (
-                WD_ALIGN_PARAGRAPH.CENTER if centered else WD_ALIGN_PARAGRAPH.LEFT
-            )
-        group = []
-
-    for para in paragraphs:
-        text = re.sub(r"\s+", "", (para.text or "").strip())
-        if not _is_signoff_line(text):
-            flush()
-            continue
-        if len(group) < 8:
-            group.append(para)
-        else:
-            flush()
-            group.append(para)
-    flush()
+    """Early passes must never pull contact/information rows into signing groups."""
+    for paragraph in paragraphs:
+        role, _ = _paragraph_role(paragraph)
+        if role in {'information', 'note'}:
+            _left_role(paragraph)
 
 
 _SIGNOFF_DATE_TEXT = r"\d{4}[ \t\u3000]*年[ \t\u3000]*\d{1,2}[ \t\u3000]*月[ \t\u3000]*\d{1,2}[ \t\u3000]*日"
@@ -2943,7 +3263,7 @@ _SIGNOFF_FIELD = re.compile(
     rf"(?![ \t\u3000]*{_SIGNOFF_DATE_TEXT})"
     r"(?P<label>[^：:。！？；;，,\n]+?)[ \t\u3000]*(?P<colon>[：:])(?P<value>[^。！？；\n]*)"
 )
-_SIGNOFF_SEAL = re.compile(r"签字|签章|盖章|印章")
+_SIGNOFF_SEAL = re.compile(r"签字|签名|签章|盖单位公章|盖单位章|盖章|印章|公章")
 _BUSINESS_LITERAL = re.compile(r"[（(][ \u3000]*(姓名|签字|盖章)[ \u3000]*[）)]|[（(]?在此粘贴扫描件[）)]?")
 _INLINE_TEXT = {qn("w:tab"): "\t", qn("w:br"): "\n", qn("w:cr"): "\n"}
 
@@ -2983,245 +3303,180 @@ def _replace_inline_span(paragraph: Paragraph, start: int, end: int, replacement
         offset = limit
 
 
-def _signoff_width(paragraph: Paragraph, match: re.Match, default_size: float) -> float:
-    width = 0.0
-    offset = 0
-    label_end = match.end("label")
-    colon = match.start("colon")
-    for node, text in _inline_nodes(paragraph):
-        if offset > colon:
-            break
-        if node.tag == qn("w:t") and text:
-            run = Run(node.getparent(), paragraph)
-            size = run.font.size
-            for style in (run.style, paragraph.style):
-                while size is None and style is not None:
-                    size = style.font.size
-                    style = style.base_style
-            points = size.pt if size is not None else default_size
-            for index, char in enumerate(text[:colon - offset + 1], offset):
-                if index < label_end or index == colon:
-                    width += points * (0.5 if char.isascii() else 1) * 20
-        offset += len(text)
-    return width
+def _split_role_paragraphs(doc: Document) -> int:
+    """Split mixed roles before filling, preserving the original final section edge."""
+    from api.services.tenders.directory_guard import directory_blocks
+    from api.services.tenders.pdf_format import _STAMP
+    excluded = directory_blocks(doc)
+    changed = 0
+    signing_labels = '|'.join(map(re.escape, sorted(_SIGNING_LABELS, key=len, reverse=True)))
+    row_pattern = re.compile(r'(?:' + signing_labels + r')\s*(?:[（(][^（）()]*[）)])?\s*[:：]')
+    for node in list(doc.element.body.iter(qn('w:p'))):
+        if node.getparent() is None or node in excluded or next(node.iter(qn('w:drawing')), None) is not None:
+            continue
+        p = Paragraph(node, doc._body)
+        text = ''.join(value for _, value in _inline_nodes(p))
+        if re.fullmatch(_STAMP, text.strip()):
+            previous = node.getprevious()
+            while (previous is not None and previous.tag == qn('w:p')
+                   and not ''.join(t.text or '' for t in previous.iter(qn('w:t'))).strip()):
+                if previous.xpath('.//w:sectPr | .//w:drawing | .//w:br[@w:type="page"]'):
+                    break
+                previous = previous.getprevious()
+            if previous is not None and previous.tag == qn('w:p') and previous not in excluded:
+                prior = Paragraph(previous, doc._body)
+                if (_paragraph_role(prior)[0] == 'signing'
+                        and not previous.xpath('.//w:sectPr | .//w:drawing | .//w:br[@w:type="page"]')
+                        and not node.xpath('.//w:sectPr | .//w:br[@w:type="page"]')):
+                    for child in list(node):
+                        if child.tag != qn('w:pPr'):
+                            previous.append(child)
+                    node.getparent().remove(node)
+                    changed += 1
+                    continue
+        rows = list(row_pattern.finditer(text))
+        dated = re.match(rf'^(?P<date>\s*(?:[^:：\n]+[:：]\s*)?{_SIGNOFF_DATE_TEXT})\s*(?P<note>(?:附注|说明|备注|注|附)[:：].*)$', text, re.S)
+        slices = []
+        if dated:
+            slices = [dated['date'].rstrip(), dated['note']]
+        elif rows and _SIGNOFF_SEAL.search(text):
+            prefix = text[:rows[0].start()]
+            note_tail = (_NOTE_LEAD.match(prefix) and text.rstrip().endswith(('）', ')'))
+                         and prefix.count('（') == prefix.count('）') and prefix.count('(') == prefix.count(')'))
+            if prefix.strip() and not note_tail:
+                continue
+            if len(rows) > 1 or note_tail:
+                slices = ([prefix.rstrip()] if note_tail else []) + [
+                    text[row.start():rows[i + 1].start() if i + 1 < len(rows) else len(text)].strip()
+                    for i, row in enumerate(rows)]
+        if not slices:
+            continue
+        section = node.find('w:pPr/w:sectPr', node.nsmap)
+        if section is not None:
+            section.getparent().remove(section)
+        cursor = node
+        for value in slices[1:]:
+            clone = deepcopy(node)
+            for mark in list(clone.iter(qn('w:bookmarkStart'), qn('w:bookmarkEnd'), qn('w:fldSimple'))):
+                mark.getparent().remove(mark)
+            para = Paragraph(clone, doc._body)
+            _replace_inline_span(para, 0, len(text), value)
+            cursor.addnext(clone)
+            cursor = clone
+        _replace_inline_span(p, 0, len(text), slices[0])
+        if section is not None:
+            cursor.get_or_add_pPr().append(section)
+        changed += 1
+    return changed
 
 
 def _align_business_signoffs(doc: Document, seal_paragraphs: set) -> int:
-    sizes = doc.styles.element.xpath("./w:docDefaults/w:rPrDefault/w:rPr/w:sz/@w:val")
-    default_size = int(sizes[0]) / 2 if sizes else 11
-    sections = iter(doc.sections)
-    section = next(sections)
-    first_section = True
-    cover = True
-    blocks = []
-    current = []
-    date_candidates = []
-    field_pending = False
-
-    def is_signoff_field(match: re.Match) -> bool:
-        label = re.sub(r"\s+", "", match["label"])
-        if label.startswith(("注", "备注", "说明", "附注")):
-            return False
-        return bool(_SIGNOFF_START.match(label) or label.startswith("致"))
-
-    def flush() -> None:
-        nonlocal current
-        if current and any(item[2] is not None for item in current):
-            blocks.append(current)
-        current = []
-
-    def split_date_note(para: Paragraph, text: str) -> str:
-        match = re.match(
-            rf"^[ 	　]*(?P<date>{_SIGNOFF_DATE_TEXT})[ 	　]*(?P<note>"
-            r"(?:注|备注|说明|附注)[：:].*)$",
-            text,
-        )
-        if not match:
-            return text
-        start = match.start("note")
-        note = text[start:]
-        new_el = OxmlElement("w:p")
-        ppr = para._p.find(qn("w:pPr"))
-        if ppr is not None:
-            new_el.append(deepcopy(ppr))
-        note_para = Paragraph(new_el, doc._body)
-        note_para.add_run(note)
-        note_para.paragraph_format.left_indent = Twips(0)
-        note_para.paragraph_format.first_line_indent = Twips(0)
-        note_para.paragraph_format.right_indent = Twips(0)
-        note_para.paragraph_format.tab_stops.clear_all()
-        para._p.addnext(new_el)
-        _replace_inline_span(para, start, len(text), "")
-        return match.group("date")
-
-    for element in list(doc.element.body):
-        if element.tag != qn("w:p"):
-            flush()
+    """Align only signing-role fields; information and notes remain independent."""
+    from docx.section import Section
+    from api.services.tenders.schema import DocumentFormat
+    from api.services.tenders.pdf_format import _inline_label_field
+    from api.services.tenders.directory_guard import directory_blocks
+    changed = _split_role_paragraphs(doc)
+    excluded = directory_blocks(doc)
+    defaults = doc.styles.element.xpath('./w:docDefaults/w:rPrDefault/w:rPr/w:sz/@w:val')
+    default_size = int(defaults[0]) / 2 if defaults else DocumentFormat().bodySizePt
+    blocks, current = [], []
+    parent = None
+    for node in list(doc.element.body.iter(qn('w:p'))):
+        if node in excluded:
             continue
-        para = Paragraph(element, doc._body)
-        text = "".join(value for _, value in _inline_nodes(para))
-        instructions = " ".join(node.text or "" for node in element.iter(qn("w:instrText")))
-        page_break = element.xpath("./w:pPr/w:pageBreakBefore | .//w:br[@w:type='page']")
-        if cover and (page_break or instructions.strip().upper().startswith("TOC ")):
-            cover = False
-        if first_section and cover:
+        paragraph = Paragraph(node, doc._body)
+        text = ''.join(value for _, value in _inline_nodes(paragraph))
+        role, match = _paragraph_role(paragraph)
+        table = next(node.iterancestors(qn('w:tbl')), None)
+        if table is not None and role in {'signing', 'date'} and any(
+                _paragraph_role(Paragraph(p, doc._body))[0] == 'information' for p in table.iter(qn('w:p'))):
+            role = 'information'
+        if (not text.strip() and parent is node.getparent()
+                and next(node.iter(qn('w:drawing')), None) is None
+                and next(node.iter(qn('w:sectPr')), None) is None
+                and not node.xpath('.//w:br[@w:type="page"] | ./w:pPr/w:pageBreakBefore')):
             continue
-        text = split_date_note(para, text)
-        if not text.strip():
+        if role in {'information', 'note'}:
+            changed += _left_role(paragraph)
+        if parent is not node.getparent() or role not in {'signing', 'information', 'date'}:
             if current:
-                current.append((para, text, None, False))
-            continue
-        match = _SIGNOFF_FIELD.fullmatch(text)
-        is_date = _SIGNOFF_DATE.fullmatch(text) is not None
-        if match and match["label"].strip() and is_signoff_field(match):
-            current.append((para, text, match, False))
-            field_pending = True
-        elif is_date or (element in seal_paragraphs and ":" not in text and "：" not in text):
-            current.append((para, text, None, is_date))
-            if is_date:
-                date_candidates.append((para, text))
-        else:
-            flush()
-            field_pending = False
-        if _p_sectpr(element) is not None:
-            flush()
-            try:
-                section = next(sections)
-            except StopIteration:
-                pass
-            first_section = False
-            cover = False
-    flush()
-    logger.warning("signoff date candidates=%s blocks=%s", len(date_candidates), len(blocks))
+                blocks.append(current)
+            current = []
+        if role in {'signing', 'information', 'date'}:
+            current.append((paragraph, role, match))
+        parent = node.getparent()
+        if role == 'date' and current:
+            blocks.append(current)
+            current = []
+    if current:
+        blocks.append(current)
 
-    fields = [(para, text, match) for block in blocks for para, text, match, _ in block if match is not None]
-    if not fields:
-        return 0
-
-    def width(para: Paragraph, value: str) -> int:
-        size = default_size
-        for run in para.runs:
-            if run.font.size is not None:
-                size = run.font.size.pt
-                break
-        return sum(round(size * (0.5 if char.isascii() else 1) * 20) for char in value)
-
-    def direct_size(para: Paragraph):
-        for run in para.runs:
-            if run.font.size is not None:
-                return run.font.size
-        return None
-
-    widest_value = max(width(para, match["value"].lstrip("\t")) for para, _, match in fields)
-    colon_width = max(width(para, match["colon"]) for para, _, match in fields)
-    usable = int((section.page_width - section.left_margin - section.right_margin) / 635)
-    right_pad = int(Cm(0.4).twips)
-    pos = usable - widest_value - colon_width - right_pad
-    warning = ""
-    if pos < usable * 0.55:
-        pos = int(usable * 0.55)
-        warning = " warning=geometry-fallback"
-    logger.warning(
-        "signoff geometry usable=%s Wv=%s colon_width=%s right_pad=%s pos=%s ratio=%.4f%s",
-        usable, widest_value, colon_width, right_pad, pos,
-        pos / usable if usable else 0, warning,
-    )
-
-    changed = 0
-    processed_dates = set()
     for block in blocks:
-        for para, text, match, is_date in block:
-            fmt = para.paragraph_format
-            existing_tabs = list(fmt.tab_stops)
-            if is_date:
-                date_body = text.strip()
-                expected = "\t" + date_body
-                already_centered = (
-                    text == expected
-                    and para.alignment is None
-                    and not any((fmt.left_indent, fmt.right_indent, fmt.first_line_indent))
-                    and len(existing_tabs) == 1
-                    and existing_tabs[0].position == Twips(pos)
-                    and existing_tabs[0].alignment == WD_TAB_ALIGNMENT.CENTER
-                )
-                if already_centered:
-                    processed_dates.add(para._p)
-                    continue
-            elif match is not None:
-                label = re.sub(r"\s+", "", match["label"])
-                value = match["value"].lstrip("\t")
-                expected = f"\t{label}{match['colon']}\t{value}"
-                already_aligned = (
-                    text == expected
-                    and para.alignment == WD_ALIGN_PARAGRAPH.LEFT
-                    and not any((fmt.left_indent, fmt.right_indent, fmt.first_line_indent))
-                    and len(existing_tabs) == 2
-                    and existing_tabs[0].position == Twips(pos)
-                    and existing_tabs[0].alignment == WD_TAB_ALIGNMENT.RIGHT
-                    and existing_tabs[1].position == Twips(pos + colon_width)
-                    and existing_tabs[1].alignment == WD_TAB_ALIGNMENT.LEFT
-                )
-                if already_aligned:
-                    continue
-            source_size = direct_size(para)
-            fmt.left_indent = Twips(0)
-            fmt.right_indent = Twips(0)
-            fmt.first_line_indent = Twips(0)
-            tabs = fmt.tab_stops
-            tabs.clear_all()
-            if is_date:
-                processed_dates.add(para._p)
-                para.alignment = None
-                tabs.add_tab_stop(Twips(pos), WD_TAB_ALIGNMENT.CENTER)
-                _clear_runs(para)
-                new_run = para.add_run("\t" + date_body)
-                if source_size is not None:
-                    new_run.font.size = source_size
-                changed += 1
-                continue
-            if match is None:
-                if para._p in seal_paragraphs:
-                    para.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-                continue
-            label = re.sub(r"\s+", "", match["label"])
-            value = match["value"].lstrip("\t")
-            tabs.add_tab_stop(Twips(pos), WD_TAB_ALIGNMENT.RIGHT)
-            tabs.add_tab_stop(Twips(pos + colon_width), WD_TAB_ALIGNMENT.LEFT)
-            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
-            _clear_runs(para)
-            new_run = para.add_run(f"\t{label}{match['colon']}\t{value}")
-            if source_size is not None:
-                new_run.font.size = source_size
-            changed += 1
-    for para, text in date_candidates:
-        if para._p in processed_dates:
+        terminal_date = block[-1][1] == 'date'
+        core = [index for index, (_, role, match) in enumerate(block)
+                if role == 'information' and match and _inline_label_field(match['label']) not in _CONTACT_FIELDS]
+        last_core = max(core, default=-1)
+        named_seals = [index for index, (p, role, match) in enumerate(block)
+                       if role == 'signing' and match and _SIGNOFF_SEAL.search(p.text)
+                       and _inline_label_field(match['label']) != 'bidderName']
+        fields = [(p, match) for index, (p, role, match) in enumerate(block)
+                  if role == 'signing' and match and (
+                      (index > last_core and terminal_date)
+                      or (_SIGNOFF_SEAL.search(p.text) and (index > last_core or (named_seals and (
+                          _inline_label_field(match['label']) != 'bidderName'
+                          or not any(index < info < min(named_seals) for info in core))))))]
+        selected = {p._p for p, _ in fields}
+        for p, role, _ in block:
+            if role == 'signing' and p._p not in selected:
+                changed += _left_role(p)
+        if not fields:
+            for p, role, _ in block:
+                if role == 'date':
+                    changed += _left_role(p)
             continue
-        fmt = para.paragraph_format
-        existing_tabs = list(fmt.tab_stops)
-        date_body = text.strip()
-        expected = "\t" + date_body
-        if (
-            text == expected
-            and para.alignment is None
-            and not any((fmt.left_indent, fmt.right_indent, fmt.first_line_indent))
-            and len(existing_tabs) == 1
-            and existing_tabs[0].position == Twips(pos)
-            and existing_tabs[0].alignment == WD_TAB_ALIGNMENT.CENTER
-        ):
-            continue
-        source_size = direct_size(para)
-        fmt.left_indent = Twips(0)
-        fmt.right_indent = Twips(0)
-        fmt.first_line_indent = Twips(0)
-        fmt.tab_stops.clear_all()
-        para.alignment = None
-        fmt.tab_stops.add_tab_stop(Twips(pos), WD_TAB_ALIGNMENT.CENTER)
-        _clear_runs(para)
-        new_run = para.add_run("\t" + date_body)
-        if source_size is not None:
-            new_run.font.size = source_size
-        changed += 1
+        anchor = fields[0][0]._p
+        while anchor.getparent() is not doc.element.body:
+            anchor = anchor.getparent()
+        section_node = next((s for node in [anchor, *anchor.itersiblings()]
+                             for s in node.iter(qn('w:sectPr'))), doc.element.body.sectPr)
+        section = Section(section_node, doc.part)
+        usable = section.page_width.twips - section.left_margin.twips - section.right_margin.twips
+        cell = next(fields[0][0]._p.iterancestors(qn('w:tc')), None)
+        if cell is not None:
+            cell_width = cell.find('w:tcPr/w:tcW', cell.nsmap)
+            if cell_width is not None and cell_width.get(qn('w:type')) == 'dxa':
+                usable = min(usable, int(cell_width.get(qn('w:w'))))
+        def width(p, text):
+            size = next((r.font.size.pt for r in p.runs if r.font.size is not None), default_size)
+            return max((sum(size * (0.5 if c.isascii() else 1) * 20 for c in line)
+                        for line in text.splitlines()), default=0)
+        label_width = max(width(p, re.sub(r'\s+', '', match['label']) + match['colon']) for p, match in fields)
+        colon_width = max(width(p, match['colon']) for p, match in fields)
+        value_width = max(width(p, match['value'].strip()) for p, match in fields)
+        position = round(max(label_width, usable - value_width - colon_width))
+        label_start = round(max(0, position - label_width))
+        for p, role, match in block:
+            if p._p not in selected and role != 'date':
+                continue
+            before = p._p.xml
+            text = ''.join(value for _, value in _inline_nodes(p))
+            _left_role(p)
+            if role == 'date':
+                expected = '\t' + text.strip()
+                p.paragraph_format.tab_stops.add_tab_stop(Twips(label_start), WD_TAB_ALIGNMENT.LEFT)
+            else:
+                label = re.sub(r'\s+', '', match['label'])
+                expected = f"\t{label}{match['colon']}\t{match['value'].strip()}"
+                p.paragraph_format.tab_stops.add_tab_stop(Twips(position), WD_TAB_ALIGNMENT.RIGHT)
+                p.paragraph_format.tab_stops.add_tab_stop(Twips(position + colon_width), WD_TAB_ALIGNMENT.LEFT)
+            current_text = ''.join(value for _, value in _inline_nodes(p))
+            if current_text != expected:
+                _replace_inline_span(p, 0, len(current_text), expected)
+            changed += int(p._p.xml != before)
+        logger.info('SIGNOFF_BLOCK fields=%s colon=%s label_start=%s', len(fields), position, label_start)
     return changed
+
 
 def postprocess_business_document(doc: Document, brief: BidBrief) -> int:
     """Align signature fields and reconcile source-backed wording in the finished bid."""
@@ -3239,21 +3494,192 @@ def postprocess_business_document(doc: Document, brief: BidBrief) -> int:
         if _SIGNOFF_SEAL.search(original):
             seal_paragraphs.add(element)
         for match in reversed(list(_BUSINESS_LITERAL.finditer(original))):
+            if match[1] in {'签字', '盖章'}:
+                continue
             replacement = ""
             if match[1] == "姓名":
                 is_agent = re.search(r"现委托[ \t\u3000]*$", original[:match.start()])
-                replacement = agent if agent and is_agent else "（）"
+                replacement = agent if agent and is_agent else ""
             _replace_inline_span(para, match.start(), match.end(), replacement)
             changed += 1
         visible = "".join(value for _, value in _inline_nodes(para))
         for match in reversed(list(validity_statement.finditer(visible))):
             if validity is None:
-                validity = _invitation_validity_phrase(load_invitation_text(brief.invitationId))
+                validity = (f"投标有效期为{brief.bidValidityDays}日历天" if brief.bidValidityDays
+                            else _invitation_validity_phrase(load_invitation_text(brief.invitationId)))
+                if not re.search(r'\d+\s*(?:日历天|工作日|天|日)', validity):
+                    validity = ''
+            if not validity:
+                continue
             if match[0] != validity:
                 _replace_inline_span(para, match.start(), match.end(), validity)
                 changed += 1
     changed += sum(clean_visible_prompts(doc))
     return changed + _align_business_signoffs(doc, seal_paragraphs)
+
+
+def _normalize_structure_roles(doc):
+    from api.services.tenders.technical_toc import _regions
+    from api.services.tenders.word_structure import outline_level, numbering_labels
+    from api.services.tenders.pdf_format import _inline_label_field
+    regions = _regions(doc)
+    excluded = {node for region in regions for host in region for node in host.iter()}
+    body = doc.element.body
+    front_end = min((body.index(region[0]) for region in regions), default=-1)
+    cached = {_pageref_bookmark(p): p.text.split('\t', 1)[0]
+              for p in doc.paragraphs if _pageref_bookmark(p)}
+    body_paragraphs = [p for p in doc.paragraphs if p._p not in excluded and body.index(p._p) > front_end]
+    declared = sorted({outline_level(doc, p._p) for p in body_paragraphs
+                       if outline_level(doc, p._p) and _paragraph_role(p)[0] == 'body'})
+    canonical = {level: index + 1 for index, level in enumerate(declared)}
+    labels = numbering_labels(doc, [p._p for p in body_paragraphs])
+    current_root = 0
+    changed = 0
+    for node in list(body.iter(qn('w:p'))):
+        p = Paragraph(node, doc._body)
+        role, _ = _paragraph_role(p)
+        host = node
+        while host.getparent() is not body:
+            host = host.getparent()
+        front = body.index(host) < front_end
+        level = outline_level(doc, node)
+        if level and (front or role in {'note', 'information'}):
+            name = 'Body (' + p.style.style_id + ')'
+            try:
+                style = doc.styles[name]
+            except KeyError:
+                style = doc.styles.add_style(name, WD_STYLE_TYPE.PARAGRAPH)
+                style.base_style = p.style
+                style.element.get_or_add_pPr().get_or_add_outlineLvl().val = 9
+            p.style = style
+            node.get_or_add_pPr().get_or_add_outlineLvl().val = 9
+            changed += 1
+        elif node not in excluded and not front and role == 'body':
+            names = [mark.get(qn('w:name')) for mark in node.iter(qn('w:bookmarkStart'))]
+            old_title = next((cached[name] for name in names if name in cached), '')
+            shown = p.text.strip()
+            if not _TEXT_HEADING_NUMBER.match(shown):
+                prefix = labels.get(node, ('', 0))[0]
+                shown = prefix + shown if prefix else old_title or shown
+            if level or old_title:
+                normalized_level = canonical.get(level, level or 1)
+                if re.match(r'^\s*[（(][零〇一二三四五六七八九十百千万\d]+[）)]', shown):
+                    normalized_level = (current_root or 1) + 1
+                if normalized_level == 1:
+                    current_root = normalized_level
+                if level != normalized_level:
+                    node.get_or_add_pPr().get_or_add_outlineLvl().val = normalized_level - 1
+                    changed += 1
+                if p.alignment != WD_ALIGN_PARAGRAPH.LEFT:
+                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    changed += 1
+            elif (node.getparent() is body and re.search(r'[。；;！？!?]', p.text)
+                  and not node.xpath('./w:pPr/w:pBdr | .//w:drawing | .//w:pict')):
+                # Complete body sentences include post-table requirements and
+                # copied explanatory prose; they never inherit signing alignment.
+                if p.alignment != WD_ALIGN_PARAGRAPH.LEFT:
+                    p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                    changed += 1
+        if role in {'information', 'note'}:
+            changed += _left_role(p)
+    # Bare labels establish an information table, including its value cells
+    # and ancillary fields and tables inside legacy text boxes.
+    for table in body.iter(qn('w:tbl')):
+        information = False
+        for row in table.findall(qn('w:tr')):
+            cells = row.findall(qn('w:tc'))
+            for cell in cells:
+                label = ''.join(t.text or '' for p in cell.findall(qn('w:p')) for t in p.iter(qn('w:t')))
+                compact = re.sub(r'\s+', '', label).rstrip('：:')
+                field = _inline_label_field(compact)
+                if field in _INFORMATION_FIELDS | {'bidderName', 'tenderer', 'agentName'} or compact in _INFORMATION_LABELS:
+                    information = True
+        if information:
+            for node in table.iter(qn('w:p')):
+                changed += _left_role(Paragraph(node, doc._body))
+    return changed + normalize_document_colors(doc)
+
+
+def _clean_template_residue(doc, brief):
+    """Use field aliases and the generating module's own introduction templates."""
+    from api.services.tenders.pdf_format import _LABEL_FIELDS, _inline_label_field
+    from api.services.tenders.technical_render import _INTRO_STARTS, _INTRO_ENDINGS
+    from api.services.tenders.directory_guard import directory_blocks
+    excluded = directory_blocks(doc)
+    def template_pattern(template):
+        return ''.join(re.escape(part) if not part.startswith('{') else '.+?'
+                       for part in re.split(r'(\{[^}]+\})', template))
+    starts = [re.compile('^' + template_pattern(t) + r'[^。]*。') for t in _INTRO_STARTS]
+    endings = [re.compile(template_pattern(t) + '$') for t in _INTRO_ENDINGS]
+    changed = 0
+    for node in list(doc.element.body.iter(qn('w:p'))):
+        if node in excluded:
+            continue
+        p = Paragraph(node, doc._body)
+        original = ''.join(value for _, value in _inline_nodes(p))
+        text = original
+        for field in ('projectName', 'tenderer'):
+            value = getattr(brief, field, '')
+            if not value:
+                continue
+            aliases = '|'.join(map(re.escape, _LABEL_FIELDS[field]))
+            pattern = re.compile(r'[（(【\[]\s*(?:' + aliases + r')\s*[）)】\]]')
+            for match in reversed(list(pattern.finditer(text))):
+                present = text[:match.start()].rstrip().endswith(value) or text[match.end():].lstrip().startswith(value)
+                text = text[:match.start()] + ('' if present else value) + text[match.end():]
+        double = re.fullmatch(r'\s*(?P<label>[^:：\n]+)[:：]\s*[:：]\s*(?P<value>.*)', text, re.S)
+        if double:
+            field = _inline_label_field(double['label'])
+            value = getattr(brief, field, '') if field else ''
+            text = double['label'].strip() + '：' + (str(value) if value else double['value'])
+        # These are unused role-name hints, never actual supplied member names.
+        text = re.sub(r'[（(](?:所有|某)?(?:联合体(?:牵头人|成员)?|成员)(?:单位)?名称[）)]', '', text)
+        intro = any(pattern.match(text.strip()) for pattern in starts)
+        if intro:
+            text = text.strip()
+            for pattern in starts:
+                text = pattern.sub('', text)
+            for pattern in endings:
+                text = pattern.sub('', text)
+            p.alignment = WD_ALIGN_PARAGRAPH.LEFT
+        if text != original:
+            _replace_inline_span(p, 0, len(original), text)
+            changed += 1
+    return changed
+
+
+def postprocess_document(doc, brief, *, facts=None, slots=None, media=None):
+    """Shared final body pass; decisions use paragraph roles, never volume names."""
+    from api.services.tenders.pdf_format import (_LABEL_FIELDS, _fill_label_gap, _fill_empty_label_cells,
+                                                _following_inline_unit, reconcile_person_field_values)
+    from api.services.tenders.section_materials import reconcile_generated_slots
+    backed, sources = _fact_backed_brief(brief, facts)
+    changed = _clean_template_residue(doc, backed)
+    changed += _split_role_paragraphs(doc)
+    person_repairs = reconcile_person_field_values(doc, backed)
+    changed += len(person_repairs)
+    fields = fill_inline_labeled_blanks(doc, backed)
+    duration_labels = '|'.join(map(re.escape, _LABEL_FIELDS['deliveryDays']))
+    duration = re.compile(r'(?P<label>' + duration_labels + r')\s*[:：]\s*(?P<value>\d+)(?=[，,。；;）)]|$)')
+    for node in list(doc.element.body.iter(qn('w:p'))):
+        p = Paragraph(node, doc._body)
+        text = ''.join(value for _, value in _inline_nodes(p))
+        for match in reversed(list(duration.finditer(text))):
+            if (backed.deliveryDays and int(match['value']) == backed.deliveryDays
+                    and not _following_inline_unit(node, text[match.end():])):
+                _replace_inline_span(p, match.start('value'), match.end('value'), match['value'] + '日历天')
+                changed += 1
+        _fill_label_gap(node, backed, records=fields)
+    for table in doc.element.body.iter(qn('w:tbl')):
+        _fill_empty_label_cells(table, backed, facts)
+    materials = reconcile_generated_slots(doc, backed, slots=slots, media=media)
+    changed += materials['changed']
+    changed += postprocess_business_document(doc, backed)
+    changed += _normalize_structure_roles(doc)
+    result = {'changed': changed, 'fields': fields, 'sources': sources, 'materials': materials,
+              'person_repairs': person_repairs}
+    doc.element._postprocess_audit = result
+    return result
 
 
 def clean_visible_prompts(doc: Document) -> tuple[int, int]:
@@ -4783,13 +5209,14 @@ def build_bid_docx(
     })
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
-    if volume == "business":
-        postprocess_business_document(doc, brief)
-    else:
-        clean_visible_prompts(doc)
-        normalize_signoff_block(doc.paragraphs)
+    clean_visible_prompts(doc)
+    normalize_signoff_block(doc.paragraphs)
     normalize_table_layout(doc)
     normalize_document_colors(doc)
+    _, title_warnings = _title_layout(doc, brief.documentFormat)
+    warnings.extend(title_warnings)
+    from api.services.tenders.technical_toc import finalize
+    warnings.extend(finalize(doc, brief, facts=catalog_facts, slots=slots, media=media))
     doc.save(str(dest))
     warnings.append(
         "封面与目录不编页码，从正文首页起编。目录条目已预填页码；"

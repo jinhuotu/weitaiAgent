@@ -842,16 +842,14 @@ async def parse_invitation(
 
     # ========== 本地规则处理（使用预解析结构） ==========
     with tracker.track("outline_extract"):
-        chapter, outline_items = extract_outline(invitation)
         if path.suffix.lower() == '.docx':
             from api.services.tenders.native_format import word_format_section
 
-            native_chapter, native_section = word_format_section(path)
-            if native_chapter:
-                chapter = native_chapter
-                _, native_items = extract_outline(native_section)
-                if native_items:
-                    outline_items = native_items
+            native_chapter, native_section = word_format_section(path, include_table_text=False)
+            parsed_chapter, outline_items = extract_outline(native_section)
+            chapter = native_chapter or parsed_chapter
+        else:
+            chapter, outline_items = extract_outline(invitation)
         brief.authNeed = extract_auth_need(invitation, outline_items)
 
     brief.authEnabled = bool(brief.authEnabled)

@@ -23,6 +23,9 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "重大税收违法",
             "失信被执行人",
             "信用信息公示",
+            "企业信息公示",
+            "股东及出资信息",
+            "公共信用信息报告",
             "企业信用查询",
             "失信查询",
             "信用截图",
@@ -31,6 +34,7 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     ("id_legal", ("法定代表人身份证", "法人身份证", "法人代表身份证")),
+    ("identity", ("身份证",)),
     (
         "id_agent",
         (
@@ -39,16 +43,18 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
             "授权委托人身份证",
             "委托人身份证",
             "被授权人身份证",
+            "代理人身份证",
         ),
     ),
     ("license", ("营业执照",)),
     ("bank_permit", ("开户许可", "开户许可证", "基本账户", "基本户")),
-    ("iso", ("iso", "质量体系", "管理体系认证", "体系认证证书", "体系证书", "资质证书")),
+    ("iso", ("iso", "质量体系", "管理体系认证", "体系认证证书", "体系证书")),
+    ("qualification", ("企业资质", "施工资质", "投标人资质", "资质证书")),
     ("safety", ("安全生产许可证", "安全生产许可")),
     ("bond", ("投标保证金", "保证金缴存", "保证金回单")),
-    ("finance", ("财务审计", "审计报告", "完税证明", "财务报表", "财务报告")),
+    ("finance", ("财务审计", "审计报告", "完税证明", "财务报表", "财务报告", "财务状况")),
     ("social", ("社保缴纳", "社保缴费", "社保证明")),
-    ("perf", ("类似业绩", "类似项目", "合同及发票", "业绩证明", "业绩合同")),
+    ("perf", ("类似业绩", "类似项目", "合同及发票", "业绩证明", "业绩合同", "同类业绩", "业绩文件", "业绩一览表")),
     ("product", ("检测报告", "型式试验", "3c认证", "ccc认证", "3c", "型号证明", "产品合格证")),
     ("seal", ("签章页", "盖章页")),
     ("commitment", ("承诺书", "承诺函", "无违法", "无行贿")),
@@ -56,7 +62,56 @@ _KIND_PHRASES: tuple[tuple[str, tuple[str, ...]], ...] = (
 
 
 def compact_title(text: str) -> str:
-    return _COMPACT.sub("", text or "").lower()
+    return _COMPACT.sub("", normalize_material_title(text)).casefold()
+
+
+def normalize_material_title(text: str, *, fold_case: bool = True) -> str:
+    """Strip numbering and annotations while retaining a standalone main name."""
+    value = re.sub(r'\s+', '', str(text or ''))
+    number_prefix = (
+        r'^(?:(?:第[零〇一二三四五六七八九十百千\d]+[章节])'
+        r'|(?:[（(][零〇一二三四五六七八九十百千\d]+[）)])'
+        r'|(?:[零〇一二三四五六七八九十百千]+[、.．])'
+        r'|(?:\d+(?:[.．]\d+)*[、.．）)])|(?:[A-Za-z][.．、]))+'
+    )
+    value = re.sub(number_prefix, '', value)
+    value = re.sub(r'(?:等材料|等资料|等)$', '', value)
+    original = value
+    while re.search(r'[（(【\[「][^（）()【】\[\]「」]*[）)】\]」]', value):
+        value = re.sub(r'[（(【\[「][^（）()【】\[\]「」]*[）)】\]」]', '', value)
+    if not value.strip('：:，,。；;'):
+        descriptions = re.findall(r'[（(【\[「]([^（）()【】\[\]「」]*)[）)】\]」]', original)
+        value = next((part for part in descriptions if part and not re.match(r'^(?:如有|若|如果|如非)', part)), '')
+    value = re.sub(r'[【】\[\]「」（）()]', '', value)
+    value = re.sub(r'(?:等材料|等资料|等)$', '', value).strip('：:，,。；;')
+    return value.casefold() if fold_case else value
+
+
+_MATERIAL_SOURCES = (
+    ('enterprise_registry', r'国家企业信用信息公示|公示系统|企业信息公示|股东|投资人信息|企业查询'),
+    ('credit_china', r'信用中国|信用报告|失信|重大税收违法'),
+)
+
+
+def material_sources(text: str) -> frozenset[str]:
+    return frozenset(name for name, pattern in _MATERIAL_SOURCES if re.search(pattern, text or ''))
+
+
+def material_request_title(title: str, evidence: str = '') -> str:
+    """Restore a short material subject dropped before a submission action."""
+    name = normalize_material_title(title, fold_case=False)
+    action = re.search(r'(?:须|应|需)?(?:提供|提交|出具|应附|须附)', evidence)
+    if action is None:
+        action = re.search(r'(?:须|应|需)(?:扫描|截图|复印)', evidence)
+    if action:
+        prefix = evidence[:action.start()]
+        main = re.sub(r'[【\[「][^】\]」]*$|[（(][^）)]*$', '', prefix)
+        subject = normalize_material_title(main, fold_case=False).rstrip('须应需：:，,')
+        if (subject and len(subject) <= 80 and not re.search(r'[。；;，,]|(?:投标人|供应商)(?:应|须|需|必须)', subject)
+                and (re.search(r'证书|报告|截图|承诺|执照|凭证|证明', subject) or _kind_hits(subject))
+                and compact_title(subject) not in compact_title(name)):
+            name = subject if main != prefix else subject + name
+    return name
 
 
 _ATTACH_CUE_START = r"(?:本表后应附|本表后附|后应附|应在此提供|在此提供|在此附|应提供|需提供|须提供|应附|须附|需附|附[：:]|附(?!录|件|注|表))"
@@ -112,6 +167,8 @@ def attachment_requests(text: str, *, source_kind=None) -> list[PlaceholderItem]
     if source_kind is not None and source_kind not in {'qualification','scoring','format'}:return []
     result: dict[str, PlaceholderItem] = {}
     for cue in _ATTACH_CUE.finditer(flat):
+        sentence_start = max(flat.rfind(mark, 0, cue.start()) for mark in '。；;\n') + 1
+        evidence = flat[sentence_start:cue.end()]
         clause = cue.group(1)
         for key, title, pattern in _ATTACH_NAMES:
             if re.search(pattern, clause):
@@ -120,7 +177,7 @@ def attachment_requests(text: str, *, source_kind=None) -> list[PlaceholderItem]
                 elif key == "finance":
                     title = "及".join(word for word in ("审计报告", "财务会计报表", "财务报表") if word in clause)
                 if attachment_requirement_allowed(title,cue.group(0)):
-                    result.setdefault(key, PlaceholderItem(key=key, title=title, hint=cue.group(0)))
+                    result.setdefault(key, PlaceholderItem(key=key, title=title, hint=evidence))
         # 未列举的材料仍按说明生成有名称的框，不把任意「提供」要求当扫描件。
         if not re.search(r"复印件|扫描件|截图|证明材料|(?:证书|许可证|报告|报表)(?:[（(].*?[）)])?$", clause):
             continue
@@ -132,6 +189,7 @@ def attachment_requests(text: str, *, source_kind=None) -> list[PlaceholderItem]
                 continue
             name = re.sub(r"^(?:及|包括|有效的?|相关的?|经审计的|成立以来的)", "", part)
             name = re.sub(r"(?:等材料|等资料|等)$", "", name).strip("：:")
+            name = material_request_title(name, evidence)
             name = re.sub(r"^满足第.+规定的(?:相关)?证明材料$", "相关证明材料", name)
             optional = re.match(r"^((?:学历证|职称证|注册资格证书)[（(]如有[）)])", name)
             if optional:
@@ -146,7 +204,7 @@ def attachment_requests(text: str, *, source_kind=None) -> list[PlaceholderItem]
             elif re.fullmatch(r'(?:委托代理人|授权代理人|授权委托人|被授权人|委托人|代理人)(?:的|本人)?身份证(?:正反面)?',normalized):key='id_agent'
             elif re.fullmatch(r'(?:信用查询|信用报告|信用截图)(?:截图|打印件)?',normalized):key='credit'
             if attachment_requirement_allowed(name,cue.group(0)):
-                result.setdefault(key, PlaceholderItem(key=key, title=name, hint=cue.group(0)))
+                result.setdefault(key, PlaceholderItem(key=key, title=name, hint=evidence))
     return list(result.values())
 
 
@@ -154,6 +212,7 @@ def attachment_catalog_item(request: PlaceholderItem, catalog: list[PlaceholderI
     """按资料名称匹配，施工资质不能用 ISO 体系证书替代，保函不能用汇款回单替代。"""
     if request.title == "相关证明材料":
         return None
+    catalog = [item for item in catalog if not material_match_rejection(request.title, request.hint, item)]
     from api.services.tenders.material_identity import standard_material_key
     standard = standard_material_key(request)
     if standard:
@@ -172,7 +231,7 @@ def attachment_catalog_item(request: PlaceholderItem, catalog: list[PlaceholderI
         return next((item for item in catalog if re.search(r"类似.*(?:业绩|合同|项目)|合同协议书|中标通知书", item.title or "")), None)
     if request.key == "finance":
         return find_catalog_item(catalog, title="财务审计报告")
-    return find_catalog_item(catalog, title=request.title)
+    return find_catalog_item(catalog, title=request.title, hint=request.hint)
 
 
 @lru_cache(maxsize=8192)
@@ -194,7 +253,10 @@ def _titles_loosely_match(left: str, right: str) -> bool:
 
 @lru_cache(maxsize=8192)
 def _kind_hits(text: str) -> set[str]:
-    n = compact_title(text)
+    # Evidence may enclose the entire material requirement in brackets.
+    # Remove delimiters here, keeping their contents for category recognition.
+    text = re.sub(r'(?:不要|不得|禁止)(?:用|拿)[^。；;]*(?:顶替|替代)', '', text or '')
+    n = _COMPACT.sub('', text).casefold()
     if len(n) < 4:
         return set()
     # 「身份证明」含「身份证」三字，不能当成证件扫描件。
@@ -208,7 +270,51 @@ def _kind_hits(text: str) -> set[str]:
             if p and p in n:
                 hits.add(kind)
                 break
+    if hits & {"id_legal", "id_agent"}:
+        hits.discard("identity")
+    if "iso" in hits and not re.search(r'企业资质|施工资质|投标人资质', n):
+        hits.discard("qualification")
     return hits
+
+
+@lru_cache(maxsize=None)
+def _material_content_labels(path: str, modified: int, size: int):
+    """Cache content evidence by file version, never by a sample or volume."""
+    from pathlib import Path
+    try:
+        if Path(path).suffix.lower() != '.pdf':
+            return '', (), (), 'no_text_reader'
+        import fitz
+        with fitz.open(path) as document:
+            text = '\n'.join(page.get_text() for page in document)
+        title = next((line.strip() for line in text.splitlines() if line.strip()), '')
+        kinds = _kind_hits(title) or _kind_hits(text)
+        return title, tuple(sorted(kinds)), tuple(sorted(material_sources(title))), 'read' if title else 'no_text'
+    except (ImportError, OSError, RuntimeError, ValueError):
+        return '', (), (), 'unreadable'
+
+
+def material_content_check(slot, path):
+    """Reject positive content contradictions; keep unreadable scans diagnostic."""
+    from pathlib import Path
+    path = Path(path)
+    expected = _kind_hits(slot.title) or _kind_hits(slot.hint)
+    try:
+        stat = path.stat()
+        title, actual, sources, status = _material_content_labels(str(path.resolve()), stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        title, actual, sources, status = '', (), (), 'unreadable'
+    wanted = material_sources(slot.title)
+    reason = ('content_category_mismatch' if expected and actual and expected.isdisjoint(actual)
+              else 'content_source_mismatch' if wanted and sources and wanted.isdisjoint(sources) else '')
+    record = {'file': str(path), 'request': slot.title, 'normalized': normalize_material_title(slot.title),
+            'expected_categories': sorted(expected), 'content_title': title,
+            'content_categories': list(actual), 'content_sources': list(sources),
+            'content_status': status, 'reason': reason}
+    if reason:
+        import json, logging
+        logging.getLogger(__name__).info('MATERIAL_FILE_REJECT %s', json.dumps(record, ensure_ascii=True, sort_keys=True))
+    return record
 
 
 # 这些类型互斥：不能因「社保」等弱标签把身份证和审计报告算一类
@@ -225,6 +331,10 @@ _EXCLUSIVE_KINDS = frozenset(
         "perf",
         "product",
         "seal",
+        "identity",
+        "qualification",
+        "iso",
+        "safety",
     }
 )
 _WEAK_KINDS = frozenset({"social"})
@@ -247,6 +357,9 @@ def _same_material_kind(left: str, right: str) -> bool:
 
 
 def same_library_material(left: str, right: str) -> bool:
+    sources_left, sources_right = material_sources(left), material_sources(right)
+    if sources_left and sources_right and sources_left.isdisjoint(sources_right):
+        return False
     if _same_material_kind(left, right):
         return True
     la, lb = _kind_hits(left), _kind_hits(right)
@@ -284,22 +397,27 @@ def find_catalog_item(
 ) -> PlaceholderItem | None:
     want = (key or "").strip()
     query = f"{title} {hint}".strip()
-    q_hits = _kind_hits(query)
+    title_hits = _kind_hits(normalize_material_title(title))
+    q_hits = title_hits if title_hits & _EXCLUSIVE_KINDS else _kind_hits(query)
     if want and q_hits and want not in q_hits:
         want = ""
     if want:
         for item in catalog:
-            if item.key == want:
+            if item.key == want and not material_match_rejection(title, hint, item):
                 return item
     if not compact_title(query):
         return None
     for item in catalog:
+        if material_match_rejection(title, hint, item):
+            continue
         if _titles_loosely_match(title, item.title):
             i_hits = _kind_hits(item.title)
             if q_hits and i_hits and not (q_hits & i_hits):
                 continue
             return item
     for item in catalog:
+        if material_match_rejection(title, hint, item):
+            continue
         blob = _item_blob(item)
         i_hits = _kind_hits(blob)
         if q_hits and i_hits and not (q_hits & i_hits):
@@ -310,9 +428,26 @@ def find_catalog_item(
             return item
         if hint and _titles_loosely_match(hint, item.title):
             return item
-        if _same_material_kind(query, blob):
+        if _same_material_kind(title if title_hits & _EXCLUSIVE_KINDS else query, item.title or blob):
             return item
     return None
+
+
+def material_match_rejection(title: str, hint: str, item: PlaceholderItem) -> str:
+    query = f'{title} {hint}'
+    requested = _kind_hits(normalize_material_title(title)) & _EXCLUSIVE_KINDS
+    if not requested:
+        requested = _kind_hits(query) & _EXCLUSIVE_KINDS
+    # Library hints include upload instructions and negative examples. A named
+    # category takes precedence over those instructions on the candidate side.
+    candidate = (_kind_hits(item.title) or _kind_hits(item.hint)) & _EXCLUSIVE_KINDS
+    if requested and requested != candidate:
+        return '类别不符'
+    wanted_sources = material_sources(query)
+    candidate_sources = material_sources(item.title)
+    if wanted_sources and candidate_sources and wanted_sources.isdisjoint(candidate_sources):
+        return '来源不符'
+    return ''
 
 
 def _clean_attach_section(raw) -> str:

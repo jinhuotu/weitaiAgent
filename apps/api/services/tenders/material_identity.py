@@ -22,16 +22,20 @@ def standard_material_key(item):
         return item.key
     if item.key == 'bank_guarantee':
         return 'bond'
-    name = re.sub(r'\s+', '', item.title or '')
+    direct = canonical_material_key(item)
+    if direct:
+        return direct
+    from api.services.tenders.match import normalize_material_title
+
+    name = normalize_material_title(item.title)
+    if not (_kind_hits(name) & known):
+        name += ' ' + str(item.hint or '')
     if re.search(r'基本(?:存款)?账户|开户许可', name):
         return 'bank_permit'
     if re.search(r'投标保证金|(?:电子|银行)保函|保证金.*(?:回单|凭证|缴存)', name):
         return 'bond'
     if re.search(r'资质证书|企业资质', name) and not re.search(r'iso|体系', name, re.I):
         return 'qualification'
-    direct = canonical_material_key(item)
-    if direct:
-        return direct
     hits = _kind_hits(name) & known
     return next(iter(hits)) if len(hits) == 1 else ''
 
@@ -46,12 +50,14 @@ def canonical_material_key(item):
     from api.services.tenders.placeholders import DEFAULT_SLOTS
 
     def normalized(title):
+        from api.services.tenders.match import normalize_material_title
+
         title = re.sub(r'^(?:附[：:]|此处粘贴|在此粘贴)\s*', '', (title or '').strip())
         title = re.sub(r'(?:的)?(?:复印件或扫描件|复印件|扫描件)', '', title)
         title = re.sub(r'[（(](正本|副本)[）)]', r'\1', title)
         title = re.sub(r'[（(]加盖(?:单位)?公章[）)]$', '', title)
         title = re.sub(r'[（(]\s*[）)]', '', title)
-        return re.sub(r'\s+', '', title).casefold().strip('：:，,。；;')
+        return normalize_material_title(title)
 
     title = normalized(item.title)
     defaults = {slot.key: slot for slot in DEFAULT_SLOTS}
@@ -72,18 +78,22 @@ def canonical_material_key(item):
 
 
 def material_key_aliases(items, *, preferred_keys=()):
+    from api.services.tenders.match import normalize_material_title, material_sources, _kind_hits
+
     preferred = set(preferred_keys)
     groups = {}
     by_key = {item.key.strip(): item for item in items if item.key.strip()}
     for key, item in by_key.items():
         standard = canonical_material_key(item)
-        title = re.sub(r"\s+", "", item.title or "").casefold()
+        title = normalize_material_title(item.title)
         # Empty labels provide no evidence that two material keys are aliases.
         group = ('standard', standard) if standard else (("title", title) if title else ("key", key))
-        groups.setdefault(group, []).append(key)
+        sources = material_sources(str(item.title or '') + ' ' + str(item.hint or ''))
+        kinds = frozenset(_kind_hits(title) or _kind_hits(item.hint))
+        groups.setdefault((group, sources, kinds), []).append(key)
     aliases = {}
-    for group, keys in groups.items():
-        canonical = group[1] if group[0] == 'standard' else next((key for key in keys if key in preferred), keys[0])
+    for (group, sources, kinds), keys in groups.items():
+        canonical = group[1] if group[0] == 'standard' and not sources else next((key for key in keys if key in preferred), keys[0])
         aliases.update((key, canonical) for key in keys)
     return aliases
 

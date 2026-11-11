@@ -806,6 +806,8 @@ def _slot_anchor(anchor):
 def _drop_after(doc: Document, anchor_el, slot: PlaceholderItem, files: list[Path], *, wording: str = "", complete: bool = False, at_marker: bool = False) -> bool:
     """The single block writer: never insert inside a paragraph or a table cell."""
     from api.services.tenders.directory_guard import assert_insertable
+    from api.services.tenders.match import material_content_check
+    files = [path for path in files if not material_content_check(slot, path)['reason']]
     assert_insertable(doc, anchor_el)
     import hashlib
     from api.services.tenders.material_layout import constrain_blocks
@@ -1607,7 +1609,10 @@ def _embed_files(slot: PlaceholderItem, media, key: str) -> list[Path]:
         except OSError:
             continue
         if path.suffix.lower() in _IMAGE_EXT | {".pdf"}:
-            out.append(path)
+            from api.services.tenders.match import material_content_check
+            evidence = material_content_check(slot, path)
+            if not evidence['reason']:
+                out.append(path)
     import logging
     logging.getLogger(__name__).info('material embed key=%s mapping_present=%s input=%s usable=%s paths=%s',key,key in (media or {}),len((media or {}).get(key) or []),len(out),[str(p) for p in out])
     return out

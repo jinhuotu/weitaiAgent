@@ -16,11 +16,10 @@ _ATTACHMENT_SITE = re.compile(r'此处粘[贴帖]|在此粘[贴帖]|附[：:]|(?
 
 
 def credit_source(text):
-    if re.search(r'国家企业信用信息公示|公示系统|企业信息公示|股东|投资人信息|企业查询', text):
-        return 'enterprise_registry'
-    if re.search(r'信用中国|信用报告|失信|重大税收违法', text):
-        return 'credit_china'
-    return ''
+    from api.services.tenders.match import material_sources
+
+    sources = material_sources(text)
+    return next(iter(sources)) if len(sources) == 1 else ''
 
 
 def attachment_anchors(body):
@@ -158,8 +157,8 @@ def fill_form_gaps(doc, brief):
                 # Signature/seal fields require execution by the signatory.
                 if re.search(r"签字|签章|盖章", _text(para)):
                     continue
-                for match in reversed(list(re.finditer(r"[_＿]{2,}", _blank_text(para)))):
-                    _write_blank_span(para, match.start(), match.end(), "无")
+                # Unmapped blanks retain the source form; lack of evidence is
+                # reported by the existing material diagnostics, never a value.
 
 
 def _text(el):
@@ -316,9 +315,249 @@ def _identity_family(slot, context=''):
 
 
 def _normalized_material_title(title):
-    title=re.sub(r'[（(](?:如有|如非[^）)]*|若[^）)]*|如果[^）)]*)[）)]','',title or '')
+    from api.services.tenders.match import normalize_material_title
+
+    title=normalize_material_title(title)
     title=re.sub(r'(?:的)?(?:复印件或扫描件|复印件|扫描件)','',title)
     return re.sub(r'\s+','',re.sub(r'^(?:附[:：]|此处粘[贴帖]|在此粘[贴帖])\s*','',title))
+
+
+def _recover_conflicting_material_blocks(doc, catalog, media, excluded):
+    """Recover only generated blocks whose scoped sources positively conflict."""
+    from pathlib import Path
+    from api.services.tenders.match import material_content_check, normalize_material_title, _kind_hits, find_catalog_item
+    from api.services.tenders.placeholders import _drop_after
+    def normalized(value):
+        return normalize_material_title(re.sub(r'[“”"《》]', '', value), fold_case=False)
+    def bookmark(key):
+        return 'result_' + hashlib.sha256(key.encode()).hexdigest()[:20] + '_img'
+    headers = [node for node in doc.element.body if node.tag == qn('w:p') and node not in excluded and outline_level(doc, node)]
+    rejected = {}
+    for slot in catalog:
+        paths = [Path(p) for p in (media or {}).get(slot.key, [])]
+        checks = [material_content_check(slot, path) for path in paths]
+        if not checks or not all(check['reason'] for check in checks):
+            continue
+        rejected[bookmark(slot.key)] = (slot, checks)
+        # Earlier shared recovery wrote source-derived keys. The key protocol,
+        # original requests and scoped paths identify those blocks as well.
+        for header in headers:
+            owner = _heading_text(header)
+            for request in catalog:
+                title = normalized(request.title)
+                if find_catalog_item([slot], title=title, hint=owner) is None:
+                    continue
+                key = _token('postprocess_', normalized(owner) + title + '\n'.join(map(str, paths)))
+                rejected[bookmark(key)] = (PlaceholderItem(key=key, title=title, attachToSection=owner), checks)
+    records = []
+    owner = ''
+    for node in list(doc.element.body):
+        if node.getparent() is not doc.element.body or node in excluded:
+            continue
+        if node.tag == qn('w:p') and outline_level(doc, node):
+            owner = _heading_text(node)
+        marks = node.xpath('.//w:bookmarkStart/@w:name')
+        hit = next((name for name in marks if name in rejected), None)
+        if hit is None:
+            continue
+        slot, checks = rejected[hit]
+        actual = {kind for check in checks for kind in check['content_categories']}
+        if _kind_hits(owner) & actual:
+            continue
+        record = {'request': slot.title, 'normalized': normalized(slot.title), 'evidence': owner,
+                  'categories': sorted({kind for check in checks for kind in check['expected_categories']}),
+                  'content_rejections': checks, 'candidates': [], 'removed_images': 0,
+                  'reason': 'content_conflict_block_removed'}
+        if _text(node).strip() or any(name != hit for name in marks):
+            record['reason'] = 'mixed_content_requires_review'
+            records.append(record)
+            continue
+        anchor = node
+        if node.tag == qn('w:tbl'):
+            anchor = OxmlElement('w:p')
+            node.addprevious(anchor)
+        removed_ids = set()
+        cursor = node
+        while cursor is not None and cursor.tag in {qn('w:p'), qn('w:tbl')}:
+            following = cursor.getnext()
+            if cursor is not node and ((cursor.tag == qn('w:p') and outline_level(doc, cursor)) or _text(cursor).strip()
+                    or cursor.xpath('.//w:bookmarkStart') or next(cursor.iter(qn('w:sectPr')), None) is not None):
+                break
+            record['removed_images'] += len(cursor.xpath('.//a:blip')) + len(list(cursor.iter('{urn:schemas-microsoft-com:vml}imagedata')))
+            removed_ids.update(cursor.xpath('.//@r:embed | .//@r:id | .//@r:link'))
+            if cursor is node:
+                if node.tag == qn('w:tbl'):
+                    cursor.getparent().remove(cursor)
+                else:
+                    for child in list(cursor):
+                        if child.tag != qn('w:pPr'):
+                            cursor.remove(child)
+            elif next(cursor.iter(qn('w:sectPr')), None) is None:
+                cursor.getparent().remove(cursor)
+            else:
+                break
+            cursor = following
+        _drop_after(doc, anchor, slot, [], complete=True, at_marker=True)
+        referenced = set(doc.element.xpath('.//@r:embed | .//@r:id | .//@r:link'))
+        for ident in removed_ids - referenced:
+            if ident in doc.part.rels:
+                doc.part.drop_rel(ident)
+        records.append(record)
+        import json
+        logging.getLogger(__name__).info('MATERIAL_BLOCK_REJECT %s', json.dumps(record, ensure_ascii=True, sort_keys=True))
+    return records
+
+
+def reconcile_generated_slots(doc, brief, *, slots=None, media=None):
+    """Remove superseded local frames, otherwise resolve their scoped materials."""
+    import json
+    from docx.text.paragraph import Paragraph
+    from api.services.tenders.document import _paragraph_role
+    from api.services.tenders.directory_guard import directory_blocks
+    from api.services.tenders.match import (normalize_material_title, material_sources,
+        material_match_rejection, material_content_check, find_catalog_item, _kind_hits, _MATERIAL_SOURCES)
+    from api.services.tenders.placeholders import _drop_after
+
+    excluded = directory_blocks(doc)
+    catalog = list(slots if slots is not None else brief.extraPlaceholders)
+    result = {'changed': 0, 'removed_generated': 0, 'filled_materials': 0,
+              'deduplicated_titles': 0, 'diagnostics': []}
+    recovered = _recover_conflicting_material_blocks(doc, catalog, media, excluded)
+    result['rejected_embedded_blocks'] = sum(row['reason'] == 'content_conflict_block_removed' for row in recovered)
+    result['changed'] += result['rejected_embedded_blocks']
+    result['diagnostics'].extend(recovered)
+    stack = []
+    heading_labels = {normalize_material_title(_heading_text(node), fold_case=False)
+                      for node in doc.element.body if node.tag == qn('w:p') and outline_level(doc, node)}
+    cue = re.compile(r'^\s*(?:此处|在此)粘[贴帖]\s*(?P<title>.*)', re.S)
+    def normalized(value):
+        return normalize_material_title(re.sub(r'[“”"《》]', '', value), fold_case=False)
+    def remove_frame(node):
+        if next(node.iter(qn('w:sectPr')), None) is not None:
+            for child in list(node):
+                if child.tag != qn('w:pPr'):
+                    node.remove(child)
+            border = node.find('w:pPr/w:pBdr', node.nsmap)
+            if border is not None:
+                border.getparent().remove(border)
+        elif node.getparent() is not None:
+            node.getparent().remove(node)
+        result['changed'] += 1
+    for node in list(doc.element.body):
+        if node in excluded or node.tag == qn('w:sectPr'):
+            continue
+        text = _text(node).strip()
+        marker = cue.fullmatch(text) if node.tag == qn('w:p') else None
+        level = outline_level(doc, node) if node.tag == qn('w:p') else 0
+        if level and not marker:
+            while stack and stack[-1]['level'] >= level:
+                stack.pop()
+            stack.append({'node': node, 'title': text, 'key': normalized(text),
+                          'level': level, 'content': False, 'placed': set()})
+            continue
+        if not marker:
+            role = _paragraph_role(Paragraph(node, doc._body))[0] if node.tag == qn('w:p') else 'table'
+            evidence = (node.tag == qn('w:tbl') and bool(text)) or (
+                role == 'body' and bool(re.search(r'[。；;！？!?]', text)) and not _ATTACHMENT_SITE.search(text))
+            if evidence or next(node.iter(qn('w:drawing')), None) is not None:
+                for head in stack:
+                    head['content'] = True
+            continue
+        title = normalized(marker['title'])
+        labels = {normalized(s.title) for s in catalog} | heading_labels
+        for label in sorted(labels - {''}, key=len, reverse=True):
+            if title.count(label) > 1:
+                first, *remaining = title.split(label)
+                title = first + label + ''.join(remaining)
+        if title != normalized(marker['title']):
+            from api.services.tenders.document import _replace_inline_span
+            p = Paragraph(node, doc._body)
+            _replace_inline_span(p, 0, len(p.text), text[:marker.start('title')] + title)
+            result['deduplicated_titles'] += 1
+            result['changed'] += 1
+        owner = next((head for head in reversed(stack)
+                      if head['key'].removesuffix('表') == title.removesuffix('表')), None)
+        if owner and owner['content']:
+            remove_frame(node)
+            result['removed_generated'] += 1
+            continue
+        owner = stack[-1] if stack else None
+        context = owner['title'] if owner else ''
+        demands = [d for d in brief.materialDemands if normalized(d.title) == title]
+        hint = ' '.join(d.text for d in demands) or context
+        source_groups = material_sources(title)
+        requests = [title]
+        if len(source_groups) > 1:
+            positions = sorted((min(m.start() for m in re.finditer(pattern, title)), source)
+                               for source, pattern in _MATERIAL_SOURCES if source in source_groups)
+            requests = [title[start:positions[i + 1][0] if i + 1 < len(positions) else len(title)].strip('及和与、 ')
+                        for i, (start, _) in enumerate(positions)]
+        completed = True
+        for request in requests:
+            wanted = material_sources(request) or material_sources(hint)
+            diagnostics = []
+            matched = []
+            for candidate in catalog:
+                reason = material_match_rejection(request, hint, candidate)
+                candidate_sources = material_sources(candidate.title)
+                if wanted and (not candidate_sources or not candidate_sources <= wanted):
+                    reason = 'source_unclassified_or_mismatched'
+                if not reason and find_catalog_item([candidate], title=request, hint=hint) is None:
+                    reason = 'title_not_equivalent'
+                files = material_files(candidate, media) if not reason and media is not None else []
+                content_rejections = [check for path in (media or {}).get(candidate.key, [])
+                                      if (check := material_content_check(candidate, path))['reason']]
+                if not reason and not files:
+                    reason = content_rejections[0]['reason'] if content_rejections else 'no_scoped_files'
+                diagnostics.append({'candidate': candidate.title, 'categories': sorted(_kind_hits(candidate.title)),
+                                    'reason': reason or 'selected', 'content_rejections': content_rejections})
+                if files:
+                    matched.append((candidate, files))
+            record = {'request': request, 'evidence': hint, 'normalized': normalized(request),
+                      'categories': sorted(_kind_hits(request + ' ' + hint)), 'candidates': diagnostics}
+            if matched and owner is not None:
+                from api.services.tenders.material_identity import unique_material_files
+                files = unique_material_files([p for _, paths in matched for p in paths])
+                identity = tuple(str(p) for p in files)
+                if identity not in owner['placed']:
+                    key = _token('postprocess_', owner['key'] + request + '\n'.join(identity))
+                    slot = PlaceholderItem(key=key, title=request, hint=hint, attachToSection=context)
+                    placed = _drop_after(doc, node, slot, files, complete=True, at_marker=True)
+                    if not placed:
+                        completed = False
+                        record['reason'] = 'writer_failed'
+                    else:
+                        owner['placed'].add(identity)
+                        result['filled_materials'] += 1
+                record.setdefault('reason', 'filled_in_scope')
+            else:
+                completed = False
+                record['reason'] = 'no_match' if owner is not None else 'no_section_owner'
+            result['diagnostics'].append(record)
+            logging.getLogger(__name__).info('MATERIAL_SLOT %s', json.dumps(record, ensure_ascii=True, sort_keys=True))
+        if completed:
+            remove_frame(node)
+        elif len(requests) > 1:
+            # Separate unresolved source families; never substitute one source
+            # for the other or report the combined request as completed.
+            from api.services.tenders.document import _replace_inline_span
+            p = Paragraph(node, doc._body)
+            unresolved = [x['request'] for x in result['diagnostics'][-len(requests):] if x['reason'] != 'filled_in_scope']
+            expected = [text[:marker.start('title')] + name for name in unresolved]
+            cursor = node
+            for value in expected[1:]:
+                from copy import deepcopy
+                clone = deepcopy(node)
+                for mark in list(clone.iter(qn('w:bookmarkStart'), qn('w:bookmarkEnd'))):
+                    mark.getparent().remove(mark)
+                paragraph = Paragraph(clone, doc._body)
+                _replace_inline_span(paragraph, 0, len(paragraph.text), value)
+                cursor.addnext(clone)
+                cursor = clone
+            if p.text != expected[0]:
+                _replace_inline_span(p, 0, len(p.text), expected[0])
+                result['changed'] += 1
+    return result
 
 
 def _sentence_boundary(anchor, body):
@@ -365,25 +604,40 @@ def _material_slots(slots, media):
             if media is not None:files.extend(material_files(slot,media))
         if media is not None:resolved[key]=unique_material_files(files)
         if _standard_material_family(representative):aliases[family]=key
+    from api.services.tenders.match import normalize_material_title
+    for slot in slots:
+        key = aliases.get(slot.key, slot.key)
+        files = resolved.get(key, []) if media is not None else material_files(slot, None)
+        logging.getLogger(__name__).info(
+            'material assembly key=%s normalized=%s fileCount=%s method=%s candidates=%s reasons=%s',
+            slot.key, normalize_material_title(slot.title), len(files),
+            ('标准 key' if key == slot.key else '标题别名') if files else '未命中',
+            [member.title for member in families.get(_standard_material_family(slot) or exact[slot.key], [])],
+            [] if files else ['字面不符或来源/主体校验未通过，详见 material match 和 material scope 日志'])
     return catalog, resolved if media is not None else None, aliases
 
 
 def _standard_material_family(slot):
+    from api.services.tenders.match import material_sources
+
     family=_identity_family(slot,slot.attachToSection)
     if family:return family
     title=_normalized_material_title(slot.title)
     if re.fullmatch(r'(?:本企业|本公司|本单位|企业)?营业执照(?:正本|副本)?',title):return 'license'
-    if re.fullmatch(r'(?:企业)?信用(?:查询|报告|截图)(?:截图|打印件)?',title):return 'credit'
     from api.services.tenders.material_identity import canonical_material_key
     family=canonical_material_key(slot)
-    if family:return family
+    if family:
+        sources = material_sources(slot.title + ' ' + slot.hint)
+        if sources:
+            return family + '_' + hashlib.sha256('\n'.join(sorted(sources)).encode()).hexdigest()[:20]
+        return family
     return ''
 
 
 def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(), *, auth_enabled=None):
     """Plan ownership once; insert and diagnose exactly that plan."""
     from time import perf_counter
-    from api.services.tenders.match import attachment_requests, find_catalog_item,attachment_source_kind,attachment_source_excluded,attachment_requirement_allowed,_kind_hits
+    from api.services.tenders.match import attachment_requests, find_catalog_item,attachment_source_kind,attachment_source_excluded,attachment_requirement_allowed,_kind_hits,material_sources,material_match_rejection
     from api.services.tenders.classifier import material_output_coverage
     from api.services.tenders.placeholders import _body_block, _wants_attach
     from common.errors import AppError, ErrorCode
@@ -520,7 +774,7 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
                 title=alpha.group(1).split('：')[0].split(':')[0]
                 title=re.sub(r'^(?:应|须|需)?提供','',title).strip()
                 if material_name(title) and attachment_requirement_allowed(title,value):
-                    requests=[PlaceholderItem(key='',title=title)]
+                    requests=[PlaceholderItem(key='',title=title,hint=value)]
             for request in requests:
                 if not material_name(request.title) or not attachment_requirement_allowed(request.title,value):
                     continue
@@ -532,8 +786,12 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
                     # Never fall back to a loose role match for named people.
                     request=request.model_copy(update={'key':family})
                 else:
-                    found=next((s for s in named if _normalized_material_title(s.title)==_normalized_material_title(request.title)),None)
-                    found=found or find_catalog_item(named,key=request.key,title=request.title)
+                    evidence = request.hint or value
+                    sources = material_sources(request.title + ' ' + evidence)
+                    eligible = [s for s in named if not material_match_rejection(request.title, evidence, s)
+                                and (not sources or material_sources(s.title) <= sources)]
+                    found=next((s for s in eligible if _normalized_material_title(s.title)==_normalized_material_title(request.title)),None)
+                    found=found or find_catalog_item(eligible,key=request.key,title=request.title,hint=evidence)
                 key=found.key if found else (request.key if re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,95}',request.key or '') else 'request_'+hashlib.sha256(request.title.encode()).hexdigest()[:20])
                 if key not in catalog:
                     catalog[key]=request.model_copy(update={'key':key,'attachToSection':_heading_text(head)})
@@ -589,12 +847,16 @@ def append_section_materials(doc, slots, media, keys, excluded=(), skip_keys=(),
             if credit_source(slot.title) and credit_source(slot.title)==credit_source(_heading_text(head)):
                 rank=max(rank,90)
             if (slot.key=='credit' or 'credit' in _kind_hits(slot.title)) and credit_heads:
-                wanted=credit_source(slot.title)
-                target=next((h for h in credit_heads if credit_source(_heading_text(h))==wanted),None)
-                if target is None:
-                    target=next((h for h in credit_heads if credit_source(_heading_text(h))=='enterprise_registry'),credit_heads[0])
-                if head is target:rank=400
-                elif credit_source(_heading_text(head)):continue
+                wanted=material_sources(slot.title + ' ' + slot.hint)
+                actual=material_sources(_heading_text(head))
+                if wanted and actual and wanted.isdisjoint(actual):
+                    continue
+                targets=[h for h in credit_heads if material_sources(_heading_text(h))==wanted]
+                if not wanted and len(credit_heads)==1:
+                    targets=credit_heads
+                if len(targets)==1 and (len(wanted)==1 or not wanted):
+                    if head is targets[0]:rank=400
+                    elif actual:continue
             if section and section in item_names:
                 rank=max(rank,160)
             if section and section!=heading and not hit and rank<160:

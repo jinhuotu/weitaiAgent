@@ -44,7 +44,9 @@ def material_source_kind(unit):
 
 
 def material_key(title: str) -> str:
-    canonical=re.sub(r'[《》「」“”"\s]','',str(title or '')).casefold()
+    from api.services.tenders.match import normalize_material_title
+
+    canonical = normalize_material_title(re.sub(r'[《》“”"]', '', str(title or '')))
     return 'material_' + hashlib.sha256(canonical.encode()).hexdigest()[:20]
 
 
@@ -185,11 +187,11 @@ def source_units(brief: BidBrief, text: str = '', source_path: Path | None = Non
 
 
 def _demand(brief, unit, title, evidence, catalog, *, suggested='', condition='', review=False, mode='attachment', origin='structure'):
-    from api.services.tenders.match import attachment_catalog_item
+    from api.services.tenders.match import attachment_catalog_item, material_request_title, material_sources
     from api.services.tenders.categories import item_volume, slot_volume
 
-    title = re.sub(r'[《》「」]', '', title).strip()[:180] or '资料要求待核对'
-    request = PlaceholderItem(key='', title=title)
+    title = material_request_title(re.sub(r'[《》]', '', title), evidence)[:180] or '资料要求待核对'
+    request = PlaceholderItem(key='', title=title, hint=evidence)
     statement = mode=='statement' or bool(re.search(r'声明|承诺',title))
     if re.search(r'资质证书|企业资质|投标人资质',title) and not re.search(r'体系|ISO',title,re.I):
         request.key = 'qualification'
@@ -200,8 +202,12 @@ def _demand(brief, unit, title, evidence, catalog, *, suggested='', condition=''
     # A semantic mapping is accepted only for an existing key. Unknown keys are
     # converted to deterministic, upload-safe project-local material keys.
     if found is None and suggested and not request.key:
-        found = next((slot for slot in compatible if slot.key == suggested), None)
+        from api.services.tenders.match import find_catalog_item
+        found = find_catalog_item(compatible, key=suggested, title=title, hint=evidence)
     key = found.key if found is not None else material_key(title)
+    requested_sources = material_sources(title + ' ' + evidence)
+    if found is not None and requested_sources and len(material_sources(found.title)) > len(requested_sources):
+        key = material_key(title + '\n' + '\n'.join(sorted(requested_sources)))
     owner = next((i for i in brief.outlineItems if compact(i.title) == compact(unit.section)), None)
     volume = item_volume(kind=owner.kind, title=owner.title, key=owner.id) if owner else (
         slot_volume(key, title) if found is not None else 'full')

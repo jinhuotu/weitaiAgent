@@ -5,8 +5,10 @@ from __future__ import annotations
 import re
 import shutil
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
+from time import perf_counter
 from uuid import uuid4
 
 from api.services.tenders.assets import (
@@ -151,6 +153,7 @@ def generate_bid(
         from api.services.tenders.document import build_bid_docx
 
         builder = build_bid_docx
+    assembly_started = perf_counter()
     _, warnings = builder(
         brief,
         dest,
@@ -160,6 +163,7 @@ def generate_bid(
         catalog_facts=catalog_facts,
         volume=vol,
     )
+    logger.info("perf stage=组卷 volume=%s seconds=%.3f", vol, perf_counter() - assembly_started)
     warnings = [*subject_notes, *warnings]
     from docx import Document
     from docx.oxml.ns import qn
@@ -167,7 +171,6 @@ def generate_bid(
         clean_visible_prompts,
         normalize_auth_role_paragraphs,
         normalize_signoff_block,
-        postprocess_business_document,
     )
     from api.services.tenders.pdf_format import _fill_bid_bond_paragraph
 
@@ -176,34 +179,29 @@ def generate_bid(
         for element in post.element.body.iter(qn("w:p")):
             _fill_bid_bond_paragraph(element, brief)
     auth_count = normalize_auth_role_paragraphs(post, brief)
-    if vol != "business":
-        clean_visible_prompts(post)
-        normalize_signoff_block(post.paragraphs)
+    clean_visible_prompts(post)
+    normalize_signoff_block(post.paragraphs)
     if auth_count or brief.bidBondYuan is not None:
         post.save(dest)
     if auth_count:
         warnings.append(f"授权委托书角色槽位按法人/代理人字段重写 {auth_count} 段")
     word_outcomes = []
     if word_bindings:
-        from docx import Document
         from api.services.cablepkg.word_materials import apply
         from api.services.tenders.native_format import _import_form_xml
-        document = Document(dest)
         selected = [binding for binding in word_bindings if vol == 'full' or binding.get('volume') in {vol, 'full', ''}]
-        word_outcomes = apply(document, selected, word_sources or {}, import_xml=_import_form_xml,
+        word_outcomes = apply(post, selected, word_sources or {}, import_xml=_import_form_xml,
                               section_titles=[item.rawTitle or item.title for item in brief.outlineItems])
         for row in word_outcomes:
             if row['status'] in {'copied', 'filled'}:
                 warnings.append('已复用 Word 资料：' + row['targetTitle'] + '；测试模板及待填字段须人工确认')
             elif row['status'] == 'needs_review':
                 warnings.append('Word 资料待核对：' + row['targetTitle'] + '；' + row.get('reason', '未找到可填字段'))
-        document.save(dest)
-    from docx import Document
+        post.save(dest)
     from api.services.cablepkg.word_materials import prune_placeholder_boxes
-    cleaned_document = Document(dest)
-    removed_boxes = prune_placeholder_boxes(cleaned_document, word_outcomes, word_bindings or [])
+    removed_boxes = prune_placeholder_boxes(post, word_outcomes, word_bindings or [])
     if removed_boxes:
-        cleaned_document.save(dest)
+        post.save(dest)
     table_outcomes = []
     if brief.bidTableImportId:
         from api.services.bid_table_import import fill_document
@@ -218,45 +216,42 @@ def generate_bid(
     form_cleanup = reconcile_form_placeholders(final_document, table_outcomes, excluded=directory_blocks(final_document))
     from api.services.cablepkg.form_pagination import normalize_duplicate_page_breaks
     pagination_cleanup = normalize_duplicate_page_breaks(final_document)
-    business_cleanup = postprocess_business_document(final_document, brief) if vol == "business" else 0
-    if form_cleanup or pagination_cleanup or business_cleanup:
+    if form_cleanup or pagination_cleanup:
         final_document.save(dest)
     warnings.extend(n for n in brief.materialIntentNotes if n not in warnings)
     warnings.extend(attachment_notes)
     from api.services.tenders.company_identity import missing_company_notes
     warnings.extend(n for n in missing_company_notes(brief) if n not in warnings)
-    # 技术标目录兜底：放在卷判定之外、校验之前，避免受 native 分支或空字段影响。
-    # 判据只有「这一卷是技术标 + 文档里确实有目录域」。日志用 ASCII 标记，
-    # 便于在乱码日志里直接检索这一步到底走没走。
+    # Every volume runs the same final recovery after all content writers.
     logger.warning('TOC_FIX_ENTER vol=%s native=%s', vol, native)
-    if str(vol).strip() == 'technical':
-        from api.services.tenders.technical_render import sync_toc
-        from api.services.tenders.technical_toc import _regions
-        try:
-            rebuilt = Document(dest)
-            region_count = len(_regions(rebuilt))
-            logger.warning('TOC_FIX_REGIONS vol=%s regions=%s', vol, region_count)
-            if region_count:
-                rebuilt_ok = sync_toc(rebuilt, brief)
-                logger.warning('TOC_FIX_SYNC vol=%s ok=%s', vol, rebuilt_ok)
-                if rebuilt_ok:
-                    # 重建会重写整本目录，必须紧跟一次页码回填，否则章级行停在占位值。
-                    from api.services.tenders.assemble import _fill_toc_pages
-                    from api.services.tenders.schema import DocumentFormat
-
-                    spec = getattr(getattr(brief, 'documentFormat', None), 'technicalFormat', None)
-                    page_start = spec.pageNumberStart if spec is not None and getattr(spec, 'pageStartSet', False) else 'body'
-                    _fill_toc_pages(rebuilt, DocumentFormat(pageNumberStart=page_start), subset=True)
-                    rebuilt.save(dest)
-                    logger.warning('TOC_FIX_SAVED vol=%s', vol)
-                    warnings.append('技术标目录：校验前已按目录区统一重建')
-                else:
-                    warnings.append('技术标目录：未识别到可重建的目录条目，保留原状')
-            else:
-                warnings.append('技术标目录：文档内未找到目录域，跳过重建')
-        except Exception as exc:  # noqa: BLE001
-            logger.warning('TOC_FIX_ERROR vol=%s err=%r', vol, exc)
-            warnings.append('技术标目录重建跳过：' + str(exc)[:120])
+    toc_started = perf_counter()
+    from api.services.tenders.technical_toc import finalize, _regions
+    try:
+        rebuilt = Document(dest)
+        region_count = len(_regions(rebuilt))
+        logger.warning('TOC_FIX_REGIONS vol=%s regions=%s', vol, region_count)
+        page_format = brief.documentFormat
+        if vol == 'technical':
+            from api.services.tenders.schema import DocumentFormat
+            spec = page_format.technicalFormat
+            page_format = DocumentFormat(pageNumberStart=spec.pageNumberStart if spec.pageStartSet else 'body')
+        warnings.extend(finalize(rebuilt, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media))
+        result = getattr(rebuilt.element, '_toc_audit', {})
+        rebuilt_ok = bool(result.get('body_count'))
+        logger.warning('TOC_FIX_SYNC vol=%s ok=%s', vol, rebuilt_ok)
+        if rebuilt_ok:
+            rebuilt.save(dest)
+            logger.warning('TOC_FIX_SAVED vol=%s', vol)
+            warnings.append('目录：校验前已按正文标题统一重建')
+        elif region_count:
+            warnings.append('目录：未识别到可重建的目录条目，保留原状')
+        else:
+            warnings.append('目录：文档内未找到目录域及可收录标题，保留原状')
+        logger.info("perf stage=TOC_FIX volume=%s seconds=%.3f", vol, perf_counter() - toc_started)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning('TOC_FIX_ERROR vol=%s err=%r', vol, exc)
+        warnings.append('目录重建跳过：' + str(exc))
+        logger.info("perf stage=TOC_FIX volume=%s seconds=%.3f error=1", vol, perf_counter() - toc_started)
     if native:
         from docx import Document
 
@@ -276,6 +271,12 @@ def generate_bid(
             )
         validate_native_toc(Document(dest))
 
+    from api.services.tenders.technical_toc import audit
+    final_toc = audit(Document(dest), brief=brief)
+    for issue in final_toc['missing']:
+        note = f"TOC_MISSING level={issue['level']} title={issue['title']}"
+        if note not in warnings:
+            warnings.append(note)
     guard_document_subjects(Document(dest), brief)
 
     # COM pagination belongs to the delivered storage path. Unit and fixture
@@ -284,7 +285,12 @@ def generate_bid(
     if out_dir.resolve() == production_dir:
         from api.services.tenders.assemble import finalize_word_layout
 
-        warnings.extend(finalize_word_layout(dest, vol))
+        warnings.extend(finalize_word_layout(dest, vol, brief.documentFormat))
+        final_toc = audit(Document(dest), brief=brief)
+        for issue in final_toc['missing']:
+            note = f"TOC_MISSING level={issue['level']} title={issue['title']}"
+            if note not in warnings:
+                warnings.append(note)
 
     from api.services.cablepkg.image_quality import inspect_docx
 
@@ -351,6 +357,7 @@ def generate_bid(
         "pdfDownloadName": None,
         "warnings": warnings,
         "imageQuality": {vol: image_quality},
+        "tocAudit": {vol: final_toc},
         "wordMaterialOutcomes": word_outcomes,
         "formPlaceholderCleanup": {vol: form_cleanup},
         "defaultsUsed": brief.bidderName,
@@ -429,8 +436,25 @@ def generate_pair(
     tech = brief.model_copy(
         update={"generateVolume": "technical", "generateBoth": False, "splitSlice": False}
     )
-    business = generate_bid(biz, **kw)
-    technical = generate_bid(tech, **kw)
+    # Each volume owns its brief, output path and Document instances.  Submit
+    # both jobs before waiting so CPU/IO work overlaps, then collect in the
+    # historical business/technical order for deterministic merging.
+    pair_started = perf_counter()
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="tender-volume") as pool:
+        business_future = pool.submit(generate_bid, biz, **kw)
+        technical_future = pool.submit(generate_bid, tech, **kw)
+        results = []
+        failures = []
+        for future in (business_future, technical_future):
+            try:
+                results.append(future.result())
+            except Exception as exc:  # preserve the existing failure surface
+                failures.append(exc)
+                results.append(None)
+    if failures:
+        raise failures[0]
+    business, technical = results
+    logger.info("perf stage=组卷 volumes=business,technical seconds=%.3f", perf_counter() - pair_started)
     from api.services.tenders.material_intents import sync_material_outcomes
 
     sync_material_outcomes(brief,biz)

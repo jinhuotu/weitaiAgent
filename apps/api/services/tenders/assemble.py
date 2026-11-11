@@ -38,9 +38,9 @@ from api.services.tenders.document import (
     _set_word_wrap,
     normalize_table_layout,
     normalize_document_colors,
+    _title_layout,
     normalize_signoff_block,
     clean_visible_prompts,
-    postprocess_business_document,
     _underline_value,
     _ymd,
     _em_len,
@@ -599,35 +599,25 @@ def assemble_bid_docx(
             document = Document(path)
             drop_legacy_toc_bookmarks(document)
             ensure_toc_rows(document, brief, volume=vol)
-            if vol == 'technical':
-                from api.services.tenders.technical_render import sync_toc
-                sync_toc(document, brief)
-                page_start = 'body'
-                spec = brief.documentFormat.technicalFormat
-                if spec.pageStartSet:
-                    page_start = spec.pageNumberStart
-                _fill_toc_pages(document, DocumentFormat(pageNumberStart=page_start), subset=True)
             document.save(path)
             out = [note for note in out if '目录未定位条目' not in note]
         if brief.requirementsDriven:
             from api.services.tenders.requirement_bid import complete_requirements_docx
 
             out.extend(complete_requirements_docx(path, brief, vol))
-        if vol == 'technical' and (not native or brief.requirementsDriven):
-            from api.services.tenders.technical_render import sync_toc
-            document=Document(path)
-            sync_toc(document,brief)
-            _fill_toc_pages(document,DocumentFormat(pageNumberStart='body'),subset=True)
-            document.save(path)
         from api.services.tenders.section_materials import remove_repeated_child_modules, validate_material_uniqueness
         document = Document(path)
         removed = remove_repeated_child_modules(document)
         validate_material_uniqueness(document)
         from api.services.tenders.material_layout import mark_repeating_headers
         header_rows = mark_repeating_headers(document)
-        business_cleanup = postprocess_business_document(document, brief) if vol == "business" else 0
-        if removed or header_rows or business_cleanup:
-            document.save(path)
+        from api.services.tenders.technical_toc import finalize
+        page_format = brief.documentFormat
+        if vol == 'technical':
+            spec = page_format.technicalFormat
+            page_format = DocumentFormat(pageNumberStart=spec.pageNumberStart if spec.pageStartSet else 'body')
+        out.extend(finalize(document, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media))
+        document.save(path)
         if removed:
             out.append(f"Removed {removed} repeated child modules already present in the source section")
         if anon:
@@ -650,6 +640,11 @@ def assemble_bid_docx(
             )
         document = Document(path)
         normalize_document_colors(document)
+        _, title_warnings = _title_layout(document, brief.documentFormat)
+        out.extend(title_warnings)
+        out.extend(f"目录待确认（缺少来源标题）：{item.id}"
+                   for item in brief.outlineItems
+                   if not item.skipped and item.tocEligible is not False and not _toc_source_title(item))
         document.save(path)
         return path, out
 
@@ -1150,9 +1145,8 @@ def assemble_bid_docx(
     dest.parent.mkdir(parents=True, exist_ok=True)
     from api.services.tenders.section_materials import validate_material_uniqueness
     validate_material_uniqueness(doc)
-    if vol != "business":
-        clean_visible_prompts(doc)
-        normalize_signoff_block(doc.paragraphs)
+    clean_visible_prompts(doc)
+    normalize_signoff_block(doc.paragraphs)
     normalize_table_layout(doc)
     normalize_document_colors(doc)
     doc.save(str(dest))
@@ -1409,7 +1403,7 @@ def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False)
 
 def _center_cover_structure(doc: Document, bookmarks: set[str]) -> bool:
     from docx.text.paragraph import Paragraph
-    from api.services.tenders.document import _has_page_break_before, _p_has_page_br
+    from api.services.tenders.document import _has_page_break_before, _p_has_page_br, _pageref_bookmark
     from api.services.tenders.technical_toc import _is_toc
 
     cover = []
@@ -1418,7 +1412,7 @@ def _center_cover_structure(doc: Document, bookmarks: set[str]) -> bool:
             return False
         if _has_page_break_before(node):
             break
-        if _is_toc(node) or any(
+        if _is_toc(node) or _pageref_bookmark(Paragraph(node, doc)) or any(
             mark.get(qn("w:name")) in bookmarks for mark in node.iter(qn("w:bookmarkStart"))
         ):
             return False
@@ -1430,6 +1424,9 @@ def _center_cover_structure(doc: Document, bookmarks: set[str]) -> bool:
 
     for node in cover:
         paragraph = Paragraph(node, doc)
+        from api.services.tenders.document import _paragraph_role
+        if _paragraph_role(paragraph)[0] in {'information', 'signing', 'date', 'note'}:
+            continue
         paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
         props = node.get_or_add_pPr()
         props._remove_ind()
@@ -1487,13 +1484,14 @@ def _freeze_render_directory(doc: Document) -> None:
                             part.getparent().remove(part)
 
 
-def finalize_word_layout(path: Path, volume: str) -> list[str]:
+def finalize_word_layout(path: Path, volume: str, fmt=None) -> list[str]:
     """Finalize the cover and replace provisional TOC caches on the delivered DOCX."""
     from docx.text.paragraph import Paragraph
     from api.services.tenders.document import _pageref_bookmark, _set_pageref_cache
     from api.services.tenders.preview_pdf import export_word_pagination
 
     doc = Document(path)
+    changed, warnings = _title_layout(doc, fmt)
     entries = []
     for node in doc.element.body.iter(qn("w:p")):
         paragraph = Paragraph(node, doc)
@@ -1502,9 +1500,9 @@ def finalize_word_layout(path: Path, volume: str) -> list[str]:
             entries.append((paragraph, name, paragraph.text.split("\t", 1)[0].strip()))
     centered = _center_cover_structure(doc, {name for _, name, _ in entries})
     if not entries:
-        if centered:
+        if centered or changed:
             doc.save(path)
-        return []
+        return warnings
 
     settings = doc.settings.element
     update = settings.find(qn("w:updateFields"))
@@ -1513,7 +1511,6 @@ def finalize_word_layout(path: Path, volume: str) -> list[str]:
         settings.insert_element_before(update, "w:hdrShapeDefaults", "w:footnotePr", "w:endnotePr",
                                        "w:compat", "w:docVars", "w:rsids")
     update.set(qn("w:val"), "true")
-    warnings = []
     missing = []
     with TemporaryDirectory(dir=path.parent, ignore_cleanup_errors=True) as raw:
         snapshot = Path(raw) / "layout.docx"
@@ -1699,30 +1696,10 @@ def _anchor_section(
     _write_heading(doc, title, fmt, bookmark)
 
 
-def _toc_source_title(item: OutlineItem, *, allow_body: bool = True) -> str:
-    title = _display_title(item)
-    if title_canon(title)[0]:
-        return title
-    if not allow_body:
-        logger.warning("目录来源标题为空，跳过正文回退：%s", getattr(item, "id", ""))
+def _toc_source_title(item: OutlineItem) -> str:
+    if item.tocEligible is False:
         return ""
-    first = ""
-    for line in (item.body or "").splitlines():
-        line = line.strip()
-        if line:
-            first = line
-            break
-    if not first:
-        return title
-    if not title and allow_body:
-        return first
-    if not title_canon(first)[0]:
-        return title
-    a = compact_title(peel_toc_lead(title))
-    b = compact_title(peel_toc_lead(first))
-    if a and b and (a == b or b.endswith(a) or a.endswith(b)):
-        return first
-    return title
+    return _display_title(item)
 
 
 def _display_title(item: OutlineItem) -> str:
@@ -1811,7 +1788,7 @@ def _write_toc(
         probe_profile = replace(profile, head_max=0)
         selected: list[tuple[OutlineItem, str]] = []
         for item, bookmark in zip(items, bookmarks, strict=True):
-            title = _toc_source_title(item, allow_body=False)
+            title = _toc_source_title(item)
             if not title:
                 continue
             style = "Heading 1" if int(getattr(item, "level", 1) or 1) <= 1 else "Heading 2"
@@ -1823,7 +1800,8 @@ def _write_toc(
                 continue
             selected.append((item.model_copy(update={"title": title, "rawTitle": title}), bookmark))
     else:
-        selected = list(zip(items, bookmarks, strict=True))
+        selected = [(item, bookmark) for item, bookmark in zip(items, bookmarks, strict=True)
+                    if _toc_source_title(item)]
     items = [item for item, _ in selected]
     bookmarks = [bookmark for _, bookmark in selected]
 
@@ -1845,10 +1823,6 @@ def _write_toc(
         if subset:
             items = normalize_subset_outline(items)
             pairs = [(item.level, _toc_source_title(item)) for item in items]
-            filtered = [(item, title) for item, title in zip(items, (title for _level, title in pairs), strict=True) if title]
-            items = [item for item, _title in filtered]
-            pairs = [(item.level, title) for item, title in filtered]
-            bookmarks = bookmarks[: len(items)]
             shows = subset_toc_titles([
                 item.model_copy(update={"rawTitle": title})
                 for item, (_level, title) in zip(items, pairs, strict=True)

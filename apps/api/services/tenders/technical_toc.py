@@ -1,10 +1,14 @@
-"""Technical-volume TOC: one structural field, one ordered body projection."""
+"""Shared volume TOC: one structural field, one ordered body projection."""
 from copy import deepcopy
+import json
+import logging
 import re
 
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
+
+logger = logging.getLogger('api.tenders.toc')
 
 
 def _instruction(node):
@@ -110,9 +114,190 @@ def _remove(doc, node):
     node.getparent().remove(node)
 
 
+def _title_key(text):
+    from api.services.tenders.outline import _strip_outline_prefix
+    text = _strip_outline_prefix((text or '').strip())
+    # Annotations are immaterial for comparison, including nested annotations.
+    previous = None
+    while text != previous:
+        previous = text
+        text = re.sub(r'[（(][^（）()]*[）)]', '', text)
+    return text.strip()
+
+
+def _probe(kind, record):
+    logger.info('TOC_%s %s', kind, json.dumps(record, ensure_ascii=True, sort_keys=True))
+
+
+def _collect_candidates(doc, brief, regions):
+    """Scan physical body headings even when package bookmark mapping is complete."""
+    from api.services.tenders.word_structure import numbering_info
+    from api.services.tenders.document import _paragraph_role
+    excluded = {n for region in regions for host in region for n in host.iter()}
+    targets = {t for region in regions for t in _targets(region)}
+    package = brief.technicalPackage or {}
+    known = {}
+    for group, level in [('chapters', 1), ('sections', 2), ('tables', 2), ('figures', 2)]:
+        for item in package.get(group, []):
+            known.setdefault(_title_key(item.get('title', '')), level)
+    body = doc.element.body
+    first = min((body.index(region[0]) for region in regions), default=-1)
+    candidates, records = [], []
+    parents, seen = {}, {}
+    for p in doc.paragraphs:
+        if not p.text.strip():
+            continue
+        level = _level(doc, p._p)
+        marks = {n.get(qn('w:name')) for n in p._p.iter(qn('w:bookmarkStart'))}
+        key = _title_key(p.text)
+        record = {'paragraph': p._p.get('{http://schemas.microsoft.com/office/word/2010/wordml}paraId')
+                  or p._p.getroottree().getpath(p._p), 'level': level, 'outline_level': level, 'title': key}
+        reason = ''
+        if p._p in excluded or body.index(p._p) <= first:
+            reason = 'toc_region'
+        elif _paragraph_role(p)[0] in {'information', 'note'}:
+            reason = 'other'
+        elif level is None:
+            if key in known and (not _PAREN_PREFIX.match(p.text) or parents):
+                level = known[key]
+            elif marks & targets:
+                info = numbering_info(doc, p._p)
+                level = info[1] + 1 if info else (2 if _PAREN_PREFIX.match(p.text) else 1)
+            else:
+                reason = 'no_chapter' if key in known and _PAREN_PREFIX.match(p.text) else 'no_outline'
+        record['level'] = level
+        if not reason and not key:
+            reason = 'other'
+        if not reason:
+            for depth in list(parents):
+                if depth >= level:
+                    del parents[depth]
+            scope = tuple(parents.items())
+            identity = (scope, level, key)
+            previous = seen.get(identity)
+            if previous is not None:
+                # Distinct explicit headings can legitimately share a caption;
+                # they require separate rows/anchors. Only fallback copies merge.
+                if _level(doc, p._p) is None:
+                    reason = 'dedup_collision'
+                else:
+                    _probe('COLLISION', {**record, 'reason': 'distinct_body_heading'})
+            if not reason:
+                seen[identity] = p._p
+                candidates.append((p, level))
+                parents[level] = record['paragraph']
+        record['reason'] = reason or 'selected'
+        records.append(record)
+        _probe('REJECT' if reason else 'CANDIDATE', record)
+    doc.element._toc_audit = {'candidates': records, 'missing': [], 'numbering_gaps': []}
+    return candidates
+
+
+def _ordinal(text):
+    matched = re.match(r'^\s*(?:[（(]([一二三四五六七八九十百千万零〇\d]+)[）)]|(\d+)[.．、](?!\d))', text)
+    if not matched:
+        return None
+    raw = matched[1] or matched[2]
+    if raw.isdecimal():
+        number = int(raw)
+    else:
+        digits = dict(zip('零〇一二三四五六七八九', [0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9]))
+        total = digit = 0
+        for char in raw:
+            if char in digits:
+                digit = digits[char]
+            else:
+                total += (digit or 1) * {'十': 10, '百': 100, '千': 1000, '万': 10000}[char]
+                digit = 0
+        number = total + digit
+    return ('parenthesis' if matched[1] else 'decimal', number)
+
+
+def audit(doc, candidates=None, brief=None):
+    """Compare each body target with cached rows; retain source numbering gaps."""
+    from api.services.tenders.document import _pageref_bookmark
+    regions = _regions(doc)
+    excluded = {n for region in regions for host in region for n in host.iter()}
+    first = min((doc.element.body.index(r[0]) for r in regions), default=-1)
+    if candidates is None:
+        candidates = [(p, _level(doc, p._p)) for p in doc.paragraphs
+                      if p._p not in excluded and doc.element.body.index(p._p) > first
+                      and p.text.strip() and _level(doc, p._p) is not None]
+    row_list = [p for p in doc.paragraphs if _pageref_bookmark(p)]
+    rows = {_pageref_bookmark(p): p for p in row_list}
+    result = getattr(doc.element, '_toc_audit', {})
+    missing, gaps, parents, previous = [], [], {}, {}
+    source_numbers, body_groups = {}, {}
+    for p, level in candidates:
+        names = {m.get(qn('w:name')) for m in p._p.iter(qn('w:bookmarkStart'))}
+        matches = names & rows.keys()
+        shown = p.text
+        if brief is not None and brief.techAnonymous:
+            from api.services.tenders.technical_render import anonymous_text
+            shown = anonymous_text(shown, brief)
+        if not any(_title_key(rows[name].text.rsplit('\t', 1)[0]) == _title_key(shown) for name in matches):
+            issue = {'title': p.text.strip(), 'level': level, 'reason': 'missing_entry'}
+            missing.append(issue)
+            _probe('MISSING', issue)
+        for depth in list(parents):
+            if depth >= level:
+                del parents[depth]
+        ordinal = _ordinal(p.text)
+        scope = tuple(parents.items())
+        for name in names:
+            body_groups[name] = (scope, level)
+        if ordinal:
+            group = (scope, level, ordinal[0])
+            source_numbers.setdefault(group, set()).add(ordinal[1])
+            expected = previous.get(group, 0) + 1
+            if ordinal[1] != expected:
+                issue = {'title': p.text.strip(), 'level': level, 'expected': expected,
+                         'actual': ordinal[1], 'reason': 'source_numbering', 'where': 'body'}
+                gaps.append(issue)
+                _probe('NUMBERING_GAP', issue)
+            previous[group] = ordinal[1]
+        parents[level] = p._p.getroottree().getpath(p._p)
+    previous = {}
+    for row in row_list:
+        target = body_groups.get(_pageref_bookmark(row))
+        ordinal = _ordinal(row.text.split('\t', 1)[0])
+        if target is None or ordinal is None:
+            continue
+        scope, level = target
+        group = (scope, level, ordinal[0])
+        expected = previous.get(group, 0) + 1
+        if ordinal[1] != expected:
+            absent = set(range(expected, ordinal[1])) & source_numbers.get(group, set())
+            issue = {'title': row.text.split('\t', 1)[0], 'level': level, 'expected': expected,
+                     'actual': ordinal[1], 'reason': 'missing_entry' if absent else 'source_numbering',
+                     'where': 'directory'}
+            gaps.append(issue)
+            _probe('NUMBERING_GAP', issue)
+        previous[group] = ordinal[1]
+    result.update(body_count=len(candidates), toc_count=len(row_list), missing=missing, numbering_gaps=gaps)
+    doc.element._toc_audit = result
+    _probe('AUDIT', {k: v for k, v in result.items() if k != 'candidates'})
+    return result
+
+
+def finalize(doc, brief, fmt=None, *, facts=None, slots=None, media=None):
+    """One final fill/collect/validate/page path for all generation entry points."""
+    from api.services.tenders.document import postprocess_document
+    from api.services.tenders.assemble import _fill_toc_pages
+    postprocess_document(doc, brief, facts=facts, slots=slots, media=media)
+    sync(doc, brief)
+    result = getattr(doc.element, '_toc_audit', {})
+    notes = [f"TOC_MISSING level={issue['level']} title={issue['title']}"
+             for issue in result.get('missing', [])]
+    notes.extend(f"TOC_NUMBERING_GAP reason={issue['reason']} level={issue['level']} title={issue['title']}"
+                 for issue in result.get('numbering_gaps', []))
+    _fill_toc_pages(doc, fmt or brief.documentFormat, subset=True)
+    return notes
+
+
 def sync(doc, brief):
     from api.services.tenders.document import _bookmark_paragraph, _pageref_bookmark, _write_toc_line
-    from api.services.tenders.technical_render import _package_display_titles, _clean, anonymous_text
+    from api.services.tenders.technical_render import anonymous_text
 
     regions = _regions(doc)
     if not regions:
@@ -121,114 +306,25 @@ def sync(doc, brief):
         legacy = toc_block_ids(doc)
         if legacy:
             regions = [legacy]
-    excluded = {n for r in regions for host in r for n in host.iter()}
-    targets = {t for region in regions for t in _targets(region)}
-    package = brief.technicalPackage or {}
-    child_titles = {p['title'] for p in package.get('sections', [])}
-    appendix_titles = {p['title'] for p in [*package.get('tables', []), *package.get('figures', [])]}
-    candidates = []
-    display = {}
-    if package.get('template_kind') == 'chapter_heading':
-        chapter_titles, point_titles = _package_display_titles(package)
-        anchors = {mark.get(qn('w:name')): mark.getparent()
-                   for mark in doc.element.body.iter(qn('w:bookmarkStart'))}
-        mismatched = []
-        for index, chapter in enumerate(package['chapters']):
-            name = chapter['title']
-            entries = [(f'toc_technical_chapter_{index}', 1, chapter_titles[name])]
-            entries.extend(('toc_technical_'+point['id'], 2, point_titles[point['id']])
-                           for point in package['sections'] if point.get('chapter') == name)
-            for bookmark, level, title in entries:
-                node = anchors.get(bookmark)
-                if node is None:
-                    # 正文缺这条书签只跳过这一条，不放弃整次重建（否则整本目录
-                    # 会退回「章级行无域」的旧形态，并让下游校验报 422）。
-                    mismatched.append('missing:' + bookmark)
-                    continue
-                paragraph = Paragraph(node, doc)
-                title = _clean(title, brief)
-                if paragraph.text != title or paragraph.style.name != f'Heading {level}':
-                    mismatched.append('title:' + title[:20])
-                    continue
-                candidates.append((paragraph, level))
-                display[node] = (bookmark, title)
-        # 只要有一条对不上，就丢弃这条精确映射，改由下面的结构扫描重建
-        # （判据是「映射是否完整成立」，不认任何具体章名或章节数）。
-        if mismatched:
-            candidates = []
-            display = {}
-    from api.services.tenders.outline import _strip_outline_prefix
-
-    chapter_titles = {
-        _strip_outline_prefix(_clean(ch.get('title', ''), brief)).strip()
-        for ch in package.get('chapters', [])
-    } - {''}
-    for p in doc.paragraphs:
-        if display:
-            break
-        if p._p in excluded or not p.text.strip():
-            continue
-        marks = {m.get(qn('w:name')) for m in p._p.iter(qn('w:bookmarkStart'))}
-        level = _level(doc, p._p)
-        text_now = p.text.strip()
-        # Target bookmarks are body evidence; source point/appendix metadata is
-        # used only to recognize existing headings, never to create body text.
-        # 评分表里的章标题（去掉「一、」「第一章」等前缀后）命中正文标题时按一级处理，
-        # 避免章级目录行因样式不规范被整章漏掉。
-        if level is None and not (marks & targets or text_now in child_titles | appendix_titles):
-            if chapter_titles and _strip_outline_prefix(text_now).strip() in chapter_titles:
-                level = 1
-            else:
-                continue
-        if level is None:
-            from api.services.tenders.word_structure import numbering_info
-            numbering = numbering_info(doc, p._p)
-            if numbering is not None:
-                level = numbering[1] + 1
-        if level is None:
-            # 评分表子项、括号编号段落都按二级；其余才视为章级，
-            # 避免没有大纲级别的残留段落被当成章标题插进目录。
-            level = 2 if (text_now in child_titles | appendix_titles
-                          or _PAREN_PREFIX.match(text_now)) else 1
-        candidates.append((p, level))
-    if not candidates:
-        return False
     from api.services.tenders.word_structure import numbering_labels
-    labels = {} if display else numbering_labels(doc, [p._p for p in doc.paragraphs if p._p not in excluded])
-    # 目录重建时沿用旧目录已算好的页码，避免重跑一次就把页码打回占位值。
-    # 只按「去掉序号前缀后的标题文本」比对，不认任何具体章节名。
-    page_cache = {}
-    for para in doc.paragraphs:
-        if not _pageref_bookmark(para):
-            continue
-        text = (para.text or '').strip()
-        title_part, _, page_part = text.rpartition('\t')
-        key = _strip_outline_prefix(title_part).strip()
-        if title_part and key and page_part.strip().isdigit():
-            page_cache.setdefault(key, page_part.strip())
-    # Cover headings preceding every directory are not body chapters.
-    if regions and not display:
-        body = doc.element.body
-        first = min(body.index(r[0]) for r in regions)
-        candidates = [(p,l) for p,l in candidates if body.index(p._p) > first]
+    candidates = _collect_candidates(doc, brief, regions)
     if not candidates:
+        audit(doc, candidates, brief)
         return False
-    # 目录条目去重：正文里偶尔残留与标题同名的段落（旧目录行、重复标题），
-    # 它们会被识别成第二条目录。同一章内同名条目只保留文档顺序第一条，
-    # 章级按标题全局去重，避免目录出现重复项。
-    seen_keys = set()
-    chapter_key = ''
-    deduped = []
-    for p, level in candidates:
-        plain = _strip_outline_prefix((p.text or '').strip())
-        key = ('c', plain) if level <= 1 else ('s', chapter_key, plain)
-        if key in seen_keys:
+    excluded = {n for region in regions for host in region for n in host.iter()}
+    labels = numbering_labels(doc, [p._p for p in doc.paragraphs if p._p not in excluded])
+    page_cache = {}
+    display_cache = {}
+    for para in doc.paragraphs:
+        target = _pageref_bookmark(para)
+        if not target:
             continue
-        seen_keys.add(key)
-        if level <= 1:
-            chapter_key = plain
-        deduped.append((p, level))
-    candidates = deduped
+        title_part, _, page_part = para.text.rpartition('\t')
+        if title_part:
+            display_cache[target] = title_part.strip()
+        if page_part.strip().isdigit():
+            page_cache[target] = page_part.strip()
+            page_cache.setdefault(_title_key(title_part), page_part.strip())
     bookmarks = {m.get(qn('w:name')) for p,_ in candidates for m in p._p.iter(qn('w:bookmarkStart'))}
     selected = max(regions, key=lambda r: len(set(_targets(r)) & bookmarks)) if regions else None
     title = selected[0] if (selected and selected[0].tag == qn('w:p')
@@ -268,8 +364,7 @@ def sync(doc, brief):
         except ValueError:
             stop_index = None
     if start_index is not None and stop_index is not None and stop_index > start_index:
-        # 区间异常长说明终点识别错了：宁可不动，让校验照常报错，也不误删正文。
-        if stop_index - start_index <= 120:
+        if all(p._p not in list(body)[start_index + 1:stop_index] for p, _ in candidates):
             for node in list(body)[start_index + 1:stop_index]:
                 if node.tag != qn('w:p'):
                     continue
@@ -282,9 +377,16 @@ def sync(doc, brief):
                 _remove(doc, node)
     cursor = title
     rows = []
+    assigned = set()
     for i, (p, level) in enumerate(candidates):
+        if _level(doc, p._p) is None:
+            outline = OxmlElement('w:outlineLvl')
+            outline.set(qn('w:val'), str(level - 1))
+            p._p.get_or_add_pPr().append(outline)
         names = [m.get(qn('w:name')) for m in p._p.iter(qn('w:bookmarkStart'))
-                 if m.get(qn('w:name'), '').startswith('toc_technical_')]
+                 if m.get(qn('w:name'), '').startswith('toc_')
+                 and m.get(qn('w:name')) not in assigned]
+        names.sort(key=lambda name: name not in display_cache)
         name = names[0] if names else f'toc_technical_heading_{i}'
         if not names:
             # Avoid clashing with bookmarks elsewhere in the original document.
@@ -292,9 +394,14 @@ def sync(doc, brief):
             while name in all_names:
                 name += '_'
             _bookmark_paragraph(p, name)
+        assigned.add(name)
         shown = p.text.strip()
-        if p._p in display:
-            name, shown = display[p._p]
+        cached = display_cache.get(name, '')
+        if cached and _title_key(cached) == _title_key(shown):
+            shown = cached
+        elif level > 1:
+            # A copied root-style ordinal on a child uses the child hierarchy.
+            shown = re.sub(r'^([一二三四五六七八九十百千万零〇]+)、', r'（\1）', shown)
         label = labels.get(p._p, ('', level))[0]
         if label and not shown.startswith(label):
             shown = label + shown
@@ -307,7 +414,7 @@ def sync(doc, brief):
         row = OxmlElement('w:p')
         cursor.addnext(row)
         cursor = row
-        page = page_cache.get(_strip_outline_prefix(shown).strip(), '1')
+        page = page_cache.get(name, page_cache.get(_title_key(shown), '1'))
         _write_toc_line(Paragraph(row, doc), i, shown, name, page, label='', level=level, preserve_title=True)
         rows.append(row)
     for host, kind in [(title,'begin'), (title,'instruction'), (title,'separate'), (rows[-1],'end')]:
@@ -320,14 +427,23 @@ def sync(doc, brief):
             node.set(qn('w:fldCharType'), kind)
         run.append(node)
         host.append(run)
-    candidates[0][0].paragraph_format.page_break_before = True
+    first_body = candidates[0][0]._p
+    gap = []
+    node = rows[-1].getnext()
+    while node is not None and node is not first_body:
+        gap.append(node)
+        node = node.getnext()
+    source_break = next((node for node in reversed(gap)
+                         if any(br.get(qn('w:type')) == 'page' for br in node.iter(qn('w:br')))), None)
+    if source_break is None:
+        candidates[0][0].paragraph_format.page_break_before = True
     # Remove empty legacy spacers/breaks in the directory-to-body gap. Necessary
     # section transitions remain; body paragraphs and content are never removed.
     first_body = candidates[0][0]._p
     node = rows[-1].getnext()
     while node is not None and node is not first_body:
         following = node.getnext()
-        if (node.tag == qn('w:p') and not Paragraph(node, doc).text.strip()
+        if (node is not source_break and node.tag == qn('w:p') and not Paragraph(node, doc).text.strip()
                 and not list(node.iter(qn('w:drawing'))) and not list(node.iter(qn('w:pict')))
                 and node.find('.//' + qn('w:sectPr')) is None):
             node.getparent().remove(node)
@@ -338,4 +454,5 @@ def sync(doc, brief):
         update = OxmlElement('w:updateFields')
         settings.append(update)
     update.set(qn('w:val'), 'true')
+    audit(doc, candidates, brief)
     return True

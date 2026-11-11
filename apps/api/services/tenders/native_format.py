@@ -16,7 +16,7 @@ from lxml import etree
 from api.services.tenders.schema import BidBrief, OutlineItem
 
 
-def word_format_section(path: Path) -> tuple[str, str]:
+def word_format_section(path: Path, *, include_table_text: bool = True) -> tuple[str, str]:
     """Read the real body heading (including Heading 3), excluding directory links."""
     from api.services.tenders.slice_rules import is_format_end, is_format_start
 
@@ -32,7 +32,11 @@ def word_format_section(path: Path) -> tuple[str, str]:
         if is_format_start(text):
             starts.append(i)
     if not starts:
-        return "", ""
+        # Outline extraction still needs paragraph provenance when a template
+        # has no explicit format-section boundary.
+        return "", "" if include_table_text else "\n".join(
+            _text(p) for p in children if p.tag == qn("w:p") and not _directory_entry(p)
+        )
     start = starts[-1]
     end = next(
         (
@@ -45,7 +49,10 @@ def word_format_section(path: Path) -> tuple[str, str]:
         len(children),
     )
     lines = [_text(children[start])]
-    lines.extend(_text(p) for el in children[start + 1 : end] for p in el.iter(qn("w:p")))
+    lines.extend(
+        _text(p) for el in children[start + 1 : end] for p in el.iter(qn("w:p"))
+        if include_table_text or next(p.iterancestors(qn("w:tbl")), None) is None
+    )
     return _text(children[start]), "\n".join(lines)
 
 
@@ -72,7 +79,7 @@ def prefer_native_format(brief: BidBrief) -> bool:
     section = ""
     if re.fullmatch(r"[a-f0-9]{10,16}", brief.invitationId or ""):
         heading, section = word_format_section(
-            tender_invitations_dir() / f"{brief.invitationId}.docx"
+            tender_invitations_dir() / f"{brief.invitationId}.docx", include_table_text=False
         )
         if heading:
             chapter = heading

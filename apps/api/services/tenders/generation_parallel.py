@@ -16,8 +16,16 @@ async def complete_json(client, messages, *, mode='pro'):
 
 
 async def ordered_generation(jobs, *, stage, labels=None):
-    limit = max(1, min(16, int(os.getenv('TENDER_GENERATE_CONCURRENCY', '5'))))
-    gate = asyncio.Semaphore(limit)
+    limit = max(1, min(16, int(os.getenv('TENDER_GENERATE_CONCURRENCY', '8'))))
+    # A single event loop can run several independent pre-generation batches
+    # at once. Reuse one gate per configured limit so gather() does not multiply
+    # the model-side concurrency beyond the configured upper bound.
+    loop = asyncio.get_running_loop()
+    gates = getattr(loop, '_tender_generation_gates', None)
+    if gates is None:
+        gates = {}
+        loop._tender_generation_gates = gates
+    gate = gates.setdefault(limit, asyncio.Semaphore(limit))
     started = perf_counter()
     async def run(index, job):
         async with gate:
