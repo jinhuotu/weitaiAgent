@@ -497,6 +497,7 @@ def assemble_bid_docx(
     catalog_media: dict | None = None,
     catalog_facts: list | None = None,
     volume: str | None = None,
+    defer_layout: bool = False,
 ) -> tuple[Path, list[str]]:
     from api.services.tenders.native_format import prefer_native_format
     from api.services.tenders.quote import validate_quote_source
@@ -539,7 +540,7 @@ def assemble_bid_docx(
             path, notes = build_bid_docx(
                 prepared, dest, qualification_pdf=qualification_pdf,
                 catalog_slots=catalog_slots, catalog_media=catalog_media,
-                catalog_facts=catalog_facts, volume=vol,
+                catalog_facts=catalog_facts, volume=vol, defer_layout=defer_layout,
             )
             from api.services.tenders.material_intents import sync_material_outcomes
 
@@ -616,7 +617,7 @@ def assemble_bid_docx(
         if vol == 'technical':
             spec = page_format.technicalFormat
             page_format = DocumentFormat(pageNumberStart=spec.pageNumberStart if spec.pageStartSet else 'body')
-        out.extend(finalize(document, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media))
+        out.extend(finalize(document, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media, layout=False))
         document.save(path)
         if removed:
             out.append(f"Removed {removed} repeated child modules already present in the source section")
@@ -640,8 +641,10 @@ def assemble_bid_docx(
             )
         document = Document(path)
         normalize_document_colors(document)
-        _, title_warnings = _title_layout(document, brief.documentFormat)
-        out.extend(title_warnings)
+        if not defer_layout:
+            from api.services.tenders.document import finalize_body_layout
+            finalize_body_layout(document, brief.documentFormat)
+            out.extend(getattr(document.element, "_layout_notes", []))
         out.extend(f"目录待确认（缺少来源标题）：{item.id}"
                    for item in brief.outlineItems
                    if not item.skipped and item.tocEligible is not False and not _toc_source_title(item))
@@ -1402,55 +1405,10 @@ def _fill_toc_pages(doc: Document, fmt: DocumentFormat, *, subset: bool = False)
 
 
 def _center_cover_structure(doc: Document, bookmarks: set[str]) -> bool:
-    from docx.text.paragraph import Paragraph
-    from api.services.tenders.document import _has_page_break_before, _p_has_page_br, _pageref_bookmark
-    from api.services.tenders.technical_toc import _is_toc
-
-    cover = []
-    for node in doc.element.body:
-        if node.tag != qn("w:p"):
-            return False
-        if _has_page_break_before(node):
-            break
-        if _is_toc(node) or _pageref_bookmark(Paragraph(node, doc)) or any(
-            mark.get(qn("w:name")) in bookmarks for mark in node.iter(qn("w:bookmarkStart"))
-        ):
-            return False
-        cover.append(node)
-        if _p_sectpr(node) is not None or _p_has_page_br(node):
-            break
-    else:
-        return False
-
-    for node in cover:
-        paragraph = Paragraph(node, doc)
-        from api.services.tenders.document import _paragraph_role
-        if _paragraph_role(paragraph)[0] in {'information', 'signing', 'date', 'note'}:
-            continue
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        props = node.get_or_add_pPr()
-        props._remove_ind()
-        ind = props.get_or_add_ind()
-        for attr in ("left", "right", "start", "end", "firstLine", "hanging",
-                     "leftChars", "rightChars", "startChars", "endChars", "firstLineChars", "hangingChars"):
-            ind.set(qn(f"w:{attr}"), "0")
-        props._remove_tabs()
-        style = paragraph.style
-        inherited = set()
-        while style is not None:
-            inherited.update(style.element.xpath("./w:pPr/w:tabs/w:tab/@w:pos"))
-            style = style.base_style
-        for pos in sorted(inherited, key=int):
-            tab = OxmlElement("w:tab")
-            tab.set(qn("w:val"), "clear")
-            tab.set(qn("w:pos"), pos)
-            props.get_or_add_tabs().append(tab)
-        for tab in list(node.xpath(".//w:r/w:tab | .//w:r/w:ptab")):
-            space = OxmlElement("w:t")
-            space.set(qn("xml:space"), "preserve")
-            space.text = " "
-            tab.getparent().replace(tab, space)
-    return bool(cover)
+    """Compatibility entry point: preserve every original front paragraph property."""
+    from api.services.tenders.directory_guard import cover_nodes
+    cover_nodes(doc)
+    return False
 
 
 def _toc_title_key(text: str) -> str:
@@ -1491,7 +1449,9 @@ def finalize_word_layout(path: Path, volume: str, fmt=None) -> list[str]:
     from api.services.tenders.preview_pdf import export_word_pagination
 
     doc = Document(path)
-    changed, warnings = _title_layout(doc, fmt)
+    from api.services.tenders.document import finalize_body_layout
+    changed = finalize_body_layout(doc, fmt)
+    warnings = list(getattr(doc.element, "_layout_notes", []))
     entries = []
     for node in doc.element.body.iter(qn("w:p")):
         paragraph = Paragraph(node, doc)

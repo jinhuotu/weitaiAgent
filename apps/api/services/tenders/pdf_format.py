@@ -541,24 +541,13 @@ def _fill_identity_para(para, brief, clear_runs, form_run) -> None:
     form_run(para, "的法定代表人。特此证明。", underline=False)
 
 
-_CELL_LABELS = {
-    "投标人名称": "bidderName",
-    "投标人": "bidderName",
-    "项目名称": "projectName",
-    "注册地址": "bidderAddress",
-    "地址": "bidderAddress",
-    "邮政编码": "bidderPostcode",
-    "电话": "bidderPhone",
-    "联系电话": "bidderPhone",
-    "传真": "bidderFax",
-    "网址": "bidderWebsite",
-    "邮箱": "bidderEmail",
-    "法定代表人": "legalPersonName",
-    "项目经理": "pmName",
-}
-
-
 def _fill_table(table, brief) -> None:
+    table_blob = re.sub(
+        r"\s+", "", "".join(cell.text or "" for row in table.rows for cell in row.cells)
+    )
+    person_table = _is_person_sheet(table._tbl) or any(
+        mark in table_blob for mark in _UNASSIGNED_PERSON_LABELS
+    )
     for row in table.rows:
         seen = set()
         seq = []
@@ -570,7 +559,7 @@ def _fill_table(table, brief) -> None:
         if not seq:
             continue
         plain = re.sub(r"\s+", "", "".join(c.text or "" for c in seq))
-        if re.fullmatch(r"电话[：:]?", plain):
+        if re.fullmatch(r"电话[：:]?", plain) and not person_table:
             _put_tail(seq, brief.bidderPhone, "电话：")
             continue
         if re.fullmatch(r"传真[：:]?", plain):
@@ -582,20 +571,17 @@ def _fill_table(table, brief) -> None:
             continue
         for i, cell in enumerate(seq[:-1]):
             key = re.sub(r"\s+", "", cell.text or "").rstrip("：:")
-            attr = _CELL_LABELS.get(key)
+            attr = _inline_label_field(key)
             if not attr:
                 continue
-            if key == "电话" and any(k in plain for k in ("技术负责人", "项目经理", "发包人", "监理")):
+            if (key in _CONTACT_LABELS
+                    and (person_table
+                         or any(k in plain for k in (
+                             "技术负责人", "项目经理", "项目负责人", "发包人", "监理"
+                         )))):
                 continue
             value = (getattr(brief, attr, "") or "").strip()
             if not value:
-                # 代理人姓名及身份证号是用户明确要求留空的字段；
-                # 去掉提示词并保留下划线，避免把“（姓名）”当成内容输出。
-                hint_context = f"{blob[max(0, pos - 40):pos]}{blob[pos + len(hint):pos + len(hint) + 40]}"
-                if any(mark in hint for mark in ("委托代理人", "代理人")) or (
-                    "姓名" in hint and "现委托" in hint_context
-                ) or any(mark in hint for mark in ("身份证号", "证件号")):
-                    _write_blank_span(el, pos, pos + len(hint), "________")
                 continue
             nxt = seq[i + 1]
             if re.sub(r"\s+", "", nxt.text or ""):
@@ -4500,6 +4486,10 @@ def _inline_label_field(label, *, actor=''):
     """Resolve only the local label; aliases are data in the shared field map."""
     label = re.sub(r'\s+', '', label or '').rstrip('：:')
     label = re.sub(_STAMP, '', label)
+    if actor and label in _CONTACT_LABELS:
+        # BidBrief has no role-specific phone fields. A company phone must not
+        # leak into a legal, agent, project-manager, or unknown-person row.
+        return ''
     if actor and label in _PERSON_GENERIC_FIELDS:
         return _PERSON_SCOPED_FIELDS.get(actor, {}).get(_PERSON_GENERIC_FIELDS[label], '')
     exact = _LABEL_ATTRS.get(label, '')
@@ -4516,6 +4506,9 @@ def _declared_person_actor(label):
     label = re.sub(_STAMP, '', re.sub(r'\s+', '', label or '')).rstrip('：:')
     if label in _PERSON_GENERIC_FIELDS:
         return ''
+    if label in _UNASSIGNED_PERSON_LABELS or any(
+            marker in label for marker in _UNASSIGNED_PERSON_LABELS):
+        return 'unknown'
     if '或' in label and '法定代表人' in label and any(word in label for word in ('代理人', '授权代表')):
         return 'unknown'
     field = _LABEL_ATTRS.get(label, '')
@@ -4562,8 +4555,31 @@ def _person_actor_before(el, prefix):
 
 
 def reconcile_person_field_values(doc, brief):
-    """Retract a known other-role value from an explicitly agent-owned field."""
+    """Retract known cross-role values before the blank-filling pass."""
     records = []
+    known_values = {
+        value for value in (
+            _inline_field_value('legalPersonName', brief),
+            _inline_field_value('legalPersonTitle', brief),
+            _inline_field_value('bidderPhone', brief),
+        ) if value
+    }
+
+    def retract(el, start, stop, *, field, label, actor, reason, replacement=''):
+        affected = [token for token in _blank_tokens(el) if token[2] < stop and token[3] > start]
+        if not affected or any(token[1].tag != qn('w:t') for token in affected):
+            return False
+        inserted = False
+        for _, node, first, _, original in affected:
+            node.text = (original[:max(start-first, 0)] + (replacement if not inserted else '')
+                         + original[max(stop-first, 0):]) or None
+            if node.text and node.text != node.text.strip():
+                node.set(qn('xml:space'), 'preserve')
+            inserted = True
+        records.append({'field': field, 'label': label, 'actor': actor,
+                        'reason': reason, 'paragraph': el.getroottree().getpath(el)})
+        return True
+
     for el in doc.element.body.iter(qn('w:p')):
         text = _blank_text(el)
         labels = list(_LABEL_PATTERN.finditer(text))
@@ -4587,21 +4603,70 @@ def reconcile_person_field_values(doc, brief):
             if (match is not None and not tail[:match.start()].strip(' \t_＿')
                     and (not suffix or suffix[0].isspace() or suffix[0] in '（()）[]【】:：，,。；;')):
                 start, stop = label.end() + match.start(), label.end() + match.end()
-                affected = [token for token in _blank_tokens(el) if token[2] < stop and token[3] > start]
-                if any(token[1].tag != qn('w:t') for token in affected):
+                if retract(el, start, stop, field=field, label=label['label'], actor=actor,
+                           reason='other_actor_value_retracted', replacement=value):
+                    import json
+                    logger.info('PERSON_FIELD_RECONCILE %s', json.dumps(records[-1], ensure_ascii=True, sort_keys=True))
+
+        # Technical and other unassigned personnel labels are intentionally
+        # outside BidBrief. Retract only an already copied legal/company value.
+        generic = list(re.finditer(
+            r'(?<![^\s_＿;；:：日，,。])(?P<label>[^\s:：\n，,。；;]{1,24})\s*[:：]', text
+        ))
+        for index in range(len(generic) - 1, -1, -1):
+            label = generic[index]
+            actor = _declared_person_actor(label['label']) or _person_actor_before(
+                el, text[:label.start()]
+            )
+            if actor != 'unknown':
+                continue
+            end = generic[index + 1].start() if index + 1 < len(generic) else len(text)
+            tail = text[label.end():end]
+            for prior_value in sorted(known_values, key=len, reverse=True):
+                match = re.search(re.escape(prior_value), tail)
+                suffix = tail[match.end():] if match is not None else ''
+                if (match is None or tail[:match.start()].strip(' \t_＿')
+                        or (suffix and suffix[0] not in ' \t\r\n（()）[]【】:：，,。；;')):
                     continue
-                inserted = False
-                for _, node, first, last, original in affected:
-                    node.text = (original[:max(start-first, 0)] + (value if not inserted else '')
-                                 + original[max(stop-first, 0):]) or None
-                    if node.text and node.text != node.text.strip():
-                        node.set(qn('xml:space'), 'preserve')
-                    inserted = True
-                records.append({'field': field, 'label': label['label'], 'actor': actor,
-                                'reason': 'other_actor_value_retracted',
-                                'paragraph': el.getroottree().getpath(el)})
-                import json
-                logger.info('PERSON_FIELD_RECONCILE %s', json.dumps(records[-1], ensure_ascii=True, sort_keys=True))
+                if retract(el, label.end() + match.start(), label.end() + match.end(),
+                           field='', label=label['label'], actor=actor,
+                           reason='unassigned_person_value_retracted'):
+                    break
+
+    for tbl in doc.element.body.iter(qn('w:tbl')):
+        person_sheet = _is_person_sheet(tbl)
+        table_unassigned_person = any(
+            mark in ''.join(_cell_plain(tc) for tc in tbl.iter(qn('w:tc')))
+            for mark in _UNASSIGNED_PERSON_LABELS
+        )
+        for tr in tbl.findall(qn('w:tr')):
+            cells = tr.findall(qn('w:tc'))
+            plains = [_cell_plain(tc) for tc in cells]
+            joined = ''.join(plains)
+            unassigned_person = any(mark in joined for mark in _UNASSIGNED_PERSON_LABELS)
+            if not person_sheet and not unassigned_person and not table_unassigned_person:
+                continue
+            for index, plain in enumerate(plains[:-1]):
+                label = re.sub(r'\s+', '', plain).rstrip('：:')
+                actor = _declared_person_actor(label)
+                unknown = actor == 'unknown' or (
+                    (person_sheet or unassigned_person or table_unassigned_person) and not actor
+                    and (label in _PERSON_GENERIC_FIELDS or label in _CONTACT_LABELS)
+                    and not any(mark in joined for mark in ('法定代表人', '委托代理人', '项目经理'))
+                )
+                if not unknown:
+                    continue
+                target = cells[index + 1]
+                for node in target.iter(qn('w:t')):
+                    original = node.text or ''
+                    value = original
+                    for prior_value in sorted(known_values, key=len, reverse=True):
+                        value = value.replace(prior_value, '')
+                    if value != original:
+                        node.text = value
+                        records.append({'field': '', 'label': label, 'actor': 'unknown',
+                                        'reason': 'unassigned_person_table_value_retracted',
+                                        'cell': target.getroottree().getpath(target)})
     return records
 
 
@@ -4746,10 +4811,11 @@ _LABEL_FIELDS = {
     "bidBondYuan": ("投标保证金",),
     "bidderEmail": ("邮箱", "电子邮箱", "电子邮件"),
     "defectPeriod": ("缺陷责任期",),
-    "bidderName": ("投标人", "投标人名称", "投标人全称", "供应商", "单位名称", "企业名称",
-                   "响应人", "投标人或联合体牵头人"),
+    "bidderName": ("投标人", "投标人名称", "投标人全称", "供应商", "供应商名称", "供应商全称",
+                   "单位名称", "单位全称", "企业名称", "响应人", "响应人名称", "响应人全称",
+                   "投标人或联合体牵头人"),
     "legalPersonName": ("法定代表人", "法定代表人姓名", "姓名"),
-    "agentName": ("委托代理人", "授权代表", "授权委托人", "被授权人", "代理人", "委托代理人姓名", "授权代表姓名", "被授权人姓名", "代理人姓名"),
+    "agentName": ("委托代理人", "授权代表", "授权委托人", "被授权人", "代理人", "委托代理人姓名", "授权代表姓名", "授权委托人姓名", "被授权人姓名", "代理人姓名"),
     "agentIdNo": ("委托代理人身份证号", "委托代理人身份证号码", "代理人身份证号", "代理人身份证号码", "被授权人身份证号", "被授权人身份证号码"),
     "pmName": ("项目经理", "项目经理姓名", "工程总承包项目经理", "拟派项目经理", "拟派工程总承包项目经理"),
     "projectName": ("项目名称",),
@@ -4772,8 +4838,12 @@ _LABEL_FIELDS = {
 _EMBEDDED_LABEL_FIELDS = {'bidPriceYuan': ('投标总报价', '投标总价')}
 _LABEL_ATTRS = {label: field for field, labels in _LABEL_FIELDS.items() for label in labels}
 _LABEL_ATTRS["法定代表人或委托代理人"] = "agentName"
+# Kept as a compatibility alias for callers that inspected the old table map.
+_CELL_LABELS = _LABEL_ATTRS
+_CONTACT_LABELS = {"电话", "联系电话", "项目联系人电话", "固定电话", "联系方式"}
 _PERSON_GENERIC_FIELDS = {'姓名': 'name', '性别': 'gender', '年龄': 'age', '职务': 'title',
                           '身份证号': 'id', '身份证号码': 'id'}
+_UNASSIGNED_PERSON_LABELS = {"技术负责人", "技术职称", "职称", "技术人员", "项目负责人"}
 _PERSON_SCOPED_FIELDS = {
     'legal': {'name': 'legalPersonName', 'gender': 'legalPersonGender', 'age': 'legalPersonAge',
               'title': 'legalPersonTitle', 'id': 'legalPersonIdNo'},
@@ -4915,6 +4985,7 @@ def _fill_empty_label_cells(tbl, brief, facts=None) -> list[str]:
     notes: list[str] = []
     person = _is_person_sheet(tbl)
     blob = "".join(_cell_plain(tc) for tc in tbl.iter(qn("w:tc")))
+    unassigned_person = any(mark in blob for mark in _UNASSIGNED_PERSON_LABELS)
     sheet = "work" if "工作经历" in blob else ("pm" if person else "company")
     fact_fill = None
     if facts:
@@ -4952,7 +5023,20 @@ def _fill_empty_label_cells(tbl, brief, facts=None) -> list[str]:
                 label_paragraph = previous_cell.find(qn('w:p')) if previous_cell is not None else None
                 actor = _person_actor_before(label_paragraph, prev) if label_paragraph is not None else ''
                 value = _pm_cell_value(prev, brief) if pm_row and actor not in {'legal', 'agent', 'unknown'} else ""
-                field = _inline_label_field(prev, actor=actor)
+                field_actor = actor or ('pm' if pm_row and sheet != 'work' else '')
+                field = _inline_label_field(prev, actor=field_actor)
+                if not value and pm_row and field == 'pmName' and field_actor == 'pm':
+                    value = _inline_field_value(field, brief)
+                normalized_prev = re.sub(r'\s+', '', prev).rstrip('：:')
+                if ((person or unassigned_person)
+                        and field_actor not in {'legal', 'agent', 'pm'}
+                        and (normalized_prev in _PERSON_GENERIC_FIELDS
+                             or normalized_prev in _CONTACT_LABELS
+                             or _declared_person_actor(normalized_prev) == 'unknown')):
+                    field = ''
+                if field == 'bidderPhone' and (
+                        person or unassigned_person or pm_row or field_actor):
+                    field = ''
                 bid_field = field in {'deliveryDays', 'quality', 'bidValidityDays', 'bidPriceYuan',
                     'safetyFeeYuan', 'provisionalYuan', 'primeCostYuan', 'bidBondYuan',
                     'bidderName', 'tenderer', 'bidderNature', 'companyEstablished',

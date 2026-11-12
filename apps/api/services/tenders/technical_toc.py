@@ -133,7 +133,10 @@ def _collect_candidates(doc, brief, regions):
     """Scan physical body headings even when package bookmark mapping is complete."""
     from api.services.tenders.word_structure import numbering_info
     from api.services.tenders.document import _paragraph_role
-    excluded = {n for region in regions for host in region for n in host.iter()}
+    from api.services.tenders.directory_guard import cover_nodes
+    # Raw source projection has no delivery-front scope. The finalizer supplies
+    # the shared scope before calling sync; never infer a cover during parsing.
+    excluded = {n for region in regions for host in region for n in host.iter()} | cover_nodes(doc, initialize=False)
     targets = {t for region in regions for t in _targets(region)}
     package = brief.technicalPackage or {}
     known = {}
@@ -217,7 +220,8 @@ def audit(doc, candidates=None, brief=None):
     """Compare each body target with cached rows; retain source numbering gaps."""
     from api.services.tenders.document import _pageref_bookmark
     regions = _regions(doc)
-    excluded = {n for region in regions for host in region for n in host.iter()}
+    from api.services.tenders.directory_guard import cover_nodes
+    excluded = {n for region in regions for host in region for n in host.iter()} | cover_nodes(doc, initialize=bool(regions))
     first = min((doc.element.body.index(r[0]) for r in regions), default=-1)
     if candidates is None:
         candidates = [(p, _level(doc, p._p)) for p in doc.paragraphs
@@ -280,11 +284,11 @@ def audit(doc, candidates=None, brief=None):
     return result
 
 
-def finalize(doc, brief, fmt=None, *, facts=None, slots=None, media=None):
+def finalize(doc, brief, fmt=None, *, facts=None, slots=None, media=None, layout=True):
     """One final fill/collect/validate/page path for all generation entry points."""
-    from api.services.tenders.document import postprocess_document
+    from api.services.tenders.document import postprocess_document, finalize_body_layout
     from api.services.tenders.assemble import _fill_toc_pages
-    postprocess_document(doc, brief, facts=facts, slots=slots, media=media)
+    postprocess_document(doc, brief, facts=facts, slots=slots, media=media, layout=False)
     sync(doc, brief)
     result = getattr(doc.element, '_toc_audit', {})
     notes = [f"TOC_MISSING level={issue['level']} title={issue['title']}"
@@ -292,6 +296,9 @@ def finalize(doc, brief, fmt=None, *, facts=None, slots=None, media=None):
     notes.extend(f"TOC_NUMBERING_GAP reason={issue['reason']} level={issue['level']} title={issue['title']}"
                  for issue in result.get('numbering_gaps', []))
     _fill_toc_pages(doc, fmt or brief.documentFormat, subset=True)
+    if layout:
+        finalize_body_layout(doc, fmt or brief.documentFormat)
+        notes.extend(getattr(doc.element, '_layout_notes', []))
     return notes
 
 

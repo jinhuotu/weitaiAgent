@@ -413,12 +413,12 @@ def reconcile_generated_slots(doc, brief, *, slots=None, media=None):
     import json
     from docx.text.paragraph import Paragraph
     from api.services.tenders.document import _paragraph_role
-    from api.services.tenders.directory_guard import directory_blocks
+    from api.services.tenders.directory_guard import directory_blocks, cover_nodes
     from api.services.tenders.match import (normalize_material_title, material_sources,
         material_match_rejection, material_content_check, find_catalog_item, _kind_hits, _MATERIAL_SOURCES)
     from api.services.tenders.placeholders import _drop_after
 
-    excluded = directory_blocks(doc)
+    excluded = directory_blocks(doc) | cover_nodes(doc)
     catalog = list(slots if slots is not None else brief.extraPlaceholders)
     result = {'changed': 0, 'removed_generated': 0, 'filled_materials': 0,
               'deduplicated_titles': 0, 'diagnostics': []}

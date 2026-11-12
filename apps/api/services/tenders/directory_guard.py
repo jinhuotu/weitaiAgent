@@ -4,6 +4,43 @@ import re
 from docx.oxml.ns import qn
 
 
+def cover_nodes(doc, *, initialize=True):
+    """Cache one structural front boundary for every pass on this document object."""
+    cached = getattr(doc.element, '_cover_nodes', None)
+    if cached is not None:
+        return cached
+    if not initialize:
+        return frozenset()
+    targets = set()
+    for node in doc.element.body.iter(qn('w:instrText'), qn('w:fldSimple')):
+        targets.update(re.findall(r'\bPAGEREF\s+([^\s\\]+)', node.text or node.get(qn('w:instr'), '')))
+    collected, boundary = [], ''
+    for host in doc.element.body:
+        if host.tag == qn('w:sectPr'):
+            break  # The final section properties do not separate a cover from a body.
+        instructions = [n.text or n.get(qn('w:instr'), '')
+                        for n in host.iter(qn('w:instrText'), qn('w:fldSimple'))]
+        marks = {n.get(qn('w:name'), '') for n in host.iter(qn('w:bookmarkStart'))}
+        before = host.find(qn('w:pPr') + '/' + qn('w:pageBreakBefore'))
+        before = before is not None and before.get(qn('w:val')) not in {'0', 'false', 'off'}
+        if before or any(re.match(r'\s*(?:TOC|PAGEREF)\b', value) for value in instructions) or (
+                marks & targets or any(name.startswith('_Toc') for name in marks)):
+            boundary = 'before_page_or_directory'
+            break
+        collected.extend(host.iter())
+        if (next(host.iter(qn('w:sectPr')), None) is not None
+                or any(n.get(qn('w:type')) == 'page' for n in host.iter(qn('w:br')))):
+            boundary = 'after_page_or_section'
+            break
+    result = frozenset(collected if boundary else ())
+    doc.element._cover_nodes = result
+    doc.element._cover_boundary = boundary or 'no_structural_front_boundary'
+    import logging
+    logging.getLogger(__name__).info('COVER_SCOPE boundary=%s paragraphs=%s',
+                                   doc.element._cover_boundary, sum(n.tag == qn('w:p') for n in result))
+    return result
+
+
 def _text(node):
     return ''.join(t.text or '' for t in node.iter(qn('w:t'))).strip()
 

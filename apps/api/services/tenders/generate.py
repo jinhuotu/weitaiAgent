@@ -162,6 +162,7 @@ def generate_bid(
         catalog_media=catalog_media,
         catalog_facts=catalog_facts,
         volume=vol,
+        defer_layout=True,
     )
     logger.info("perf stage=组卷 volume=%s seconds=%.3f", vol, perf_counter() - assembly_started)
     warnings = [*subject_notes, *warnings]
@@ -235,7 +236,7 @@ def generate_bid(
             from api.services.tenders.schema import DocumentFormat
             spec = page_format.technicalFormat
             page_format = DocumentFormat(pageNumberStart=spec.pageNumberStart if spec.pageStartSet else 'body')
-        warnings.extend(finalize(rebuilt, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media))
+        warnings.extend(finalize(rebuilt, brief, page_format, facts=catalog_facts, slots=catalog_slots, media=catalog_media, layout=False))
         result = getattr(rebuilt.element, '_toc_audit', {})
         rebuilt_ok = bool(result.get('body_count'))
         logger.warning('TOC_FIX_SYNC vol=%s ok=%s', vol, rebuilt_ok)
@@ -272,7 +273,14 @@ def generate_bid(
         validate_native_toc(Document(dest))
 
     from api.services.tenders.technical_toc import audit
-    final_toc = audit(Document(dest), brief=brief)
+    from api.services.tenders.document import finalize_body_layout
+    production_dir = (Path(__file__).resolve().parents[4] / "storage" / "tenders").resolve()
+    final_document = Document(dest)
+    if out_dir.resolve() != production_dir:
+        finalize_body_layout(final_document, brief.documentFormat)
+        warnings.extend(getattr(final_document.element, "_layout_notes", []))
+        final_document.save(dest)
+    final_toc = audit(final_document, brief=brief)
     for issue in final_toc['missing']:
         note = f"TOC_MISSING level={issue['level']} title={issue['title']}"
         if note not in warnings:
@@ -281,7 +289,6 @@ def generate_bid(
 
     # COM pagination belongs to the delivered storage path. Unit and fixture
     # outputs use temporary directories and must remain deterministic and fast.
-    production_dir = (Path(__file__).resolve().parents[4] / "storage" / "tenders").resolve()
     if out_dir.resolve() == production_dir:
         from api.services.tenders.assemble import finalize_word_layout
 
